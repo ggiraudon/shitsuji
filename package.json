@@ -1,0 +1,41 @@
+{
+  "name": "seahorse",
+  "version": "0.1.0",
+  "description": "A lightweight AI agent framework",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "seahorse": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "test:watch": "vitest watch",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write src/**/*.ts"
+  },
+  "keywords": ["ai", "agent", "llm", "tui"],
+  "license": "MIT",
+  "dependencies": {
+    "ink": "^5.0.0",
+    "react": "^18.3.0",
+    "zod": "^3.23.0",
+    "dotenv": "^16.4.0",
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "typescript": "^5.5.0",
+    "tsx": "^4.15.0",
+    "vitest": "^2.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.3.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
