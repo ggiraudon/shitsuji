@@ -1,12 +1,14 @@
 import { Message, ToolCall, ToolResult } from '../llm/types.js';
 import { logger } from '../utils/logger.js';
 import { messageBus, Topic } from '../core/MessageBus.js';
+import { SessionStore } from '../memory/SessionStore.js';
 import { randomUUID } from 'crypto';
 
 export interface SessionOptions {
   id?: string;
   agentId: string;
   maxTokens?: number;
+  store?: SessionStore;
 }
 
 export class Session {
@@ -20,6 +22,7 @@ export class Session {
   maxTokens: number;
   
   private tokenCount = 0;
+  private store?: SessionStore;
 
   constructor(options: SessionOptions) {
     this.id = options.id ?? randomUUID();
@@ -27,6 +30,11 @@ export class Session {
     this.createdAt = new Date();
     this.updatedAt = new Date();
     this.maxTokens = options.maxTokens ?? 32000;
+    this.store = options.store;
+
+    if (this.store && this.store.exists(this.id)) {
+      this.load();
+    }
 
     messageBus.publish('session.created', { sessionId: this.id, agentId: this.agentId });
   }
@@ -120,8 +128,27 @@ export class Session {
   }
 
   end(): void {
+    this.save();
     messageBus.publish('session.ended', { sessionId: this.id });
     logger.info(`Session ${this.id} ended`);
+  }
+
+  save(): void {
+    if (this.store) {
+      this.store.save(this);
+    }
+  }
+
+  private load(): void {
+    if (!this.store) return;
+    
+    const data = this.store.load(this.id);
+    if (data) {
+      this.messages = data.messages;
+      this.memory = new Map(Object.entries(data.memory));
+      this.updatedAt = new Date(data.updatedAt);
+      logger.debug(`Session loaded: ${this.id}`);
+    }
   }
 
   toJSON() {

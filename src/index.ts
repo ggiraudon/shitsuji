@@ -1,19 +1,23 @@
 import 'dotenv/config';
+import { join } from 'path';
 import { logger } from './utils/logger.js';
 import { configManager } from './utils/config.js';
 import { messageBus } from './core/MessageBus.js';
 import { Agent } from './core/Agent.js';
 import { OpenAIProvider } from './llm/OpenAIProvider.js';
 import { CalculatorTool, WebSearchTool, FileReadTool, FileWriteTool, FileListTool } from './tools/index.js';
+import { CLIChannel, WebhookChannel, ChannelManager } from './channels/index.js';
+import { SessionStore } from './memory/SessionStore.js';
 
 async function main() {
   logger.info('Seahorse starting...');
   
   messageBus.publish('system.ready', { version: '0.1.0' });
   
-  logger.info('Configuration loaded', { 
-    configDir: configManager.getConfigDir(),
-  });
+  const configDir = configManager.getConfigDir();
+  const dataDir = join(configDir, 'data');
+  
+  logger.info('Configuration loaded', { configDir, dataDir });
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -22,11 +26,13 @@ async function main() {
   }
 
   const llm = new OpenAIProvider(apiKey);
+  const sessionStore = new SessionStore(join(dataDir, 'sessions'));
   
   const agent = new Agent({
     name: 'Seahorse Assistant',
     llmProvider: llm,
     model: 'gpt-4o-mini',
+    sessionStore,
   });
 
   agent.registerTool(new CalculatorTool());
@@ -35,34 +41,55 @@ async function main() {
   agent.registerTool(new FileWriteTool());
   agent.registerTool(new FileListTool());
 
-  messageBus.subscribe('llm.request', (payload: unknown) => {
-    const p = payload as { model?: string };
-    logger.info(`LLM Request: ${p.model}`);
+  const channelManager = new ChannelManager();
+  
+  const cliChannel = await channelManager.createChannel('cli');
+  const webhookChannel = await channelManager.createChannel('webhook', { port: 3000 });
+
+  cliChannel.onMessage(async (message, _destination) => {
+    logger.info(`Received message: ${message.content.substring(0, 50)}...`);
+    
+    try {
+      const response = await agent.send(message.content);
+      await cliChannel.send('cli', response);
+    } catch (error) {
+      logger.error('Error processing message', { error: String(error) });
+      await cliChannel.send('cli', `Error: ${String(error)}`);
+    }
   });
 
-  messageBus.subscribe('llm.response', (payload: unknown) => {
-    const p = payload as { contentLength: number; hasToolCalls: boolean };
-    logger.info(`LLM Response: ${p.contentLength} chars, tools: ${p.hasToolCalls}`);
+  webhookChannel.onMessage(async (message, destination) => {
+    logger.info(`[Webhook] Received message: ${message.content.substring(0, 50)}...`);
+    
+    try {
+      const response = await agent.send(message.content);
+      await webhookChannel.send(destination, response);
+    } catch (error) {
+      logger.error('[Webhook] Error processing message', { error: String(error) });
+    }
   });
 
-  messageBus.subscribe('tool.called', (payload: unknown) => {
-    const p = payload as { toolName: string };
-    logger.info(`Tool called: ${p.toolName}`);
-  });
+  await channelManager.startAll();
 
-  const session = agent.createSession();
-  logger.info('Starting conversation...');
+  const sessions = sessionStore.list();
+  if (sessions.length > 0) {
+    logger.info(`Loaded ${sessions.length} existing sessions`);
+  }
 
-  const response1 = await agent.send('Hello! What can you do?', session.id);
-  logger.info(`Assistant: ${response1}`);
+  console.log(`
+╔════════════════════════════════════════╗
+║         Seahorse AI Agent             ║
+║════════════════════════════════════════║
+║  Type your message and press Enter    ║
+║  Commands:                            ║
+║    /help  - Show help                ║
+║    /exit  - Exit                     ║
+║                                      ║
+║  Webhook: http://localhost:3000/webhook ║
+╚════════════════════════════════════════╝
+`);
 
-  const response2 = await agent.send('What is 25 * 4?', session.id);
-  logger.info(`Assistant: ${response2}`);
-
-  const response3 = await agent.send('What is the square root of 144?', session.id);
-  logger.info(`Assistant: ${response3}`);
-
-  logger.info('Seahorse demo complete');
+  logger.info('Seahorse ready - use CLI or POST to http://localhost:3000/webhook');
 }
 
 main().catch((error) => {
