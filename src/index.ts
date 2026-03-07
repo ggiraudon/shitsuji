@@ -18,7 +18,10 @@ import {
 import { CLIChannel, WebhookChannel, ChannelManager } from './channels/index.js';
 import { SessionStore } from './memory/SessionStore.js';
 
-async function main() {
+let channelManager: ChannelManager | null = null;
+let agent: Agent | null = null;
+
+export async function startServer(): Promise<void> {
   logger.info('Seahorse starting...');
   
   messageBus.publish('system.ready', { version: '0.1.0' });
@@ -45,12 +48,12 @@ async function main() {
     logger.info('Using Anthropic provider');
   } else if (openaiKey) {
     llm = new OpenAIProvider(openaiKey);
-    logger.info('Using OpenAI provider');
+    logger.info('Using Openai provider');
   }
   
   const sessionStore = new SessionStore(join(dataDir, 'sessions'));
   
-  const agent = new Agent({
+  agent = new Agent({
     name: 'Seahorse Assistant',
     llmProvider: llm!,
     model,
@@ -65,7 +68,7 @@ async function main() {
   agent.registerTool(new ExecuteCommandTool());
   agent.registerTool(new SystemInfoTool());
 
-  const channelManager = new ChannelManager();
+  channelManager = new ChannelManager();
   
   const cliChannel = await channelManager.createChannel('cli');
   const webhookChannel = await channelManager.createChannel('webhook', { port: 3000 });
@@ -74,7 +77,7 @@ async function main() {
     logger.info(`Received message: ${message.content.substring(0, 50)}...`);
     
     try {
-      const response = await agent.send(message.content);
+      const response = await agent!.send(message.content);
       await cliChannel.send('cli', response);
     } catch (error) {
       logger.error('Error processing message', { error: String(error) });
@@ -86,7 +89,7 @@ async function main() {
     logger.info(`[Webhook] Received message: ${message.content.substring(0, 50)}...`);
     
     try {
-      const response = await agent.send(message.content);
+      const response = await agent!.send(message.content);
       await webhookChannel.send(destination, response);
     } catch (error) {
       logger.error('[Webhook] Error processing message', { error: String(error) });
@@ -106,8 +109,8 @@ async function main() {
 ║════════════════════════════════════════║
 ║  Type your message and press Enter    ║
 ║  Commands:                             ║
-║    /help  - Show help                  ║
-║    /exit  - Exit                       ║
+║    /help  - Show help                 ║
+║    /exit  - Exit                      ║
 ║                                      ║
 ║  Webhook: http://localhost:3000/webhook ║
 ╚════════════════════════════════════════╝
@@ -116,7 +119,13 @@ async function main() {
   logger.info('Seahorse ready - use CLI or POST to http://localhost:3000/webhook');
 }
 
-main().catch((error) => {
-  logger.error('Error', { error: String(error) });
-  process.exit(1);
-});
+export async function stopServer(): Promise<void> {
+  if (channelManager) {
+    await channelManager.stopAll();
+  }
+  logger.info('Seahorse stopped');
+}
+
+export function getAgent(): Agent | null {
+  return agent;
+}
