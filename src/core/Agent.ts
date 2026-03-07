@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { Session } from './Session.js';
+import { SessionStore } from '../memory/SessionStore.js';
 import { messageBus, Topic } from './MessageBus.js';
 import { logger } from '../utils/logger.js';
 import { LLMProvider, LLMCompletionOptions, Message, ToolDefinition } from '../llm/types.js';
@@ -19,6 +20,7 @@ export interface AgentOptions {
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
+  sessionStore?: SessionStore;
 }
 
 export interface AgentConfig {
@@ -38,6 +40,7 @@ export class Agent {
   private tools: ToolDefinition[] = [];
   private model?: string;
   private maxTokens: number;
+  private sessionStore?: SessionStore;
 
   constructor(options: AgentOptions) {
     this.id = options.id ?? randomUUID();
@@ -45,6 +48,7 @@ export class Agent {
     this.llmProvider = options.llmProvider;
     this.model = options.model;
     this.maxTokens = options.maxTokens ?? 32000;
+    this.sessionStore = options.sessionStore;
     this.toolRegistry = new ToolRegistry();
 
     this.setupDefaultInjectables();
@@ -98,6 +102,7 @@ export class Agent {
       id: sessionId, 
       agentId: this.id,
       maxTokens: this.maxTokens,
+      store: this.sessionStore,
     });
     this.sessions.set(session.id, session);
     this.activeSession = session;

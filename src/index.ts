@@ -5,7 +5,16 @@ import { configManager } from './utils/config.js';
 import { messageBus } from './core/MessageBus.js';
 import { Agent } from './core/Agent.js';
 import { OpenAIProvider } from './llm/OpenAIProvider.js';
-import { CalculatorTool, WebSearchTool, FileReadTool, FileWriteTool, FileListTool } from './tools/index.js';
+import { AnthropicProvider } from './llm/AnthropicProvider.js';
+import { 
+  CalculatorTool, 
+  WebSearchTool, 
+  FileReadTool, 
+  FileWriteTool, 
+  FileListTool,
+  ExecuteCommandTool,
+  SystemInfoTool,
+} from './tools/index.js';
 import { CLIChannel, WebhookChannel, ChannelManager } from './channels/index.js';
 import { SessionStore } from './memory/SessionStore.js';
 
@@ -19,19 +28,32 @@ async function main() {
   
   logger.info('Configuration loaded', { configDir, dataDir });
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    logger.error('OPENAI_API_KEY not set');
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  
+  if (!openaiKey && !anthropicKey) {
+    logger.error('No API key set (OPENAI_API_KEY or ANTHROPIC_API_KEY)');
     process.exit(1);
   }
 
-  const llm = new OpenAIProvider(apiKey);
+  let llm;
+  let model = 'gpt-4o-mini';
+  
+  if (anthropicKey) {
+    llm = new AnthropicProvider(anthropicKey);
+    model = 'claude-3-5-sonnet-20241022';
+    logger.info('Using Anthropic provider');
+  } else if (openaiKey) {
+    llm = new OpenAIProvider(openaiKey);
+    logger.info('Using OpenAI provider');
+  }
+  
   const sessionStore = new SessionStore(join(dataDir, 'sessions'));
   
   const agent = new Agent({
     name: 'Seahorse Assistant',
-    llmProvider: llm,
-    model: 'gpt-4o-mini',
+    llmProvider: llm!,
+    model,
     sessionStore,
   });
 
@@ -40,6 +62,8 @@ async function main() {
   agent.registerTool(new FileReadTool());
   agent.registerTool(new FileWriteTool());
   agent.registerTool(new FileListTool());
+  agent.registerTool(new ExecuteCommandTool());
+  agent.registerTool(new SystemInfoTool());
 
   const channelManager = new ChannelManager();
   
@@ -81,9 +105,9 @@ async function main() {
 ║         Seahorse AI Agent             ║
 ║════════════════════════════════════════║
 ║  Type your message and press Enter    ║
-║  Commands:                            ║
-║    /help  - Show help                ║
-║    /exit  - Exit                     ║
+║  Commands:                             ║
+║    /help  - Show help                  ║
+║    /exit  - Exit                       ║
 ║                                      ║
 ║  Webhook: http://localhost:3000/webhook ║
 ╚════════════════════════════════════════╝
