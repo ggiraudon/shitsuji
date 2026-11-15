@@ -162,7 +162,7 @@ classDiagram
     queued
     running
     waiting
-    completed
+    succeeded
     failed
     cancelled
   }

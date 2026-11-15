@@ -101,13 +101,14 @@ packages.
 ### S7. Domain model
 - Add the `Thread`, `Session`, `Turn` (as a state machine), `Message` with content parts, `ToolCall`, branded
   IDs and `Money`.
-- Split today's `Session` into these classes.
+- They live in `domain/model/`. Today's `domain/Session.ts` stays until S8 moves the agent onto them.
 - *Check:* unit tests for turn transitions, where illegal transitions throw.
 
 ### S8. Persistence ports and in-memory adapters
 - Add `UnitOfWork`, the `Thread`, `Session`, `Turn`, `Message` and `TurnEvent` repositories, and
   `JobQueue`, with `InMemory*` implementations for tests.
-- Point the agent at the repositories instead of `SessionStore`.
+- Point the agent at the repositories instead of `SessionStore`, which splits today's `Session` into
+  `Thread`, `Session`, `Turn` and stored `Message`s, and removes the old class.
 - *Check:* application tests run entirely in memory.
 
 ### S9. Postgres adapters

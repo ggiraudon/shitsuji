@@ -14,7 +14,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 - [x] **S4** Core ports: logger, clock, event bus, errors
 - [x] **S5** Configuration
 - [x] **S6** Plugins and the composition root
-- [ ] **S7** Domain model
+- [x] **S7** Domain model
 - [ ] **S8** Persistence ports and in-memory adapters
 - [ ] **S9** Postgres adapters
 - [ ] **S10** Job queue and startup recovery
