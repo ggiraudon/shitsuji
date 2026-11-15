@@ -7,9 +7,15 @@ import type { JobQueue } from '../ports/JobQueue.js';
 import type { Logger } from '../ports/Logger.js';
 import type { Repositories } from '../ports/Repositories.js';
 import type { Tool } from '../ports/Tool.js';
-import { IdentityInjectable, RulesInjectable, ToolIndexInjectable } from './context/index.js';
+import {
+  IdentityInjectable,
+  RulesInjectable,
+  SoulInjectable,
+  ToolIndexInjectable,
+} from './context/index.js';
 import { ContextBuilder } from './context/ContextBuilder.js';
 import type { ModelRouter } from './models/ModelRouter.js';
+import type { SoulSource } from './soul/SoulService.js';
 import type { StepLimits } from './runtime/limits.js';
 import { MessageIntake, type Submitted, type SubmitOptions } from './runtime/MessageIntake.js';
 import { StopController } from './runtime/StopController.js';
@@ -33,6 +39,8 @@ export interface AgentOptions {
   clock: Clock;
   log: Logger;
   events: EventBus;
+  /** The assembled standing instructions, fixed per turn (Q6). */
+  soul?: SoulSource;
   /** How many recent messages are sent to the model. */
   historyLimit?: number;
   /** Model calls per turn by session kind (decision Q5). */
@@ -66,6 +74,7 @@ export class Agent {
     this.tools = options.tools;
     this.injectables = [
       new IdentityInjectable({ name: this.name, description: 'a helpful AI assistant' }),
+      new SoulInjectable(),
       new ToolIndexInjectable(() => this.tools.list()),
       new RulesInjectable([
         { id: 'helpful', text: 'Be helpful and concise' },
@@ -93,6 +102,7 @@ export class Agent {
       events: options.events,
       stops: this.stops,
       context,
+      ...(options.soul && { soul: options.soul }),
       limits: options.limits,
     });
     this.scheduler = new TurnScheduler({ ...options, runner, intake: this.intake });

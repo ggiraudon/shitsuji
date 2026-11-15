@@ -33,6 +33,8 @@ export interface TurnProps {
   endedAt?: Date;
   /** Why it failed or was cancelled, e.g. "interrupted". */
   error?: string;
+  /** The SOUL revision this turn ran with, so history can say what shaped it (Q6). */
+  soulRevision?: number;
 }
 
 /**
@@ -72,6 +74,11 @@ export class Turn {
   }
   get isTerminal(): boolean {
     return TERMINAL_TURN_STATUSES.includes(this.props.status);
+  }
+
+  /** Fixes the SOUL revision for this turn; a revision confirmed later waits for the next turn. */
+  useSoul(revision: number): void {
+    this.props.soulRevision = revision;
   }
 
   start(at: Date): void {

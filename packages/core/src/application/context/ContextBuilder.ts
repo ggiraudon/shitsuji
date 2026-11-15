@@ -61,7 +61,11 @@ export class ContextBuilder {
 
   constructor(private readonly deps: ContextBuilderDeps) {}
 
-  async build(session: Session, turn: Turn): Promise<BuiltContext> {
+  async build(
+    session: Session,
+    turn: Turn,
+    soul?: { revision: number; body: string },
+  ): Promise<BuiltContext> {
     const stored = await this.deps.repos.messages.listBySession(session.id);
     const owner = await this.deps.repos.owners.get(this.deps.ownerId);
     const sources = windowMessages(stored, this.deps.historyLimit, turn.id);
@@ -74,6 +78,7 @@ export class ContextBuilder {
       toolCalls: lastAssistant ? toolCallsOf(lastAssistant) : [],
       ...(lastUser && { lastUserMessage: textOf(lastUser) }),
       ...(owner && { owner }),
+      ...(soul && { soul }),
     };
 
     const injectables = [...this.deps.injectables()].sort(

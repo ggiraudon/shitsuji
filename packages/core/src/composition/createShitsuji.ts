@@ -5,6 +5,7 @@ import { InMemoryRepositories } from '../adapters/memory/InMemoryRepositories.js
 import { PostgresDatabase } from '../adapters/postgres/PostgresDatabase.js';
 import { PostgresRepositories } from '../adapters/postgres/PostgresRepositories.js';
 import { Agent } from '../application/Agent.js';
+import { SoulService } from '../application/soul/SoulService.js';
 import {
   MeteredModelProvider,
   RedactingModelProvider,
@@ -20,7 +21,7 @@ import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
-import { ConfigError } from '../domain/errors.js';
+import { ConfigError, serializeError } from '../domain/errors.js';
 import { asId, type OwnerId } from '../domain/model/ids.js';
 import { Money } from '../domain/model/Money.js';
 import type { Repositories } from '../ports/Repositories.js';
@@ -115,6 +116,23 @@ export async function createShitsuji(
     locale: config.owner.locale,
   });
 
+  // The SOUL: seed revision 1 and refresh the readable export. A failure here must not stop startup:
+  // the database copy still works, and turns re-read it.
+  const soul = new SoulService({
+    store: repos.soul,
+    uow: repos.uow,
+    ownerId: OWNER_ID,
+    clock: services.clock,
+    log,
+    dataDir: config.paths.dataDir,
+  });
+  try {
+    const revision = await soul.start();
+    facts.soulRevision = revision.revision;
+  } catch (error) {
+    log.warn('Could not prepare the SOUL export', { error: serializeError(error) });
+  }
+
   // Every provider gets the same chain: metering outside, retries inside, redaction closest to the wire.
   const catalog = catalogFrom(config);
   const providers = new Map(
@@ -150,6 +168,7 @@ export async function createShitsuji(
     clock: services.clock,
     log,
     events,
+    soul,
     stabilityCheck: process.env.NODE_ENV !== 'production',
   });
   Object.assign(facts, {

@@ -13,6 +13,7 @@ export {
 } from '../../ports/ContextInjectable.js';
 
 export { IdentityInjectable, type IdentityConfig } from './IdentityInjectable.js';
+export { SoulInjectable } from './SoulInjectable.js';
 export { RulesInjectable, type Rule } from './RulesInjectable.js';
 export { ToolIndexInjectable } from './ToolIndexInjectable.js';
 export {

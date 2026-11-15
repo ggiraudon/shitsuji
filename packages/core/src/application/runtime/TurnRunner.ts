@@ -17,6 +17,7 @@ import type { Repositories, Transaction } from '../../ports/Repositories.js';
 import type { BuiltContext, ContextBuilder } from '../context/ContextBuilder.js';
 import type { ModelResponse } from '../modelCalls.js';
 import type { ModelRouter } from '../models/ModelRouter.js';
+import type { SoulSource } from '../soul/SoulService.js';
 import type { ToolCatalog } from '../tools/ToolCatalog.js';
 import { outcomeText, type ToolPipeline } from '../tools/ToolPipeline.js';
 import { TurnLock } from '../TurnLock.js';
@@ -35,6 +36,8 @@ export interface TurnRunnerDeps {
   stops: StopController;
   /** Builds each model call's context: header, history with context notes, tail (F04). */
   context: ContextBuilder;
+  /** The SOUL this turn runs with; absent in tests that do not care. */
+  soul?: SoulSource;
   limits?: Partial<StepLimits>;
 }
 
@@ -72,7 +75,10 @@ export class TurnRunner {
     events.publish('turn.status', { ...base, status: 'running' });
 
     try {
-      const reply = await this.loop(session, turn, signal);
+      // The SOUL is fixed when the turn starts: a revision confirmed mid-turn waits for the next one.
+      const soul = this.deps.soul ? await this.deps.soul.current(session.kind) : undefined;
+      if (soul) turn.useSoul(soul.revision);
+      const reply = await this.loop(session, turn, signal, soul);
       if (!(await this.save(turn, 'running', () => turn.succeed(clock.now())))) {
         const error = 'The turn was ended elsewhere before it finished';
         events.publish('turn.status', { ...base, status: 'failed', error });
@@ -104,7 +110,12 @@ export class TurnRunner {
     }
   }
 
-  private async loop(session: Session, turn: Turn, signal: AbortSignal): Promise<string> {
+  private async loop(
+    session: Session,
+    turn: Turn,
+    signal: AbortSignal,
+    soul?: { revision: number; body: string },
+  ): Promise<string> {
     const max = this.limits[session.kind];
     const stall = new StallDetector();
     for (let step = 1; step <= max; step++) {
@@ -112,7 +123,7 @@ export class TurnRunner {
       if (step > 1) await this.assertStillRunning(turn);
       // Reloading the history each step is what steering means: owner messages that arrived during
       // the turn are stored with its id and appear here before the next model call.
-      const context = await this.deps.context.build(session, turn);
+      const context = await this.deps.context.build(session, turn, soul);
       const response = await this.callModel(session, turn, context, signal);
       const parts: ContentPart[] = [];
       // Reasoning is kept in the transcript but never shown as the reply or sent back (F03).

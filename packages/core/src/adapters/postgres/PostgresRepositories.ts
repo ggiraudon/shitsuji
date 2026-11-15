@@ -67,6 +67,7 @@ const toTurn = (r: Selectable<TurnsTable>) =>
     startedAt: optional(r.started_at),
     endedAt: optional(r.ended_at),
     error: optional(r.error),
+    soulRevision: optional(r.soul_revision),
   });
 
 const toMessage = (r: Selectable<MessagesTable>): Message => {
@@ -258,6 +259,7 @@ export class PostgresRepositories implements Repositories {
           'created_at',
           'started_at',
           'ended_at',
+          'soul_revision',
         ])
         .expression((eb) =>
           eb
@@ -275,6 +277,7 @@ export class PostgresRepositories implements Repositories {
               sql<Date>`${p.createdAt}::timestamptz`.as('created_at'),
               sql<Date | null>`${p.startedAt ?? null}::timestamptz`.as('started_at'),
               sql<Date | null>`${p.endedAt ?? null}::timestamptz`.as('ended_at'),
+              sql<number | null>`${p.soulRevision ?? null}::integer`.as('soul_revision'),
             ])
             .where('id', '=', p.sessionId),
         )
@@ -309,6 +312,7 @@ export class PostgresRepositories implements Repositories {
           ended_at: p.endedAt ?? null,
           start_after: p.startAfter ?? null,
           reply_channel: p.replyChannel ?? null,
+          soul_revision: p.soulRevision ?? null,
         })
         .where('id', '=', p.id)
         .where('status', '=', expected)
