@@ -70,6 +70,7 @@ export class ContextBuilder {
     session: Session,
     turn: Turn,
     soul?: { revision: number; body: string },
+    signal?: AbortSignal,
   ): Promise<BuiltContext> {
     const stored = await this.deps.repos.messages.listBySession(session.id);
     // Re-read: a compaction earlier in this turn changed the summary and its watermark.
@@ -85,6 +86,7 @@ export class ContextBuilder {
         turn,
         stored,
         this.deps.contextWindow,
+        signal,
       );
       if (compacted) {
         summary = compacted.summary;

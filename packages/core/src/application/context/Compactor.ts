@@ -61,6 +61,7 @@ export class Compactor {
     turn: Turn,
     transcript: readonly Message[],
     contextWindow: number,
+    signal?: AbortSignal,
   ): Promise<Compaction | undefined> {
     const covered = Math.min(session.summaryCount ?? 0, transcript.length);
     if (!this.needsCompaction(transcript.slice(covered), contextWindow)) return undefined;
@@ -74,12 +75,16 @@ export class Compactor {
 
     const prompt = summarisePrompt(session.summary, renderTranscript(older, this.maxInputChars));
     try {
-      const { response } = await this.deps.models.complete('summarize', {
-        messages: [{ role: 'user', parts: [{ type: 'text', text: prompt }] }],
-        temperature: 0.2,
-        maxOutputTokens: this.maxSummaryTokens,
-        metadata: { turnId: turn.id },
-      });
+      const { response } = await this.deps.models.complete(
+        'summarize',
+        {
+          messages: [{ role: 'user', parts: [{ type: 'text', text: prompt }] }],
+          temperature: 0.2,
+          maxOutputTokens: this.maxSummaryTokens,
+          metadata: { turnId: turn.id },
+        },
+        { signal },
+      );
       const summary = response.text.trim();
       if (!summary) return undefined;
       await this.deps.sessions.setSummary(session.id, summary, end);
@@ -90,7 +95,9 @@ export class Compactor {
       });
       return { summary, count: end };
     } catch (error) {
-      // A failed summary is not a failed turn: the full transcript is still there, just larger.
+      // A Stop must reach the caller; a failed summary is not a failed turn, and the full transcript
+      // is still there, just larger.
+      if (signal?.aborted) throw error;
       this.deps.log.warn('Compaction failed; keeping the full transcript for now', {
         sessionId: session.id,
         error: serializeError(error),

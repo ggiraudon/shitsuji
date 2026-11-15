@@ -22,8 +22,12 @@ import {
 import type { Message } from '../../src/domain/model/Message.js';
 import { Session } from '../../src/domain/model/Session.js';
 import { Turn } from '../../src/domain/model/Turn.js';
+import type {
+  ModelProvider,
+  ModelRequest,
+  ModelStreamEvent,
+} from '../../src/ports/ModelProvider.js';
 import { ScriptedProvider, testServices } from '../helpers.js';
-
 const OWNER = asId<OwnerId>('owner');
 const clock = new ManualClock('2026-11-15T09:00:00.000Z');
 const LOG = new MemoryLogger();
@@ -146,6 +150,40 @@ describe('Compactor (S23)', () => {
     expect(prompt).toContain('Newly old message.');
     expect(prompt).not.toContain('Already covered.');
     expect(prompt).not.toContain('The open request.');
+  });
+
+  it('lets Stop through instead of swallowing the summarize request', async () => {
+    const { repos, session } = await seed();
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'An old request. '.repeat(20), newId<TurnId>());
+    await append(repos, session, 'user', 'The open request.', openTurn);
+
+    const provider = new HangingProvider();
+    const compactor = new Compactor({
+      models: new ModelRouter(
+        new Map([[provider.id, provider]]),
+        { purposes: { chat: 'hang/m' }, fallbacks: {} },
+        new ModelCatalog(),
+        LOG,
+      ),
+      sessions: repos.sessions,
+      clock,
+      log: LOG,
+    });
+    const transcript = await repos.messages.listBySession(session.id);
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+
+    const controller = new AbortController();
+    const pending = compactor.compactIfNeeded(session, turn, transcript, 30, controller.signal);
+    controller.abort(new Error('stopped by owner'));
+
+    await expect(pending).rejects.toThrow('stopped by owner');
+    expect((await repos.sessions.get(session.id))!.summary).toBeUndefined();
   });
 
   it('does nothing while the transcript fits the window', async () => {
@@ -273,3 +311,18 @@ describe('compaction end to end (F04 criterion 5)', () => {
     expect(await repos.messages.listBySession(open.sessionId)).toHaveLength(4);
   });
 });
+
+/** A model that never answers until it is aborted, for the Stop path. */
+class HangingProvider implements ModelProvider {
+  readonly id = 'hang';
+  async *stream(_request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent> {
+    await new Promise<void>((_resolve, reject) => {
+      if (signal?.aborted) return reject(signal.reason);
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+    yield { type: 'done', finishReason: 'other' }; // unreachable unless nothing aborts
+  }
+  async listModels() {
+    return [];
+  }
+}

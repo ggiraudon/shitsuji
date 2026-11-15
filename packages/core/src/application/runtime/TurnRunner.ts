@@ -123,7 +123,7 @@ export class TurnRunner {
       if (step > 1) await this.assertStillRunning(turn);
       // Reloading the history each step is what steering means: owner messages that arrived during
       // the turn are stored with its id and appear here before the next model call.
-      const context = await this.deps.context.build(session, turn, soul);
+      const context = await this.deps.context.build(session, turn, soul, signal);
       const response = await this.callModel(session, turn, context, signal);
       const parts: ContentPart[] = [];
       // Reasoning is kept in the transcript but never shown as the reply or sent back (F03).
