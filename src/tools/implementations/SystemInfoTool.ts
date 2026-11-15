@@ -1,4 +1,4 @@
-import { BaseTool, ToolResult, ToolExecuteParams } from '../base.js';
+import { BaseTool, type ToolResult, type ToolExecuteParams } from '../base.js';
 import { hostname, cpus, totalmem, freemem, uptime, platform, arch, version } from 'os';
 
 export class SystemInfoTool extends BaseTool {

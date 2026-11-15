@@ -1,4 +1,4 @@
-import { LLMProvider, LLMCompletionOptions, LLMResponse, LLMChunk, ToolDefinition } from './types.js';
+import { type LLMProvider, type LLMCompletionOptions, type LLMResponse, type LLMChunk } from './types.js';
 import { logger } from '../utils/logger.js';
 
 export abstract class BaseLLMProvider implements LLMProvider {

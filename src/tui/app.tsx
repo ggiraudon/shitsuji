@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { render, Box, Text, useInput, useApp } from 'ink';
-import { logger } from '../utils/logger.js';
-import { messageBus } from '../core/MessageBus.js';
+import { render, Box, Text, useInput } from 'ink';
 import { Agent } from '../core/Agent.js';
 import { OpenAIProvider } from '../llm/OpenAIProvider.js';
 import { AnthropicProvider } from '../llm/AnthropicProvider.js';

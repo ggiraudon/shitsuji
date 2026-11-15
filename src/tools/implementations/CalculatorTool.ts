@@ -1,4 +1,4 @@
-import { BaseTool, ToolResult, ToolExecuteParams } from '../base.js';
+import { BaseTool, type ToolResult, type ToolExecuteParams } from '../base.js';
 
 export class CalculatorTool extends BaseTool {
   readonly name = 'calculator';
@@ -43,14 +43,6 @@ export class CalculatorTool extends BaseTool {
   }
 
   private createSafeEvaluator(): (expr: string) => number {
-    const mathFunctions = [
-      'abs', 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'atan2',
-      'ceil', 'clz32', 'cos', 'cosh', 'exp', 'expm1', 'floor', 'fround',
-      'log', 'log10', 'log1p', 'log2', 'max', 'min', 'pow', 'random',
-      'round', 'sign', 'sin', 'sinh', 'sqrt', 'tan', 'tanh', 'trunc',
-      'E', 'LN10', 'LN2', 'LOG10E', 'LOG2E', 'PI', 'SQRT1_2', 'SQRT2',
-    ];
-
     const mathConstants: Record<string, number> = {
       E: Math.E,
       LN10: Math.LN10,

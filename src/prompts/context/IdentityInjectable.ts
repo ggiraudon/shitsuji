@@ -1,5 +1,5 @@
 import { BaseContextInjectable } from './ContextInjectable.js';
-import { AgentRenderContext } from './ContextInjectable.js';
+import { type AgentRenderContext } from './ContextInjectable.js';
 
 export interface IdentityConfig {
   name: string;

@@ -2,7 +2,7 @@
 import 'dotenv/config';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { fork, ChildProcess } from 'child_process';
+import { fork, type ChildProcess } from 'child_process';
 import { createWriteStream } from 'fs';
 
 const args = process.argv.slice(2);

@@ -1,5 +1,5 @@
-import { BaseChannel, ChannelMessage } from './base.js';
-import { createServer, IncomingMessage, ServerResponse, Server } from 'http';
+import { BaseChannel, type ChannelMessage } from './base.js';
+import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'http';
 import { logger } from '../utils/logger.js';
 import { randomUUID } from 'crypto';
 

@@ -1,4 +1,4 @@
-import { BaseTool, ToolResult, ToolExecuteParams } from '../base.js';
+import { BaseTool, type ToolResult, type ToolExecuteParams } from '../base.js';
 
 export class WebSearchTool extends BaseTool {
   readonly name = 'web_search';

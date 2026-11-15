@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { dirname, join } from 'path';
+import { join } from 'path';
 import { homedir } from 'os';
 
 const globalConfigSchema = z.object({

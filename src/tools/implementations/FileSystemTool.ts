@@ -1,6 +1,6 @@
-import { BaseTool, ToolResult, ToolExecuteParams } from '../base.js';
+import { BaseTool, type ToolResult, type ToolExecuteParams } from '../base.js';
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, resolve, dirname, basename } from 'path';
+import { join, resolve, dirname } from 'path';
 
 export class FileReadTool extends BaseTool {
   readonly name = 'file_read';

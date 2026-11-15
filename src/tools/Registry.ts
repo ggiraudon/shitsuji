@@ -1,5 +1,5 @@
-import { Tool, ToolResult, ToolExecuteParams } from './base.js';
-import { ToolDefinition } from '../llm/types.js';
+import { type Tool, type ToolResult, type ToolExecuteParams } from './base.js';
+import { type ToolDefinition } from '../llm/types.js';
 import { logger } from '../utils/logger.js';
 
 export class ToolRegistry {

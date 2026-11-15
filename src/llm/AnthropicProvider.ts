@@ -1,16 +1,10 @@
 import { BaseLLMProvider } from './BaseLLMProvider.js';
-import { LLMCompletionOptions, LLMResponse, LLMChunk, ToolDefinition } from './types.js';
+import { type LLMCompletionOptions, type LLMResponse, type LLMChunk } from './types.js';
 import { logger } from '../utils/logger.js';
 
 interface AnthropicMessage {
   role: 'user' | 'assistant';
   content: string;
-}
-
-interface AnthropicToolUse {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
 }
 
 export class AnthropicProvider extends BaseLLMProvider {
@@ -114,6 +108,8 @@ export class AnthropicProvider extends BaseLLMProvider {
     return llmResponse;
   }
 
+  // Stub until the adapter is rewritten in S12; yields nothing.
+  // eslint-disable-next-line require-yield
   async *stream(_options: LLMCompletionOptions): AsyncIterable<LLMChunk> {
     logger.warn('Streaming not yet implemented for Anthropic');
     return;

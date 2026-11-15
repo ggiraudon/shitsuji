@@ -1,6 +1,5 @@
 import { BaseLLMProvider } from './BaseLLMProvider.js';
-import { LLMCompletionOptions, LLMResponse, LLMChunk, ToolDefinition } from './types.js';
-import { logger } from '../utils/logger.js';
+import { type LLMCompletionOptions, type LLMResponse, type LLMChunk } from './types.js';
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';

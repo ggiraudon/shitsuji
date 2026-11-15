@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from 'fs';
-import { join, dirname } from 'path';
-import { Session } from '../core/Session.js';
-import { Message } from '../llm/types.js';
+import { join } from 'path';
+import { type Session } from '../core/Session.js';
+import { type Message } from '../llm/types.js';
 import { logger } from '../utils/logger.js';
 
 export interface SessionData {

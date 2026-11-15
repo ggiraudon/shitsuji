@@ -1,4 +1,4 @@
-import { BaseTool, ToolResult, ToolExecuteParams } from '../base.js';
+import { BaseTool, type ToolResult, type ToolExecuteParams } from '../base.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -62,11 +62,11 @@ export class ExecuteCommandTool extends BaseTool {
         success: true,
         result: output || '(no output)',
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         success: false,
         result: '',
-        error: error.message || String(error),
+        error: (error instanceof Error && error.message) || String(error),
       };
     }
   }

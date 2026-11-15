@@ -1,7 +1,7 @@
-import { Message, ToolCall, ToolResult } from '../llm/types.js';
+import { type Message, type ToolCall } from '../llm/types.js';
 import { logger } from '../utils/logger.js';
-import { messageBus, Topic } from '../core/MessageBus.js';
-import { SessionStore } from '../memory/SessionStore.js';
+import { messageBus, type Topic } from '../core/MessageBus.js';
+import { type SessionStore } from '../memory/SessionStore.js';
 import { randomUUID } from 'crypto';
 
 export interface SessionOptions {

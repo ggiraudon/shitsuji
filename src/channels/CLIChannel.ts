@@ -1,4 +1,4 @@
-import { BaseChannel, ChannelMessage } from './base.js';
+import { BaseChannel, type ChannelMessage } from './base.js';
 import * as readline from 'readline';
 import { randomUUID } from 'crypto';
 import { logger } from '../utils/logger.js';

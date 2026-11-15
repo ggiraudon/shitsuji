@@ -1,4 +1,4 @@
-import { Session } from '../../core/Session.js';
+import { type Session } from '../../core/Session.js';
 
 export type InjectionConditionType = 
   | 'always'

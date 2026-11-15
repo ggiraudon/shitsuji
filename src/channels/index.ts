@@ -1,6 +1,6 @@
-import { Channel, BaseChannel } from './base.js';
+import { type Channel } from './base.js';
 import { CLIChannel } from './CLIChannel.js';
-import { WebhookChannel, WebhookChannelOptions } from './WebhookChannel.js';
+import { WebhookChannel, type WebhookChannelOptions } from './WebhookChannel.js';
 import { logger } from '../utils/logger.js';
 
 export type ChannelType = 'cli' | 'webhook';

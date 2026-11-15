@@ -1,13 +1,12 @@
 import { randomUUID } from 'crypto';
 import { Session } from './Session.js';
-import { SessionStore } from '../memory/SessionStore.js';
-import { messageBus, Topic } from './MessageBus.js';
+import { type SessionStore } from '../memory/SessionStore.js';
+import { messageBus } from './MessageBus.js';
 import { logger } from '../utils/logger.js';
-import { LLMProvider, LLMCompletionOptions, Message, ToolDefinition } from '../llm/types.js';
-import { ToolRegistry, Tool } from '../tools/index.js';
+import { type LLMProvider, type LLMCompletionOptions, type Message, type ToolDefinition } from '../llm/types.js';
+import { ToolRegistry, type Tool } from '../tools/index.js';
 import { 
-  ContextInjectable, 
-  AgentRenderContext,
+  type ContextInjectable, 
   IdentityInjectable,
   ToolListInjectable,
   RulesInjectable 

@@ -1,4 +1,4 @@
-import { Message } from '../llm/types.js';
+import { type Message } from '../llm/types.js';
 
 export interface MemoryOptions {
   maxMessages?: number;

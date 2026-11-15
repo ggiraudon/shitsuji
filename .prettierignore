@@ -1,0 +1,8 @@
+dist
+node_modules
+coverage
+package-lock.json
+pnpm-lock.yaml
+logos
+# Docs are hand-wrapped prose and tables; Prettier would rewrap them.
+*.md

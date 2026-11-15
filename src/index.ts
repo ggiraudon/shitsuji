@@ -15,7 +15,7 @@ import {
   ExecuteCommandTool,
   SystemInfoTool,
 } from './tools/index.js';
-import { CLIChannel, WebhookChannel, ChannelManager } from './channels/index.js';
+import { ChannelManager } from './channels/index.js';
 import { SessionStore } from './memory/SessionStore.js';
 
 let channelManager: ChannelManager | null = null;
