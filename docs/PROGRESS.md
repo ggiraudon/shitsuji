@@ -32,7 +32,7 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 - [x] **S15** Tool v2 port and schemas
 - [x] **S16** The execution pipeline
 - [x] **S17** Built-in tools on v2
-- [ ] **S18** Web search and fetch
+- [x] **S18** Web search and fetch
 - [ ] **S19** Deferred discovery
 - [ ] **S20** Message intake and the turn scheduler
 - [ ] **S21** TurnRunner with streaming

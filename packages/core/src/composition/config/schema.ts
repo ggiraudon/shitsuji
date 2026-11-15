@@ -133,6 +133,17 @@ export const shitsujiConfigSchema = z
           })
           .strict()
           .default({}),
+        web: z
+          .object({
+            /** A SearXNG instance with its JSON API enabled (decision Q2). Unset: no web.search. */
+            searxngUrl: z.string().url().optional(),
+            fetch: z
+              .object({ enabled: z.boolean().default(true) })
+              .strict()
+              .default({}),
+          })
+          .strict()
+          .default({}),
       })
       .strict()
       .default({}),

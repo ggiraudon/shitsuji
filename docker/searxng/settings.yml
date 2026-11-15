@@ -1,0 +1,18 @@
+# SearXNG for Shitsuji: only core queries it, through the JSON API.
+use_default_settings: true
+
+server:
+  # Set SEARXNG_SECRET in .env; it overrides this value.
+  secret_key: 'overridden-by-SEARXNG_SECRET'
+  limiter: false # only core can reach it, so rate limiting by client IP is not useful
+  image_proxy: false
+  public_instance: false
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json # required: core uses /search?format=json
+
+ui:
+  query_in_title: false

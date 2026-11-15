@@ -18,6 +18,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      SHITSUJI_SEARXNG_URL: http://searxng:8080
     ports:
       # The webhook, on this machine only. Remote access comes later (05-open-questions D2).
       - '127.0.0.1:${SHITSUJI_WEBHOOK_PORT:-3000}:3000'
@@ -38,6 +39,19 @@ services:
       timeout: 3s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+
+  # Self-hosted web search for web.search (decision Q2). Reached only by core; no published port.
+  searxng:
+    image: searxng/searxng:2026.11.14-a7128d5d1
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-change-me-in-env}
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    networks: [internal, egress]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    security_opt: ['no-new-privileges:true']
     restart: unless-stopped
 
   postgres:

@@ -24,6 +24,7 @@ import type { Repositories } from '../ports/Repositories.js';
 import type { ShitsujiPlugin } from '../ports/Plugin.js';
 import { CliChannelPlugin, WebhookChannelPlugin } from '../plugins/channelPlugins.js';
 import { CoreToolsPlugin } from '../plugins/coreToolsPlugin.js';
+import { WebToolsPlugin } from '../plugins/webToolsPlugin.js';
 import { AnthropicPlugin, OpenAICompatiblePlugin } from '../plugins/modelPlugins.js';
 import type { ShitsujiConfig } from './config/schema.js';
 import { loadPluginsFromDirectory } from './loadPluginsFromDirectory.js';
@@ -185,6 +186,10 @@ function builtInPlugins(
       workspaceDir: config.tools.workspaceDir!,
       exec: config.tools.exec,
       status,
+    }),
+    new WebToolsPlugin({
+      searxngUrl: config.tools.web.searxngUrl,
+      fetchEnabled: config.tools.web.fetch.enabled,
     }),
   ];
   if (withChannels && config.channels.cli.enabled) list.push(new CliChannelPlugin());
