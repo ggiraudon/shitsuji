@@ -39,7 +39,7 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 - [x] **S22** Stop and steering
 - [ ] **S23** ContextBuilder, standing instructions and compaction
 - [x] **S24** HTTP API
-- [ ] **S25** The TUI as an API client
+- [x] **S25** The TUI as an API client
 - [ ] **S26** End to end and docs
 
 ## Acceptance criteria by feature

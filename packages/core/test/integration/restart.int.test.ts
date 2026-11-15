@@ -17,7 +17,7 @@ describe('restarting core (F02)', () => {
     const { url } = await freshDatabase();
     const config = shitsujiConfigSchema.parse({
       database: { url },
-      channels: { cli: { enabled: false }, webhook: { enabled: false } },
+      channels: { webhook: { enabled: false } },
       api: { enabled: false },
       models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/m' } },
     });

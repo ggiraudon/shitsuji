@@ -116,10 +116,20 @@ describe('environment overrides', () => {
     expect(config.database.url!.reveal()).toBe('postgres://u:p@db/shitsuji');
   });
 
-  it('turns the CLI channel off from the environment, and rejects a non-boolean', () => {
-    expect(load({ SHITSUJI_CLI_CHANNEL: 'false' }).config.channels.cli.enabled).toBe(false);
-    expect(load({ SHITSUJI_CLI_CHANNEL: 'yes' }).config.channels.cli.enabled).toBe(true);
-    expect(() => load({ SHITSUJI_CLI_CHANNEL: 'maybe' })).toThrow(/channels\.cli\.enabled/);
+  it('turns the API off from the environment, and rejects a non-boolean', () => {
+    expect(load({ SHITSUJI_API_ENABLED: 'false' }).config.api.enabled).toBe(false);
+    expect(load({ SHITSUJI_API_ENABLED: 'yes' }).config.api.enabled).toBe(true);
+    expect(() => load({ SHITSUJI_API_ENABLED: 'maybe' })).toThrow(/api\.enabled/);
+  });
+
+  it('reads the TUI connection from the environment, keeping the key secret', () => {
+    const { config } = load({
+      SHITSUJI_API_URL: 'http://127.0.0.1:3001',
+      SHITSUJI_OWNER_KEY: 'shk_x',
+    });
+    expect(config.tui.apiUrl).toBe('http://127.0.0.1:3001');
+    expect(String(config.tui.ownerKey)).toBe('[secret]');
+    expect(config.tui.ownerKey!.reveal()).toBe('shk_x');
   });
 });
 

@@ -32,7 +32,9 @@ const ENV_OVERRIDES: { vars: string[]; path: string[]; parse?: (v: string) => un
   { vars: ['SHITSUJI_API_HOST'], path: ['api', 'host'] },
   { vars: ['SHITSUJI_API_PORT'], path: ['api', 'port'], parse: Number },
   { vars: ['SHITSUJI_SEARXNG_URL'], path: ['tools', 'web', 'searxngUrl'] },
-  { vars: ['SHITSUJI_CLI_CHANNEL'], path: ['channels', 'cli', 'enabled'], parse: parseBool },
+  { vars: ['SHITSUJI_API_ENABLED'], path: ['api', 'enabled'], parse: parseBool },
+  { vars: ['SHITSUJI_API_URL'], path: ['tui', 'apiUrl'] },
+  { vars: ['SHITSUJI_OWNER_KEY'], path: ['tui', 'ownerKey'] },
 ];
 
 /**

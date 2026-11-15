@@ -24,7 +24,7 @@ import { asId, type OwnerId } from '../domain/model/ids.js';
 import { Money } from '../domain/model/Money.js';
 import type { Repositories } from '../ports/Repositories.js';
 import type { ShitsujiPlugin } from '../ports/Plugin.js';
-import { CliChannelPlugin, WebhookChannelPlugin } from '../plugins/channelPlugins.js';
+import { WebhookChannelPlugin } from '../plugins/channelPlugins.js';
 import { CoreToolsPlugin } from '../plugins/coreToolsPlugin.js';
 import { WebToolsPlugin } from '../plugins/webToolsPlugin.js';
 import { AnthropicPlugin, OpenAICompatiblePlugin } from '../plugins/modelPlugins.js';
@@ -47,7 +47,7 @@ function inMemoryWithWarning(log: CoreServices['log']): Repositories {
 export interface CreateShitsujiOptions {
   /** Defaults to services built from config.logging. */
   services?: CoreServices;
-  /** Load the CLI and webhook channels (if enabled in config). The TUI turns this off. */
+  /** Load the webhook channel (if enabled in config). Tests turn this off. */
   channels?: boolean;
   /** Storage. Defaults to Postgres when database.url is set (S9), else in memory. */
   repos?: Repositories;
@@ -222,7 +222,6 @@ function builtInPlugins(
       fetchEnabled: config.tools.web.fetch.enabled,
     }),
   ];
-  if (withChannels && config.channels.cli.enabled) list.push(new CliChannelPlugin());
   if (withChannels && config.channels.webhook.enabled) {
     list.push(new WebhookChannelPlugin(config.channels.webhook));
   }

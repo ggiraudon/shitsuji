@@ -103,6 +103,14 @@ export const shitsujiConfigSchema = z
       })
       .strict()
       .default({}),
+    /** How the TUI finds core (S25). The key defaults to <dataDir>/owner.key on this machine. */
+    tui: z
+      .object({
+        apiUrl: z.string().url().optional(),
+        ownerKey: secret.optional(),
+      })
+      .strict()
+      .default({}),
     /** The HTTP API that the TUI (and later the web UI) uses (S24). */
     api: z
       .object({
@@ -115,10 +123,6 @@ export const shitsujiConfigSchema = z
       .default({}),
     channels: z
       .object({
-        cli: z
-          .object({ enabled: z.boolean().default(true) })
-          .strict()
-          .default({}),
         webhook: z
           .object({
             enabled: z.boolean().default(true),

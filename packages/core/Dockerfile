@@ -20,7 +20,6 @@ RUN pnpm --filter @shitsuji/core build \
 FROM node:22-bookworm-slim
 ENV NODE_ENV=production \
     SHITSUJI_LOG_FORMAT=json \
-    SHITSUJI_CLI_CHANNEL=false \
     SHITSUJI_DATA_DIR=/data
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./

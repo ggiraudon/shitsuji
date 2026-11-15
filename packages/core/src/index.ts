@@ -24,9 +24,9 @@ export async function startServer(): Promise<void> {
   const lines = [
     'Shitsuji AI Agent',
     '',
-    'Type your message and press Enter',
-    'Commands: /help, /exit',
-    ...(webhook.enabled ? ['', `Webhook: ${url}`] : []),
+    'Chat with it in another terminal: node packages/core/dist/cli.js tui',
+    ...(running.apiUrl ? [`API: ${running.apiUrl}`] : []),
+    ...(webhook.enabled ? [`Webhook: ${url}`] : []),
   ];
   const width = Math.max(...lines.map((l) => l.length)) + 4;
   const row = (text: string) => `║  ${text.padEnd(width - 4)}  ║`;

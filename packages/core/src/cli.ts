@@ -41,17 +41,12 @@ async function main() {
   }
 
   if (command === 'tui') {
+    // The TUI is a client of the running core's API (S25): start core first.
     const { startTUI } = await import('./interfaces/tui/app.js');
     const { loadConfig } = await import('./composition/config/loadConfig.js');
-    const { createCoreServices } = await import('./composition/services.js');
-    const { createShitsuji } = await import('./composition/createShitsuji.js');
+    const { connectTui } = await import('./composition/tuiConnection.js');
     const { config } = loadConfig();
-    // The TUI draws the screen, so it gets a logger that only reports warnings and errors, and it
-    // is its own channel: the CLI and webhook channels are not started.
-    const services = createCoreServices({ ...config.logging, level: 'warn' });
-    const shitsuji = await createShitsuji(config, { services, channels: false });
-    await shitsuji.start(); // runs the turn worker; without it messages would queue and never run
-    await startTUI({ agent: shitsuji.agent });
+    await startTUI(await connectTui(config));
     return;
   }
 

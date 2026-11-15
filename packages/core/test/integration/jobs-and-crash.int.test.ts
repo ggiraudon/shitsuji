@@ -83,7 +83,7 @@ describe('crash in the middle of a turn (F02)', () => {
     const { database, url } = await freshDatabase();
     const config = shitsujiConfigSchema.parse({
       database: { url },
-      channels: { cli: { enabled: false }, webhook: { enabled: false } },
+      channels: { webhook: { enabled: false } },
       api: { enabled: false },
       models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/m' } },
     });
