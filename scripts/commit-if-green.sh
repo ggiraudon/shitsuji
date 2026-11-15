@@ -13,7 +13,5 @@ if ! timeout 300 pnpm check < /dev/null > /tmp/shitsuji-check.log 2>&1; then
 fi
 grep -E "Tests " /tmp/shitsuji-check.log | tail -2
 git add -A
-git commit -q -m "$1" -m "$2
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git commit -q -m "$1" -m "$2"
 git log --oneline -1

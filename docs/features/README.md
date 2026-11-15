@@ -33,3 +33,4 @@ at the top of each file gives its phase, rank, effort, dependencies and dependan
 | 22 | [F24](F24-agent-profiles.md) | Agent profiles and specialists |
 | 23 | [F21](F21-self-modification.md) | Self-modification pipeline |
 | 24 | [F23](F23-voice.md) | Voice |
+| 25 | [F25](F25-mood.md) | Mood |

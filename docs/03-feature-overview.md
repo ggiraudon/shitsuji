@@ -72,6 +72,7 @@ The core has to be rewired before anything else is worth building on it.
 | Rank | ID | Feature | Effort | Description |
 |------|----|---------|--------|-------------|
 | 24 | [F23](features/F23-voice.md) | Voice | M | Voice notes in Telegram (speech-to-text), spoken replies (text-to-speech) with a spoken register, later live calls. |
+| 25 | [F25](features/F25-mood.md) | Mood | S–M | A small emotional state (energy, warmth, focus) moved by events and decaying back to a baseline, rendered as one line in the prompt's tail. Changes tone only, never facts, rules or approvals; visible and switchable. |
 
 ## Dependency graph
 
@@ -115,6 +116,7 @@ flowchart TD
     F21[F21 Self-modification]
   end
   F23[F23 Voice]
+  F25[F25 Mood]
 
   F01 --> F02 & F03 & F05
   F02 & F03 & F05 --> F04
@@ -136,6 +138,7 @@ flowchart TD
   F15 --> F24
   F20 & F22 --> F21
   F06 & F03 --> F23
+  F04 & F22 --> F25
 ```
 
 ## Milestones

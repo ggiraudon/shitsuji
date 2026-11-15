@@ -95,25 +95,100 @@ come from [F22](F22-observability-and-cost.md).
 
 ### Context building
 
-The system prompt is assembled from `ContextInjectable`s, ordered by priority, as today. The set grows:
+Everything the model sees besides the tool schemas comes from `ContextInjectable`s, the original Shitsuji
+concept, kept and extended. Each injectable declares **where** it goes and **in what order**, so the layout
+that keeps prompt caching effective is a property of the code rather than a convention people have to
+remember.
 
-| Injectable | Condition | Content |
-|------------|-----------|---------|
-| `IdentityInjectable` (kept) | always | Name, persona, writing rules |
-| `SoulInjectable` | always | The owner-editable `SOUL.md` standing instructions |
-| `OwnerContextInjectable` | always | Name, time zone, local time, locale |
-| `RulesInjectable` (kept) | always | Safety and behaviour rules; untrusted-content rule |
-| `ToolIndexInjectable` (was `ToolListInjectable`) | always | Core tools are sent as schemas; this lists deferred tool names only |
-| `SkillIndexInjectable` | always | Skill names and descriptions ([F14](F14-skills.md)) |
-| `MemoryIndexInjectable` | when memory is on | Confirmed notes first ([F13](F13-long-term-memory.md)) |
-| `TaskLedgerInjectable` | chat sessions | Open tasks and recent results ([F15](F15-tasks-and-subagents.md)) |
-| `ChannelStyleInjectable` | per reply channel | "Telegram: no tables or headings" |
+#### Why placement matters: prompt caching
 
-Conditions are fixed and extended: `tool_used` reads the turn's tool calls (today it reads a field nobody
-sets); `once` is tracked per session; a new `session_kind` condition selects by session type.
+Every model call sends everything again: the system prompt, the tool schemas, then the whole history.
+Providers cache the longest **prefix** that matches an earlier request (DeepSeek does this automatically;
+Anthropic at the breakpoint the adapter sets after the system prompt). A change invalidates the cache from
+the first changed token **onwards**. Because the history comes after the system prompt, changing the system
+prompt makes the next call re-read the entire conversation. That's a one-off cost per change, which is fine
+for something that changes rarely, but expensive for anything that changes every call.
 
-**Prompt-cache friendly ordering:** stable parts first (identity, rules, tool schemas), changing parts last
-(memory, time, task ledger), so providers that cache prefixes (DeepSeek, Anthropic) reuse them.
+The rule that follows: **order content by how often it changes, slowest first; anything that changes often
+goes at the end.**
+
+#### Placement and order
+
+```ts
+export type InjectionPlacement =
+  | 'header'   // the system prompt. Stable content only: it starts the cached prefix.
+  | 'context'  // inserted into the message history (e.g. a compaction summary at its start)
+  | 'tail';    // attached to the latest turn, rebuilt on every call, never stored
+
+export interface ContextInjectable {
+  readonly id: string;
+  readonly placement: InjectionPlacement;
+  /** Ascending within a placement: -1 comes before 0. */
+  readonly order: number;
+  readonly condition: InjectionCondition;
+  render(context: AgentRenderContext): string | null;
+}
+```
+
+`order` replaces today's `priority`, which sorted the opposite way (higher first). The three existing
+injectables are migrated, so their behaviour stays the same.
+
+| Injectable | Placement | Order | Condition | Content | Changes |
+|------------|-----------|-------|-----------|---------|---------|
+| `IdentityInjectable` (kept) | header | -1 | always | Name, persona, writing rules | Almost never |
+| `SoulInjectable` | header | 0 | always | The assembled standing instructions ([below](#standing-instructions-the-soul)) | On a new revision |
+| `ToolIndexInjectable` | header | 1 | always | Names of deferred tools ([F05](F05-tool-system.md)) | When tools change |
+| `RulesInjectable` (kept) | header | 2 | always | Safety and behaviour rules; untrusted-content rule | Almost never |
+| `OwnerProfileInjectable` | header | 3 | always | Your name, time zone, locale (no clock) | Rarely |
+| `ChannelStyleInjectable` | header | 4 | per session | "Telegram: no tables or headings" | Per session |
+| `SkillIndexInjectable` | header | 5 | always | Skill names and descriptions ([F14](F14-skills.md)) | When skills change |
+| `MemoryIndexInjectable` | header | 6 | memory on | Confirmed notes first ([F13](F13-long-term-memory.md)) | When notes change |
+| `CompactionSummaryInjectable` | context | 0 | after compaction | Summary of the older messages, at the start of the history | On compaction |
+| `RelevantMemoryInjectable` | tail | 0 | memory on | Notes selected for this request ([F13](F13-long-term-memory.md)) | Every turn |
+| `TaskLedgerInjectable` | tail | 1 | chat sessions | Open tasks and recent results ([F15](F15-tasks-and-subagents.md)) | Often |
+| `ClockInjectable` | tail | 2 | always | Local date and time | Every call |
+| `MoodInjectable` | tail | 3 | mood on | One line of current mood ([F25](F25-mood.md)) | Often |
+
+The SOUL comes before the safety rules in the prompt, so the identity text states the precedence
+explicitly: standing instructions shape *how* Shitsuji behaves, and never override the rules, the trust
+checks or approvals.
+
+**How each placement is sent:**
+- **header:** joined into `ModelRequest.system`, in order.
+- **context:** turned into system-role messages at a fixed spot in the history (order 0 means first). Each
+  provider adapter then maps these system notes to its own format, as it already does.
+- **tail:** joined into one block and attached to the newest message for this call only. It's never stored
+  in the transcript, so the next call replaces it without touching the cached prefix.
+
+**A check that the header stays stable.** In development and in tests, the ContextBuilder compares each
+header injectable's output with the previous call in the same session. If one changes on every call, it
+logs a warning naming the injectable, which catches a clock or a mood slipping into the cached part.
+
+**Conditions** are fixed and extended:
+- `tool_used` reads the turn's tool calls (bug 8, fixed in S8);
+- `once` is tracked per session;
+- a new `session_kind` condition selects by session type.
+
+#### Standing instructions: the SOUL
+
+The SOUL is **assembled and evolving**, not a single file you edit:
+
+- **Fragments.** It's composed of ordered fragments:
+  - a base you write;
+  - traits Shitsuji has proposed and you've confirmed;
+  - optionally, parts for one session kind (for example, terser for background tasks).
+- **Revisions.** The database holds the real copy as numbered revisions, with history and undo. Each
+  turn records the revision it ran with. A `SOUL.md` export in the data folder lets you read it, and
+  editing that file creates a new revision once you confirm the change.
+- **Changes between turns only.** A new revision takes effect at the next turn, never in the middle of one.
+  Small changes are batched into one revision rather than causing a cache miss each.
+- **Shitsuji proposes, you decide.** Shitsuji may *propose* a change, shown as a before/after diff, but
+  it's applied only after you confirm. This uses the approvals in [F11](F11-trust-and-approvals.md); until
+  F11 exists, only you can change it.
+- **A size cap,** 24 KB (as in OpenMausBot), so the header stays small.
+
+The mood, which changes far more often, is a separate feature that lives in the tail:
+[F25](F25-mood.md).
 
 ### Interruptions and failures
 

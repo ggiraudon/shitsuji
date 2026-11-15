@@ -237,3 +237,12 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 - [ ] "Use the Bookkeeper for this" starts a task with that profile's model and tools.
 - [ ] The agent proposes a "Travel planner" profile after several travel tasks; it appears only after you approve.
 - [ ] A profile that tries to set a looser approval level is refused.
+
+### [F25 — Mood](features/F25-mood.md)
+
+- [ ] With the mood on, a turn's request carries one mood line in the tail and none in the system prompt; the
+      header stability check stays quiet.
+- [ ] Praise raises warmth; repeated failures lower energy; both decay back to the baseline over time (tested
+      with a manual clock).
+- [ ] Turning it off removes the line from the next call, and background sessions never carry it.
+- [ ] An eval scenario shows that the mood changes tone but not the facts in the answer.

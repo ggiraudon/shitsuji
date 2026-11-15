@@ -141,15 +141,28 @@ packages/
   criterion 3); a message sent mid-turn is answered in that turn (F04 criterion 2).
 
 #### S23. ContextBuilder, standing instructions and compaction
-- `ContextBuilder` replaces the agent's context code:
-  - `SoulInjectable` reads `SOUL.md`, which you can edit, from the data folder;
-  - `OwnerContextInjectable` adds your name, time zone and local time;
-  - `once` is tracked per session, and a new `session_kind` condition is added;
-  - stable parts go first, so DeepSeek's prompt cache keeps hitting.
-- `Compactor` summarises older messages with the `summarize` model when the history nears the model's
-  context window. The full transcript stays stored.
-- *Check:* compaction keeps the open request (F04 criterion 5); the order of the system prompt is tested.
-  Bug 8 is fixed.
+Design: [F04 context building](features/F04-agent-runtime.md#context-building) (decisions Q6 and Q7).
+- **Placement and order.** Injectables declare `placement` (`header`, `context` or `tail`) and an
+  ascending `order`, replacing `priority`. The three existing injectables are migrated. `ContextBuilder`
+  replaces the runner's context code: it builds the system prompt from the header, inserts context notes
+  into the history, and attaches the tail to the newest message for that call only.
+- **SOUL, assembled.** Soul fragments and revisions in a new migration, and `SoulInjectable` (header, 0)
+  rendering the current revision. Each turn records the revision it used. `SOUL.md` is written as a
+  readable export, and editing it creates a revision once confirmed (in the TUI, for now). Changes take
+  effect at the next turn. Proposals by Shitsuji wait for F11.
+- **Your profile and the clock.** `OwnerProfileInjectable` (header) holds your name, time zone and
+  locale; `ClockInjectable` (tail) the local time.
+- **Conditions.** `once` is tracked per session, and a new `session_kind` condition is added.
+- **Header stability check.** A warning in development and tests when a header injectable changes on
+  every call.
+- **Compaction.** `Compactor` summarises older messages with the `summarize` model when the history nears
+  the model's context window; `CompactionSummaryInjectable` (context, 0) puts the summary at the start of
+  the history. The full transcript stays stored.
+- *Check:*
+  - compaction keeps the open request (F04 criterion 5);
+  - tests cover the layout and order of a request across all three placements;
+  - a request carries the clock in the tail and not in the system prompt;
+  - a SOUL revision takes effect at the next turn, not in the middle of one.
 
 ### Interface
 

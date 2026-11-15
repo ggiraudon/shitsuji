@@ -27,6 +27,8 @@ Decisions to make together before implementation starts. Each has a proposal so 
 | Q3 | Owner key: random, created at first start, stored hashed, shown once and saved to a file only the owner can read; the TUI sends it as a Bearer token, the web UI will exchange it for a cookie |
 | Q4 | Remove the stdin CLI channel once the TUI works |
 | Q5 | Step limits per session kind: chat 40, task 200, helper 30, schedule 40, observer 20, configurable in `runtime.limits` |
+| Q6 | The SOUL is **assembled and evolving**: fragments and numbered revisions in the database, which holds the real copy; `SOUL.md` is a readable export. Changes take effect between turns. Shitsuji may propose changes; the owner confirms them (needs F11) |
+| Q7 | Injectables declare their **placement** (`header` = system prompt, `context` = in the history, `tail` = attached to the latest turn) and an ascending **order** (Identity -1, SOUL 0, tool index 1…). Anything that changes often goes in the tail, so prompt caching keeps working. A **mood** (F25) is planned for the tail |
 
 Still open: D2–D5, M2–M4, P2–P6. None of them blocks the first pass.
 

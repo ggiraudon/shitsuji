@@ -322,12 +322,18 @@ classDiagram
   class ContextInjectable {
     <<interface>>
     +id
-    +appliesTo(session) bool
+    +placement
+    +order
+    +condition
     +render(ctx) string
   }
   class IdentityInjectable
-  class SoulInjectable
-  class OwnerContextInjectable
+  class SoulInjectable {
+    +revision
+  }
+  class OwnerProfileInjectable
+  class ClockInjectable
+  class MoodInjectable
   class RulesInjectable
   class ToolIndexInjectable
   class SkillIndexInjectable
@@ -362,7 +368,9 @@ classDiagram
   ContextBuilder --> Compactor
   ContextInjectable <|.. IdentityInjectable
   ContextInjectable <|.. SoulInjectable
-  ContextInjectable <|.. OwnerContextInjectable
+  ContextInjectable <|.. OwnerProfileInjectable
+  ContextInjectable <|.. ClockInjectable
+  ContextInjectable <|.. MoodInjectable
   ContextInjectable <|.. RulesInjectable
   ContextInjectable <|.. ToolIndexInjectable
   ContextInjectable <|.. SkillIndexInjectable
