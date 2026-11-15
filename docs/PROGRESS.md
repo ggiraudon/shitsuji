@@ -29,7 +29,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 
 See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made.
 
-- [ ] **S15** Tool v2 port and schemas
+- [x] **S15** Tool v2 port and schemas
 - [ ] **S16** The execution pipeline
 - [ ] **S17** Built-in tools on v2
 - [ ] **S18** Web search and fetch

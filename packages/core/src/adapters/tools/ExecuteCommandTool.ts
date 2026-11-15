@@ -1,4 +1,4 @@
-import { BaseTool, type ToolResult, type ToolExecuteParams } from '../../ports/Tool.js';
+import { BaseTool, type ToolResult, type ToolExecuteParams } from '../../ports/LegacyTool.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 

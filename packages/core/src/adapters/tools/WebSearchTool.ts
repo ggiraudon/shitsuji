@@ -1,4 +1,4 @@
-import { BaseTool, type ToolResult, type ToolExecuteParams } from '../../ports/Tool.js';
+import { BaseTool, type ToolResult, type ToolExecuteParams } from '../../ports/LegacyTool.js';
 
 export class WebSearchTool extends BaseTool {
   readonly name = 'web_search';

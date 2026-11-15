@@ -1,4 +1,4 @@
-import { BaseTool, type ToolResult, type ToolExecuteParams } from '../../ports/Tool.js';
+import { BaseTool, type ToolResult, type ToolExecuteParams } from '../../ports/LegacyTool.js';
 import { ExpressionEvaluator } from './ExpressionEvaluator.js';
 
 export class CalculatorTool extends BaseTool {

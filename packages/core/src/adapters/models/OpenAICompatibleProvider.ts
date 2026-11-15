@@ -12,6 +12,7 @@ import type {
 } from '../../ports/ModelProvider.js';
 import { httpError } from './http.js';
 import { readSseData } from './sse.js';
+import { ToolNameMap } from './toolNames.js';
 import { TextToolCallParser } from './TextToolCallParser.js';
 import { ToolCallAccumulator, ToolCallArgumentsError } from './ToolCallAccumulator.js';
 
@@ -151,7 +152,10 @@ export class OpenAICompatibleProvider implements ModelProvider {
       if (parsed.calls.length) finishReason = 'tool_calls';
     } else {
       try {
-        for (const call of accumulator.finish()) yield { type: 'tool_call', call };
+        const names = new ToolNameMap(request.tools);
+        for (const call of accumulator.finish()) {
+          yield { type: 'tool_call', call: { ...call, name: names.internal(call.name) } };
+        }
       } catch (error) {
         if (error instanceof ToolCallArgumentsError) {
           throw new ProviderError(this.id, error.message, false, {}, { cause: error });
@@ -196,7 +200,11 @@ export class OpenAICompatibleProvider implements ModelProvider {
     if (request.tools?.length && this.quirks.toolCalls === 'native') {
       body.tools = request.tools.map((t) => ({
         type: 'function',
-        function: { name: t.name, description: t.description, parameters: t.parameters },
+        function: {
+          name: ToolNameMap.toWire(t.name),
+          description: t.description,
+          parameters: t.parameters,
+        },
       }));
       if (!this.quirks.parallelToolCalls) body.parallel_tool_calls = false;
     }
@@ -252,7 +260,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
           wire.tool_calls = calls.map((c) => ({
             id: c.id,
             type: 'function',
-            function: { name: c.name, arguments: JSON.stringify(c.arguments) },
+            function: { name: ToolNameMap.toWire(c.name), arguments: JSON.stringify(c.arguments) },
           }));
         }
         return [wire];

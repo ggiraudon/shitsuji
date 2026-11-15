@@ -11,6 +11,7 @@ import type {
 } from '../../ports/ModelProvider.js';
 import { httpError } from './http.js';
 import { readSseData } from './sse.js';
+import { ToolNameMap } from './toolNames.js';
 import { ToolCallAccumulator, ToolCallArgumentsError } from './ToolCallAccumulator.js';
 
 export interface AnthropicOptions {
@@ -150,7 +151,10 @@ export class AnthropicProvider implements ModelProvider {
     }
 
     try {
-      for (const call of tools.finish()) yield { type: 'tool_call', call };
+      const names = new ToolNameMap(request.tools);
+      for (const call of tools.finish()) {
+        yield { type: 'tool_call', call: { ...call, name: names.internal(call.name) } };
+      }
     } catch (error) {
       if (error instanceof ToolCallArgumentsError) {
         throw new ProviderError(this.id, error.message, false, {}, { cause: error });
@@ -175,7 +179,7 @@ export class AnthropicProvider implements ModelProvider {
     if (request.temperature !== undefined) body.temperature = request.temperature;
     if (request.tools?.length) {
       body.tools = request.tools.map((t) => ({
-        name: t.name,
+        name: ToolNameMap.toWire(t.name),
         description: t.description,
         input_schema: t.parameters,
       }));
@@ -243,7 +247,14 @@ const text = (parts: ContentPart[]) => parts.map((p) => (p.type === 'text' ? p.t
 function toAssistantBlock(p: ContentPart): Block[] {
   if (p.type === 'text' && p.text) return [{ type: 'text', text: p.text }];
   if (p.type === 'tool_call') {
-    return [{ type: 'tool_use', id: p.call.id, name: p.call.name, input: p.call.arguments }];
+    return [
+      {
+        type: 'tool_use',
+        id: p.call.id,
+        name: ToolNameMap.toWire(p.call.name),
+        input: p.call.arguments,
+      },
+    ];
   }
   return []; // reasoning parts are not sent back
 }

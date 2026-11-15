@@ -1,4 +1,4 @@
-import { BaseTool, type ToolResult, type ToolExecuteParams } from '../../ports/Tool.js';
+import { BaseTool, type ToolResult, type ToolExecuteParams } from '../../ports/LegacyTool.js';
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 

@@ -3,7 +3,7 @@ import type { ContextInjectable } from './ContextInjectable.js';
 import type { EventBus } from './EventBus.js';
 import type { Logger } from './Logger.js';
 import type { ModelProvider } from './ModelProvider.js';
-import type { Tool } from './Tool.js';
+import type { Tool } from './LegacyTool.js';
 
 export type PluginCapability = 'model' | 'channel' | 'tools' | 'context';
 

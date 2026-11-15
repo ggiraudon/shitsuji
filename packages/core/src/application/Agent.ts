@@ -18,7 +18,7 @@ import type { EventBus } from '../ports/EventBus.js';
 import type { ModelMessage, ModelRequest } from '../ports/ModelProvider.js';
 import type { Logger } from '../ports/Logger.js';
 import type { Repositories, Transaction } from '../ports/Repositories.js';
-import type { Tool } from '../ports/Tool.js';
+import type { Tool } from '../ports/LegacyTool.js';
 import { IdentityInjectable, RulesInjectable, ToolListInjectable } from './context/index.js';
 import type { ModelResponse } from './modelCalls.js';
 import type { ModelRouter } from './models/ModelRouter.js';
