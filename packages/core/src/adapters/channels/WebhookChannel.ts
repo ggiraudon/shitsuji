@@ -1,7 +1,7 @@
 import { BaseChannel, type ChannelMessage } from '../../ports/Channel.js';
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'http';
-import { logger } from '../logging/logger.js';
 import { randomUUID } from 'crypto';
+import type { Logger } from '../../ports/Logger.js';
 
 export interface WebhookChannelOptions {
   port?: number;
@@ -14,7 +14,10 @@ export class WebhookChannel extends BaseChannel {
   private path: string;
   private server: Server | null = null;
 
-  constructor(options: WebhookChannelOptions = {}) {
+  constructor(
+    private readonly log: Logger,
+    options: WebhookChannelOptions = {},
+  ) {
     super();
     this.port = options.port ?? 3000;
     this.path = options.path ?? '/webhook';
@@ -81,7 +84,7 @@ export class WebhookChannel extends BaseChannel {
     });
 
     this.server.listen(this.port, () => {
-      logger.info(`Webhook Channel started on port ${this.port}`);
+      this.log.info(`Webhook Channel started on port ${this.port}`);
     });
   }
 
@@ -91,7 +94,7 @@ export class WebhookChannel extends BaseChannel {
       this.server.close();
       this.server = null;
     }
-    logger.info('Webhook Channel stopped');
+    this.log.info('Webhook Channel stopped');
   }
 
   async send(_destination: string, message: string): Promise<void> {

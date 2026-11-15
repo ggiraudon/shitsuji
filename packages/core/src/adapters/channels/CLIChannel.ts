@@ -1,13 +1,17 @@
 import { BaseChannel, type ChannelMessage } from '../../ports/Channel.js';
 import * as readline from 'readline';
 import { randomUUID } from 'crypto';
-import { logger } from '../logging/logger.js';
+import type { Logger } from '../../ports/Logger.js';
 
 export class CLIChannel extends BaseChannel {
   readonly name = 'cli';
   private rl: readline.Interface | null = null;
   private prompt = '> ';
   private messageHandler: ((message: ChannelMessage, destination: string) => void) | null = null;
+
+  constructor(private readonly log: Logger) {
+    super();
+  }
 
   override async start(): Promise<void> {
     await super.start();
@@ -16,7 +20,7 @@ export class CLIChannel extends BaseChannel {
       output: process.stdout,
     });
 
-    logger.info('CLI Channel started');
+    this.log.info('CLI Channel started');
     this.startInputLoop();
   }
 
@@ -26,7 +30,7 @@ export class CLIChannel extends BaseChannel {
       this.rl.close();
       this.rl = null;
     }
-    logger.info('CLI Channel stopped');
+    this.log.info('CLI Channel stopped');
   }
 
   async send(_destination: string, message: string): Promise<void> {

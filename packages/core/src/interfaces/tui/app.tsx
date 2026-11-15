@@ -11,6 +11,13 @@ import { SystemInfoTool } from '../../adapters/tools/SystemInfoTool.js';
 import { SessionStore } from '../../adapters/storage/SessionStore.js';
 import { join } from 'path';
 import { configManager } from '../../composition/config.js';
+import type { Logger } from '../../ports/Logger.js';
+import type { EventBus } from '../../ports/EventBus.js';
+
+export interface TuiServices {
+  log: Logger;
+  events: EventBus;
+}
 
 const colors = {
   background: '#1e1e1e',
@@ -31,7 +38,7 @@ interface Message {
   timestamp: number;
 }
 
-const ShitsujiApp = () => {
+const ShitsujiApp = ({ services }: { services: TuiServices }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -55,22 +62,24 @@ const ShitsujiApp = () => {
       let model = 'gpt-4o-mini';
 
       if (anthropicKey) {
-        llm = new AnthropicProvider(anthropicKey);
+        llm = new AnthropicProvider(anthropicKey, services.log);
         model = 'claude-3-5-sonnet-20241022';
       } else if (openaiKey) {
-        llm = new OpenAIProvider(openaiKey);
+        llm = new OpenAIProvider(openaiKey, services.log);
       } else {
         setError('No API key set (OPENAI_API_KEY or ANTHROPIC_API_KEY)');
         return;
       }
 
-      const sessionStore = new SessionStore(join(dataDir, 'sessions'));
+      const sessionStore = new SessionStore(join(dataDir, 'sessions'), services.log);
 
       const newAgent = new Agent({
         name: 'Shitsuji',
         llmProvider: llm,
         model,
         sessionStore,
+        log: services.log,
+        events: services.events,
       });
 
       newAgent.registerTool(new CalculatorTool());
@@ -224,6 +233,6 @@ const ShitsujiApp = () => {
   );
 };
 
-export async function startTUI(): Promise<void> {
-  render(<ShitsujiApp />);
+export async function startTUI(services: TuiServices): Promise<void> {
+  render(<ShitsujiApp services={services} />);
 }

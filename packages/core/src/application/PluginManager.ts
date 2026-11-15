@@ -1,4 +1,4 @@
-import { logger } from '../adapters/logging/logger.js';
+import type { Logger } from '../ports/Logger.js';
 
 export interface PluginManifest {
   id: string;
@@ -12,6 +12,7 @@ export interface PluginManifest {
 export interface PluginContext {
   configDir: string;
   dataDir: string;
+  log: Logger;
 }
 
 export interface Plugin {
@@ -22,13 +23,15 @@ export interface Plugin {
 
 export abstract class BasePlugin implements Plugin {
   abstract readonly manifest: PluginManifest;
+  protected ctx?: PluginContext;
 
-  async init(_ctx: PluginContext): Promise<void> {
-    logger.info(`Initializing plugin: ${this.manifest.name}`);
+  async init(ctx: PluginContext): Promise<void> {
+    this.ctx = ctx;
+    ctx.log.info(`Initializing plugin: ${this.manifest.name}`);
   }
 
   async destroy(): Promise<void> {
-    logger.info(`Destroying plugin: ${this.manifest.name}`);
+    this.ctx?.log.info(`Destroying plugin: ${this.manifest.name}`);
   }
 }
 
@@ -36,8 +39,8 @@ export class PluginManager {
   private plugins = new Map<string, Plugin>();
   private ctx: PluginContext;
 
-  constructor(configDir: string, dataDir: string) {
-    this.ctx = { configDir, dataDir };
+  constructor(configDir: string, dataDir: string, log: Logger) {
+    this.ctx = { configDir, dataDir, log };
   }
 
   register(plugin: Plugin): void {
@@ -45,7 +48,7 @@ export class PluginManager {
       throw new Error(`Plugin ${plugin.manifest.id} already registered`);
     }
     this.plugins.set(plugin.manifest.id, plugin);
-    logger.info(`Registered plugin: ${plugin.manifest.name} (${plugin.manifest.type})`);
+    this.ctx.log.info(`Registered plugin: ${plugin.manifest.name} (${plugin.manifest.type})`);
   }
 
   async unregister(id: string): Promise<void> {
@@ -53,7 +56,7 @@ export class PluginManager {
     if (plugin) {
       await plugin.destroy();
       this.plugins.delete(id);
-      logger.info(`Unregistered plugin: ${id}`);
+      this.ctx.log.info(`Unregistered plugin: ${id}`);
     }
   }
 

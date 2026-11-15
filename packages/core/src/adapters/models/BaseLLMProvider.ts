@@ -4,10 +4,12 @@ import {
   type LLMResponse,
   type LLMChunk,
 } from '../../ports/LLMProvider.js';
-import { logger } from '../logging/logger.js';
+import type { Logger } from '../../ports/Logger.js';
 
 export abstract class BaseLLMProvider implements LLMProvider {
   abstract readonly name: string;
+
+  constructor(protected readonly log: Logger) {}
 
   abstract complete(options: LLMCompletionOptions): Promise<LLMResponse>;
 
@@ -16,7 +18,7 @@ export abstract class BaseLLMProvider implements LLMProvider {
   abstract getModels(): string[];
 
   protected logRequest(options: LLMCompletionOptions): void {
-    logger.debug('LLM Request', {
+    this.log.debug('LLM Request', {
       model: options.model ?? this.name,
       messageCount: options.messages.length,
       hasTools: !!options.tools?.length,
@@ -24,7 +26,7 @@ export abstract class BaseLLMProvider implements LLMProvider {
   }
 
   protected logResponse(response: LLMResponse): void {
-    logger.debug('LLM Response', {
+    this.log.debug('LLM Response', {
       model: response.model,
       contentLength: response.content.length,
       toolCalls: response.toolCalls?.length ?? 0,

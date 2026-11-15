@@ -1,11 +1,13 @@
 import { type Channel } from '../ports/Channel.js';
 import { CLIChannel } from '../adapters/channels/CLIChannel.js';
 import { WebhookChannel, type WebhookChannelOptions } from '../adapters/channels/WebhookChannel.js';
-import { logger } from '../adapters/logging/logger.js';
+import type { Logger } from '../ports/Logger.js';
 
 export type ChannelType = 'cli' | 'webhook';
 
 export class ChannelManager {
+  constructor(private readonly log: Logger) {}
+
   private channels = new Map<string, Channel>();
 
   async createChannel(type: ChannelType, options?: WebhookChannelOptions): Promise<Channel> {
@@ -13,17 +15,17 @@ export class ChannelManager {
 
     switch (type) {
       case 'cli':
-        channel = new CLIChannel();
+        channel = new CLIChannel(this.log);
         break;
       case 'webhook':
-        channel = new WebhookChannel(options);
+        channel = new WebhookChannel(this.log, options);
         break;
       default:
         throw new Error(`Unknown channel type: ${type}`);
     }
 
     this.channels.set(channel.name, channel);
-    logger.info(`Created channel: ${channel.name}`);
+    this.log.info(`Created channel: ${channel.name}`);
     return channel;
   }
 

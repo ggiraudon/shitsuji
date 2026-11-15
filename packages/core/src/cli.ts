@@ -42,7 +42,8 @@ async function main() {
 
   if (command === 'tui') {
     const { startTUI } = await import('./interfaces/tui/app.js');
-    await startTUI();
+    const { createCoreServices } = await import('./composition/services.js');
+    await startTUI(createCoreServices());
     return;
   }
 

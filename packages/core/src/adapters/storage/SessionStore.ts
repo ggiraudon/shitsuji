@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlink
 import { join } from 'path';
 import { type Session } from '../../domain/Session.js';
 import { type Message } from '../../ports/LLMProvider.js';
-import { logger } from '../logging/logger.js';
+import type { Logger } from '../../ports/Logger.js';
 
 export interface SessionData {
   id: string;
@@ -17,7 +17,10 @@ export class SessionStore {
   private storeDir: string;
   private sessions = new Map<string, SessionData>();
 
-  constructor(storeDir: string) {
+  constructor(
+    storeDir: string,
+    private readonly log: Logger,
+  ) {
     this.storeDir = storeDir;
     this.ensureDir();
   }
@@ -41,7 +44,7 @@ export class SessionStore {
     const filePath = join(this.storeDir, `${session.id}.json`);
     writeFileSync(filePath, JSON.stringify(data, null, 2));
     this.sessions.set(session.id, data);
-    logger.debug(`Session saved: ${session.id}`);
+    this.log.debug(`Session saved: ${session.id}`);
   }
 
   load(sessionId: string): SessionData | null {
@@ -59,7 +62,7 @@ export class SessionStore {
       this.sessions.set(sessionId, data);
       return data;
     } catch (error) {
-      logger.error(`Failed to load session ${sessionId}`, { error: String(error) });
+      this.log.error(`Failed to load session ${sessionId}`, { error: String(error) });
       return null;
     }
   }
@@ -70,7 +73,7 @@ export class SessionStore {
       unlinkSync(filePath);
     }
     this.sessions.delete(sessionId);
-    logger.debug(`Session deleted: ${sessionId}`);
+    this.log.debug(`Session deleted: ${sessionId}`);
   }
 
   list(): SessionData[] {

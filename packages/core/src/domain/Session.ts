@@ -1,14 +1,27 @@
 import { type Message, type ToolCall } from '../ports/LLMProvider.js';
-import { logger } from '../adapters/logging/logger.js';
-import { messageBus, type Topic } from '../adapters/events/MessageBus.js';
 import { type SessionStore } from '../adapters/storage/SessionStore.js';
 import { randomUUID } from 'crypto';
+
+/** Events a session emits. The application layer forwards them (for example to the EventBus). */
+export interface SessionEventMap {
+  'session.created': { sessionId: string; agentId: string };
+  'session.updated': { sessionId: string; action: string; key?: string; value?: string };
+  'session.ended': { sessionId: string };
+  'message.received': { sessionId: string; role: string; content: string };
+  'message.sent': { sessionId: string; role: string; content?: string; isError?: boolean };
+}
+
+export type SessionObserver = <K extends keyof SessionEventMap>(
+  type: K,
+  payload: SessionEventMap[K],
+) => void;
 
 export interface SessionOptions {
   id?: string;
   agentId: string;
   maxTokens?: number;
   store?: SessionStore;
+  observer?: SessionObserver;
 }
 
 export class Session {
@@ -23,6 +36,7 @@ export class Session {
 
   private tokenCount = 0;
   private store?: SessionStore;
+  private readonly notify: SessionObserver;
 
   constructor(options: SessionOptions) {
     this.id = options.id ?? randomUUID();
@@ -31,12 +45,13 @@ export class Session {
     this.updatedAt = new Date();
     this.maxTokens = options.maxTokens ?? 32000;
     this.store = options.store;
+    this.notify = options.observer ?? (() => {});
 
     if (this.store && this.store.exists(this.id)) {
       this.load();
     }
 
-    messageBus.publish('session.created', { sessionId: this.id, agentId: this.agentId });
+    this.notify('session.created', { sessionId: this.id, agentId: this.agentId });
   }
 
   addUserMessage(content: string): Message {
@@ -69,7 +84,7 @@ export class Session {
       timestamp: Date.now(),
     };
     this.messages.push(message);
-    messageBus.publish('message.sent', { sessionId: this.id, role: 'tool', isError });
+    this.notify('message.sent', { sessionId: this.id, role: 'tool', isError });
     return message;
   }
 
@@ -77,8 +92,9 @@ export class Session {
     this.messages.push(message);
     this.updatedAt = new Date();
 
-    const topic: Topic = message.role === 'user' ? 'message.received' : 'message.sent';
-    messageBus.publish(topic, {
+    const topic: 'message.received' | 'message.sent' =
+      message.role === 'user' ? 'message.received' : 'message.sent';
+    this.notify(topic, {
       sessionId: this.id,
       role: message.role,
       content: message.content,
@@ -89,13 +105,12 @@ export class Session {
 
   remember(key: string, value: string): void {
     this.memory.set(key, value);
-    messageBus.publish('session.updated', {
+    this.notify('session.updated', {
       sessionId: this.id,
       action: 'remember',
       key,
       value,
     });
-    logger.debug(`Session ${this.id} remembered: ${key}`);
   }
 
   recall(key: string): string | undefined {
@@ -132,8 +147,7 @@ export class Session {
 
   end(): void {
     this.save();
-    messageBus.publish('session.ended', { sessionId: this.id });
-    logger.info(`Session ${this.id} ended`);
+    this.notify('session.ended', { sessionId: this.id });
   }
 
   save(): void {
@@ -150,7 +164,6 @@ export class Session {
       this.messages = data.messages;
       this.memory = new Map(Object.entries(data.memory));
       this.updatedAt = new Date(data.updatedAt);
-      logger.debug(`Session loaded: ${this.id}`);
     }
   }
 

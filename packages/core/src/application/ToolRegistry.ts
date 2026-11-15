@@ -1,8 +1,10 @@
 import { type Tool, type ToolResult, type ToolExecuteParams } from '../ports/Tool.js';
 import { type ToolDefinition } from '../ports/LLMProvider.js';
-import { logger } from '../adapters/logging/logger.js';
+import type { Logger } from '../ports/Logger.js';
 
 export class ToolRegistry {
+  constructor(private readonly log: Logger) {}
+
   private tools = new Map<string, Tool>();
 
   register(tool: Tool): void {
@@ -10,12 +12,12 @@ export class ToolRegistry {
       throw new Error(`Tool ${tool.name} already registered`);
     }
     this.tools.set(tool.name, tool);
-    logger.info(`Registered tool: ${tool.name}`);
+    this.log.info(`Registered tool: ${tool.name}`);
   }
 
   unregister(name: string): void {
     this.tools.delete(name);
-    logger.info(`Unregistered tool: ${name}`);
+    this.log.info(`Unregistered tool: ${name}`);
   }
 
   get(name: string): Tool | undefined {

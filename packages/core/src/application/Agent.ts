@@ -1,8 +1,6 @@
 import { randomUUID } from 'crypto';
-import { Session } from '../domain/Session.js';
+import { Session, type SessionObserver } from '../domain/Session.js';
 import { type SessionStore } from '../adapters/storage/SessionStore.js';
-import { messageBus } from '../adapters/events/MessageBus.js';
-import { logger } from '../adapters/logging/logger.js';
 import {
   type LLMProvider,
   type LLMCompletionOptions,
@@ -17,6 +15,8 @@ import {
   ToolListInjectable,
   RulesInjectable,
 } from './context/index.js';
+import type { Logger } from '../ports/Logger.js';
+import type { EventBus, ShitsujiEvents } from '../ports/EventBus.js';
 
 export interface AgentOptions {
   id?: string;
@@ -26,6 +26,8 @@ export interface AgentOptions {
   systemPrompt?: string;
   maxTokens?: number;
   sessionStore?: SessionStore;
+  log: Logger;
+  events: EventBus;
 }
 
 export interface AgentConfig {
@@ -47,17 +49,26 @@ export class Agent {
   private maxTokens: number;
   private sessionStore?: SessionStore;
 
+  private readonly log: Logger;
+  private readonly events: EventBus;
+
+  /** Session events are defined in the domain; ShitsujiEvents extends them, so the cast is exact. */
+  private readonly forwardSessionEvent: SessionObserver = (type, payload) =>
+    this.events.publish(type, payload as ShitsujiEvents[typeof type], { source: 'session' });
+
   constructor(options: AgentOptions) {
+    this.log = options.log;
+    this.events = options.events;
     this.id = options.id ?? randomUUID();
     this.name = options.name;
     this.llmProvider = options.llmProvider;
     this.model = options.model;
     this.maxTokens = options.maxTokens ?? 32000;
     this.sessionStore = options.sessionStore;
-    this.toolRegistry = new ToolRegistry();
+    this.toolRegistry = new ToolRegistry(this.log);
 
     this.setupDefaultInjectables();
-    logger.info(`Agent created: ${this.name} (${this.id})`);
+    this.log.info(`Agent created: ${this.name} (${this.id})`);
   }
 
   private setupDefaultInjectables(): void {
@@ -112,10 +123,11 @@ export class Agent {
       agentId: this.id,
       maxTokens: this.maxTokens,
       store: this.sessionStore,
+      observer: this.forwardSessionEvent,
     });
     this.sessions.set(session.id, session);
     this.activeSession = session;
-    logger.info(`Session created: ${session.id} for agent ${this.name}`);
+    this.log.info(`Session created: ${session.id} for agent ${this.name}`);
     return session;
   }
 
@@ -175,7 +187,7 @@ export class Agent {
       maxTokens: 4096,
     };
 
-    messageBus.publish('llm.request', {
+    this.events.publish('llm.request', {
       agentId: this.id,
       sessionId: session.id,
       model: options.model,
@@ -184,7 +196,7 @@ export class Agent {
     try {
       const response = await this.llmProvider.complete(options);
 
-      messageBus.publish('llm.response', {
+      this.events.publish('llm.response', {
         agentId: this.id,
         sessionId: session.id,
         contentLength: response.content.length,
@@ -193,7 +205,7 @@ export class Agent {
 
       return response;
     } catch (error) {
-      messageBus.publish('llm.error', {
+      this.events.publish('llm.error', {
         agentId: this.id,
         sessionId: session.id,
         error: String(error),
@@ -246,13 +258,13 @@ export class Agent {
     session: Session,
     toolCall: { id: string; name: string; arguments: Record<string, unknown> },
   ): Promise<string> {
-    messageBus.publish('tool.called', {
+    this.events.publish('tool.called', {
       sessionId: session.id,
       toolName: toolCall.name,
       toolCallId: toolCall.id,
     });
 
-    logger.info(`Executing tool: ${toolCall.name}`);
+    this.log.info(`Executing tool: ${toolCall.name}`);
 
     try {
       const result = await this.toolRegistry.execute(toolCall.name, {
@@ -260,7 +272,7 @@ export class Agent {
         args: toolCall.arguments,
       });
 
-      messageBus.publish('tool.result', {
+      this.events.publish('tool.result', {
         sessionId: session.id,
         toolName: toolCall.name,
         toolCallId: toolCall.id,
@@ -271,7 +283,7 @@ export class Agent {
     } catch (error) {
       const errorMsg = String(error);
 
-      messageBus.publish('tool.error', {
+      this.events.publish('tool.error', {
         sessionId: session.id,
         toolName: toolCall.name,
         toolCallId: toolCall.id,

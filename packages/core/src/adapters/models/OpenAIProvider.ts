@@ -4,6 +4,7 @@ import {
   type LLMResponse,
   type LLMChunk,
 } from '../../ports/LLMProvider.js';
+import type { Logger } from '../../ports/Logger.js';
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -34,8 +35,8 @@ export class OpenAIProvider extends BaseLLMProvider {
   private baseUrl = 'https://api.openai.com/v1';
   private defaultModel = 'gpt-4o';
 
-  constructor(apiKey: string, options?: { baseUrl?: string; defaultModel?: string }) {
-    super();
+  constructor(apiKey: string, log: Logger, options?: { baseUrl?: string; defaultModel?: string }) {
+    super(log);
     this.apiKey = apiKey;
     if (options?.baseUrl) this.baseUrl = options.baseUrl;
     if (options?.defaultModel) this.defaultModel = options.defaultModel;

@@ -4,7 +4,7 @@ import {
   type LLMResponse,
   type LLMChunk,
 } from '../../ports/LLMProvider.js';
-import { logger } from '../logging/logger.js';
+import type { Logger } from '../../ports/Logger.js';
 
 interface AnthropicMessage {
   role: 'user' | 'assistant';
@@ -17,8 +17,8 @@ export class AnthropicProvider extends BaseLLMProvider {
   private baseUrl = 'https://api.anthropic.com/v1';
   private defaultModel = 'claude-3-5-sonnet-20241022';
 
-  constructor(apiKey: string, options?: { baseUrl?: string; defaultModel?: string }) {
-    super();
+  constructor(apiKey: string, log: Logger, options?: { baseUrl?: string; defaultModel?: string }) {
+    super(log);
     this.apiKey = apiKey;
     if (options?.baseUrl) this.baseUrl = options.baseUrl;
     if (options?.defaultModel) this.defaultModel = options.defaultModel;
@@ -121,7 +121,7 @@ export class AnthropicProvider extends BaseLLMProvider {
   // Stub until the adapter is rewritten in S12; yields nothing.
   // eslint-disable-next-line require-yield
   override async *stream(_options: LLMCompletionOptions): AsyncIterable<LLMChunk> {
-    logger.warn('Streaming not yet implemented for Anthropic');
+    this.log.warn('Streaming not yet implemented for Anthropic');
     return;
   }
 
