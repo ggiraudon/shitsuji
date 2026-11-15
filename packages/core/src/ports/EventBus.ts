@@ -20,6 +20,28 @@ export interface ShitsujiEvents {
     hasToolCalls: boolean;
   };
   'llm.error': { agentId: string; sessionId: string; error: string };
+  /** A turn was queued, started, or ended. `reply` is set when it succeeded. */
+  'turn.status': {
+    turnId: string;
+    sessionId: string;
+    status: 'queued' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'cancelled';
+    reply?: string;
+    error?: string;
+    replyChannel?: string;
+  };
+  /** A piece of the reply as the model streams it. */
+  'turn.text_delta': { turnId: string; sessionId: string; text: string };
+  /** An owner message was folded into a running turn instead of starting a new one. */
+  'turn.steered': { turnId: string; sessionId: string };
+  'tool.started': { turnId: string; sessionId: string; toolName: string; toolCallId: string };
+  'tool.finished': {
+    turnId: string;
+    sessionId: string;
+    toolName: string;
+    toolCallId: string;
+    ok: boolean;
+    error?: string;
+  };
   'tool.called': { sessionId: string; toolName: string; toolCallId: string };
   'tool.result': { sessionId: string; toolName: string; toolCallId: string; success: boolean };
   'tool.error': { sessionId: string; toolName: string; toolCallId: string; error: string };

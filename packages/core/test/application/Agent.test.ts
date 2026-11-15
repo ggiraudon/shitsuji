@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
-import { Agent, StepLimitReached } from '../../src/application/Agent.js';
+import { Agent } from '../../src/application/Agent.js';
 import { asId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
 import {
@@ -17,13 +18,14 @@ import {
 
 const OWNER = asId<OwnerId>('owner');
 
-const setup = (replies: ScriptedReply[], extra: { maxSteps?: number } = {}) => {
+const setup = async (replies: ScriptedReply[], extra: { limits?: { chat: number } } = {}) => {
   const services = testServices();
   const seen: string[] = [];
   services.events.subscribePattern('*', (_p, e) => void seen.push(e.type));
   const repos = new InMemoryRepositories();
   const tools = new ToolCatalog();
   const llm = new ScriptedProvider(replies);
+  const jobs = new InMemoryJobQueue(services.log, services.clock);
   const agent = new Agent({
     name: 'Test',
     ownerId: OWNER,
@@ -34,9 +36,12 @@ const setup = (replies: ScriptedReply[], extra: { maxSteps?: number } = {}) => {
       defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock }),
     ),
     repos,
+    jobs,
     ...services,
     ...extra,
   });
+  await jobs.start();
+  await agent.start();
   return { agent, llm, seen, repos, services };
 };
 
@@ -46,20 +51,24 @@ const calc = (expression: string, id = 'c1'): ScriptedReply => ({
 
 describe('Agent', () => {
   it('replies with the model text and publishes session and model events', async () => {
-    const { agent, seen } = setup([{ content: 'Hello!' }]);
+    const { agent, seen } = await setup([{ content: 'Hello!' }]);
     const result = await agent.send('Hi');
     expect(result.reply).toBe('Hello!');
     expect(seen).toEqual([
       'session.created',
       'message.received',
+      'turn.status', // queued
+      'turn.status', // running
       'llm.request',
+      'turn.text_delta',
       'llm.response',
       'message.sent',
+      'turn.status', // succeeded
     ]);
   });
 
   it('keeps one conversation: the second message sees the first exchange (bug 1)', async () => {
-    const { agent, llm } = setup([
+    const { agent, llm } = await setup([
       { content: 'Nice to meet you, Sam.' },
       { content: 'You are Sam.' },
     ]);
@@ -74,7 +83,7 @@ describe('Agent', () => {
   });
 
   it('runs a tool call, stores call and result as content parts, and answers', async () => {
-    const { agent, llm, repos, seen } = setup([calc('6 * 7'), { content: 'It is 42.' }]);
+    const { agent, llm, repos, seen } = await setup([calc('6 * 7'), { content: 'It is 42.' }]);
     agent.registerTool(new MathEvaluateTool());
 
     const { reply, sessionId } = await agent.send('What is 6 times 7?');
@@ -95,7 +104,7 @@ describe('Agent', () => {
   });
 
   it('records the turn as succeeded, with model and tool events', async () => {
-    const { agent, repos } = setup([calc('1+1'), { content: '2' }]);
+    const { agent, repos } = await setup([calc('1+1'), { content: '2' }]);
     agent.registerTool(new MathEvaluateTool());
     const { turnId } = await agent.send('1+1?');
     const turn = await repos.turns.get(turnId);
@@ -105,7 +114,7 @@ describe('Agent', () => {
   });
 
   it('marks the turn failed with the reason when the model fails, and rethrows', async () => {
-    const { agent, repos } = setup([]); // no scripted reply: the model call throws
+    const { agent, repos } = await setup([]); // no scripted reply: the model call throws
     await expect(agent.send('Hi')).rejects.toThrow('No scripted reply left');
     const [turn] = await repos.turns.listByStatus('failed');
     expect(turn!.error).toBe('No scripted reply left');
@@ -116,15 +125,15 @@ describe('Agent', () => {
 
   it('stops a runaway tool loop at the step limit (bug 4)', async () => {
     const loops = Array.from({ length: 5 }, (_, i) => calc('1', `c${i}`));
-    const { agent, repos } = setup(loops, { maxSteps: 3 });
+    const { agent, repos } = await setup(loops, { limits: { chat: 3 } });
     agent.registerTool(new MathEvaluateTool());
-    await expect(agent.send('loop')).rejects.toThrow(StepLimitReached);
+    await expect(agent.send('loop')).rejects.toThrow(/step limit for chat sessions/);
     const [turn] = await repos.turns.listByStatus('failed');
     expect(turn!.error).toMatch(/after 3 model calls/);
   });
 
   it('keeps reasoning in the transcript but never in the reply (F03)', async () => {
-    const { agent, repos } = setup([{ reasoning: 'They want brevity.', content: 'Done.' }]);
+    const { agent, repos } = await setup([{ reasoning: 'They want brevity.', content: 'Done.' }]);
     const { reply, sessionId } = await agent.send('Be brief');
     expect(reply).toBe('Done.');
     const [, assistant] = await repos.messages.listBySession(sessionId);
@@ -135,7 +144,7 @@ describe('Agent', () => {
   });
 
   it('starts separate sessions on request', async () => {
-    const { agent, llm } = setup([{ content: 'a' }, { content: 'b' }]);
+    const { agent, llm } = await setup([{ content: 'a' }, { content: 'b' }]);
     const main = await agent.send('first');
     const fresh = await agent.startSession();
     const other = await agent.send('second', { sessionId: fresh });
@@ -144,14 +153,14 @@ describe('Agent', () => {
   });
 
   it('refuses a session that does not exist', async () => {
-    const { agent } = setup([]);
+    const { agent } = await setup([]);
     await expect(agent.send('x', { sessionId: asId<SessionId>('nope') })).rejects.toThrow(
       /not found/,
     );
   });
 
   it('applies tool_used injectables only after that tool ran (bug 8)', async () => {
-    const { agent, llm } = setup([calc('2+2'), { content: '4' }]);
+    const { agent, llm } = await setup([calc('2+2'), { content: '4' }]);
     agent.registerTool(new MathEvaluateTool());
     agent.addInjectable({
       id: 'calc-hint',

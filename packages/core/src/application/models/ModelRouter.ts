@@ -1,6 +1,6 @@
 import { ProviderError, ShitsujiError } from '../../domain/errors.js';
 import type { Logger } from '../../ports/Logger.js';
-import type { ModelProvider, ModelRequest } from '../../ports/ModelProvider.js';
+import type { ModelProvider, ModelRequest, ModelStreamEvent } from '../../ports/ModelProvider.js';
 import { complete, type ModelResponse } from '../modelCalls.js';
 import type { Capability, ModelCatalog, ModelInfo, ModelPurpose } from './ModelCatalog.js';
 
@@ -65,7 +65,11 @@ export class ModelRouter {
   async complete(
     purpose: ModelPurpose,
     request: Omit<ModelRequest, 'model'>,
-    options: { needs?: readonly Capability[]; signal?: AbortSignal } = {},
+    options: {
+      needs?: readonly Capability[];
+      signal?: AbortSignal;
+      onEvent?: (event: ModelStreamEvent) => void;
+    } = {},
   ): Promise<{ response: ModelResponse; binding: ModelBinding }> {
     const needs = [
       ...(options.needs ?? []),
@@ -80,6 +84,7 @@ export class ModelRouter {
           binding.provider,
           { ...request, model: binding.model, metadata: { ...request.metadata, purpose } },
           options.signal,
+          options.onEvent,
         );
         return { response, binding };
       } catch (error) {

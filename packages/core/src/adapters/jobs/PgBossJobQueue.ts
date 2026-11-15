@@ -60,9 +60,9 @@ export class PgBossJobQueue implements JobQueue {
   async work<T>(
     name: string,
     handler: JobHandler<T>,
-    options: { concurrency?: number } = {},
+    options: { concurrency?: number; keyed?: boolean } = {},
   ): Promise<void> {
-    await this.ensureQueue(name);
+    await this.ensureQueue(name, options.keyed);
     // pg-boss 10 runs one batch per worker; several workers give concurrency.
     for (let i = 0; i < (options.concurrency ?? 1); i++) {
       await this.boss.work<T>(name, { batchSize: 1, pollingIntervalSeconds: 1 }, async (jobs) => {

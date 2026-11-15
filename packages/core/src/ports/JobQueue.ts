@@ -34,5 +34,10 @@ export interface JobQueue {
     options?: EnqueueOptions,
     tx?: Transaction,
   ): Promise<string | null>;
-  work<T>(name: string, handler: JobHandler<T>, options?: { concurrency?: number }): Promise<void>;
+  /** `keyed`: this queue's jobs always use singletonKey (must match how they are enqueued). */
+  work<T>(
+    name: string,
+    handler: JobHandler<T>,
+    options?: { concurrency?: number; keyed?: boolean },
+  ): Promise<void>;
 }

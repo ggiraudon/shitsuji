@@ -183,6 +183,16 @@ export class InMemoryRepositories implements Repositories {
       const m = this.state.messages.find((x) => x.id === id);
       return m && copy(m);
     },
+    withdrawByTurn: async (turnId) => {
+      let n = 0;
+      for (const m of this.state.messages) {
+        if (m.turnId === turnId && m.author === 'owner' && !m.withdrawn) {
+          m.withdrawn = true;
+          n++;
+        }
+      }
+      return n;
+    },
     listBySession: async (sessionId, query: MessageQuery = {}) => {
       const all = this.state.messages.filter((m) => m.sessionId === sessionId);
       const picked = query.limit === undefined ? all : all.slice(-query.limit);

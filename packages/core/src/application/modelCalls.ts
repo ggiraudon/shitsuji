@@ -3,6 +3,7 @@ import type {
   FinishReason,
   ModelProvider,
   ModelRequest,
+  ModelStreamEvent,
   TokenUsage,
 } from '../ports/ModelProvider.js';
 
@@ -19,9 +20,12 @@ export async function complete(
   provider: ModelProvider,
   request: ModelRequest,
   signal?: AbortSignal,
+  /** Called with every stream event as it arrives (e.g. to stream text to a UI). */
+  onEvent?: (event: ModelStreamEvent) => void,
 ): Promise<ModelResponse> {
   const out: ModelResponse = { text: '', reasoning: '', toolCalls: [], finishReason: 'other' };
   for await (const event of provider.stream(request, signal)) {
+    onEvent?.(event);
     switch (event.type) {
       case 'text_delta':
         out.text += event.text;

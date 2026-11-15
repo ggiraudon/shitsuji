@@ -34,9 +34,9 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 - [x] **S17** Built-in tools on v2
 - [x] **S18** Web search and fetch
 - [x] **S19** Deferred discovery
-- [ ] **S20** Message intake and the turn scheduler
-- [ ] **S21** TurnRunner with streaming
-- [ ] **S22** Stop and steering
+- [x] **S20** Message intake and the turn scheduler
+- [x] **S21** TurnRunner with streaming
+- [x] **S22** Stop and steering
 - [ ] **S23** ContextBuilder, standing instructions and compaction
 - [ ] **S24** HTTP API
 - [ ] **S25** The TUI as an API client
@@ -72,9 +72,9 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 ### [F04 — Agent runtime: threads, sessions and turns](features/F04-agent-runtime.md)
 
 - [ ] Two messages from Telegram and the CLI land in the same thread and the agent sees both.
-- [ ] A message sent while the agent works is answered in the same turn.
-- [ ] Stop during a long tool call returns control within one second.
-- [ ] A runaway loop stops at the step limit with a clear reason.
+- [x] A message sent while the agent works is answered in the same turn.
+- [x] Stop during a long tool call returns control within one second.
+- [x] A runaway loop stops at the step limit with a clear reason.
 - [ ] A long conversation compacts without losing the open request.
 
 ### [F05 — Tool system v2](features/F05-tool-system.md)

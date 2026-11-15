@@ -94,7 +94,7 @@ describe('createShitsuji', () => {
     channel.receive('Hello');
     await until(() => channel.sent.length > 0);
     expect(channel.sent[0]!.message).toBe('Error: No scripted reply left');
-    expect(services.log.records.some((r) => r.message === 'Message failed')).toBe(true);
+    expect(services.log.records.some((r) => r.message === 'Turn failed')).toBe(true);
     await shitsuji.stop();
   });
 

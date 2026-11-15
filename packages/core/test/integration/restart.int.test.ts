@@ -26,6 +26,7 @@ describe('restarting core (F02)', () => {
       services: testServices(),
       plugins: [fakeModel(before)],
     });
+    await first.start();
     const one = await first.agent.send('My name is Sam');
     await first.stop();
 
@@ -34,6 +35,7 @@ describe('restarting core (F02)', () => {
       services: testServices(),
       plugins: [fakeModel(after)],
     });
+    await second.start();
     const two = await second.agent.send('What is my name?');
     await second.stop();
 

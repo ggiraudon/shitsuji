@@ -67,6 +67,8 @@ export interface MessageQuery {
 export interface MessageRepository {
   append(message: Message, tx?: Transaction): Promise<void>;
   get(id: MessageId, tx?: Transaction): Promise<Message | undefined>;
+  /** Marks the owner's messages of a turn as withdrawn (Stop): they no longer feed the model. */
+  withdrawByTurn(turnId: TurnId, tx?: Transaction): Promise<number>;
   /** The session's messages, oldest first. Withdrawn messages are included and flagged. */
   listBySession(sessionId: SessionId, query?: MessageQuery, tx?: Transaction): Promise<Message[]>;
 }

@@ -140,6 +140,7 @@ export async function createShitsuji(
     pipeline,
     ownerId: OWNER_ID,
     repos,
+    jobs,
     clock: services.clock,
     log,
     events,

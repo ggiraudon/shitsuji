@@ -357,6 +357,16 @@ export class PostgresRepositories implements Repositories {
         .executeTakeFirst();
       return r && toMessage(r);
     },
+    withdrawByTurn: async (turnId, tx) => {
+      const r = await this.ex(tx)
+        .updateTable('messages')
+        .set({ withdrawn: true })
+        .where('turn_id', '=', turnId)
+        .where('author', '=', 'owner')
+        .where('withdrawn', '=', false)
+        .executeTakeFirst();
+      return Number(r.numUpdatedRows);
+    },
     listBySession: async (sessionId, query = {}, tx) => {
       let q = this.ex(tx).selectFrom('messages').selectAll().where('session_id', '=', sessionId);
       if (query.limit !== undefined) {

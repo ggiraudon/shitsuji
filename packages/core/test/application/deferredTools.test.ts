@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
+import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
 import { Agent } from '../../src/application/Agent.js';
@@ -38,7 +39,7 @@ class DeferredTool extends BaseTool<z.ZodObject<{ text: z.ZodString }>> {
   }
 }
 
-const setup = (replies: ScriptedReply[]) => {
+const setup = async (replies: ScriptedReply[]) => {
   const services = testServices();
   const repos = new InMemoryRepositories();
   const tools = new ToolCatalog([new MathEvaluateTool()]);
@@ -48,6 +49,7 @@ const setup = (replies: ScriptedReply[]) => {
   }
   tools.add(new ToolSearchTool(() => tools.list()));
   const llm = new ScriptedProvider(replies);
+  const jobs = new InMemoryJobQueue(services.log, services.clock);
   const agent = new Agent({
     name: 'Test',
     ownerId: asId<OwnerId>('owner'),
@@ -58,14 +60,17 @@ const setup = (replies: ScriptedReply[]) => {
       defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock }),
     ),
     repos,
+    jobs,
     ...services,
   });
+  await jobs.start();
+  await agent.start();
   return { agent, llm };
 };
 
 describe('deferred tool discovery (F05)', () => {
   it('sends only the core set and an index of the 40 deferred tools on the first request', async () => {
-    const { agent, llm } = setup([{ content: 'Hello.' }]);
+    const { agent, llm } = await setup([{ content: 'Hello.' }]);
     await agent.send('Hi');
     const first = llm.requests[0]!;
     expect(first.tools!.map((t) => t.name).sort()).toEqual(['math.evaluate', 'tool_search']);
@@ -75,7 +80,7 @@ describe('deferred tool discovery (F05)', () => {
   });
 
   it('finds tools with tool_search, then sends their schemas so the model can call one', async () => {
-    const { agent, llm } = setup([
+    const { agent, llm } = await setup([
       { toolCalls: [{ id: 's1', name: 'tool_search', arguments: { query: 'weather' } }] },
       { toolCalls: [{ id: 'c1', name: 'ext2.weather', arguments: { text: 'Paris' } }] },
       { content: 'Sunny in Paris.' },

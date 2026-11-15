@@ -100,6 +100,8 @@ describe('crash in the middle of a turn (F02)', () => {
     const zombie = crashed.agent.send('Book the table').catch((e: Error) => e);
     await until(() => hanging.calls === 1, 10_000);
     expect(await repos.turns.listByStatus('running')).toHaveLength(1);
+    // A dead process takes its job workers with it.
+    await crashed.jobs.stop();
 
     // Restart: a new process on the same database.
     const fresh = new ScriptedProvider(

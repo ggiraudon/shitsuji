@@ -34,6 +34,7 @@ export class Shitsuji {
   private readonly onStop: readonly (() => Promise<void>)[];
   readonly jobs: JobQueue;
   private readonly recovery: StartupRecovery;
+  private offReplies?: () => void;
   private started: Channel[] = [];
 
   constructor(parts: ShitsujiParts) {
@@ -51,6 +52,12 @@ export class Shitsuji {
   async start(): Promise<void> {
     await this.recovery.run();
     await this.jobs.start();
+    this.offReplies = this.events.subscribe('turn.status', (e) => {
+      if (!e.replyChannel || !['succeeded', 'failed', 'cancelled'].includes(e.status)) return;
+      const text = e.status === 'succeeded' ? (e.reply ?? '') : `Error: ${e.error ?? e.status}`;
+      void this.deliver(e.replyChannel, text);
+    });
+    await this.agent.start();
     for (const channel of this.channels) {
       channel.onMessage((message, destination) => {
         void this.handle(channel, message.content, destination);
@@ -63,6 +70,7 @@ export class Shitsuji {
   }
 
   async stop(): Promise<void> {
+    this.offReplies?.();
     for (const channel of [...this.started].reverse()) {
       try {
         await channel.stop();
@@ -74,6 +82,8 @@ export class Shitsuji {
       }
     }
     this.started = [];
+    // Give running turns a moment to finish; anything still running is recovered at next start.
+    await Promise.race([this.agent.idle(), new Promise((r) => setTimeout(r, 5000))]);
     try {
       await this.jobs.stop();
     } catch (error) {
@@ -92,17 +102,29 @@ export class Shitsuji {
 
   private async handle(channel: Channel, content: string, destination: string): Promise<void> {
     this.log.info('Message received', { channel: channel.name, length: content.length });
-    let reply: string;
     try {
-      reply = (await this.agent.send(content, { channel: channel.name })).reply;
+      // The reply comes back through turn.status (see start()), addressed by replyChannel.
+      await this.agent.submit(content, {
+        channel: channel.name,
+        replyChannel: `${channel.name}:${destination}`,
+      });
     } catch (error) {
       this.log.error('Message failed', { channel: channel.name, error: serializeError(error) });
-      reply = `Error: ${error instanceof Error ? error.message : String(error)}`;
+      await this.deliver(`${channel.name}:${destination}`, `Error: ${(error as Error).message}`);
     }
+  }
+
+  /** Sends a reply to "<channel>:<destination>". */
+  private async deliver(replyChannel: string, text: string): Promise<void> {
+    const colon = replyChannel.indexOf(':');
+    const name = colon === -1 ? replyChannel : replyChannel.slice(0, colon);
+    const destination = colon === -1 ? '' : replyChannel.slice(colon + 1);
+    const channel = this.started.find((c) => c.name === name);
+    if (!channel) return; // a channel that is not running here (e.g. the TUI reads events itself)
     try {
-      await channel.send(destination, reply);
+      await channel.send(destination, text);
     } catch (error) {
-      this.log.error('Reply failed', { channel: channel.name, error: serializeError(error) });
+      this.log.error('Reply failed', { channel: name, error: serializeError(error) });
     }
   }
 }
