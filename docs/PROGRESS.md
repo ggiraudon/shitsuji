@@ -17,7 +17,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 - [x] **S7** Domain model
 - [x] **S8** Persistence ports and in-memory adapters
 - [x] **S9** Postgres adapters
-- [ ] **S10** Job queue and startup recovery
+- [x] **S10** Job queue and startup recovery
 - [ ] **S11** Model provider port and the OpenAI-compatible adapter
 - [ ] **S12** Anthropic adapter
 - [ ] **S13** Catalogue, router and decorators
@@ -35,8 +35,8 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 
 ### [F02 — Persistence and durable jobs](features/F02-persistence.md)
 
-- [ ] Restarting `core` keeps all threads, messages and queued turns.
-- [ ] A turn can be started by only one worker at a time (proved by a concurrency test).
+- [x] Restarting `core` keeps all threads, messages and queued turns.
+- [x] A turn can be started by only one worker at a time (proved by a concurrency test).
 - [ ] `docker compose up` creates the schema from migrations.
 
 ### [F03 — Model providers and router](features/F03-model-providers.md)

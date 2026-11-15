@@ -1,8 +1,12 @@
+import { InMemoryJobQueue } from '../adapters/jobs/InMemoryJobQueue.js';
+import { PgBossJobQueue } from '../adapters/jobs/PgBossJobQueue.js';
 import { InMemoryRepositories } from '../adapters/memory/InMemoryRepositories.js';
 import { PostgresDatabase } from '../adapters/postgres/PostgresDatabase.js';
 import { PostgresRepositories } from '../adapters/postgres/PostgresRepositories.js';
 import { Agent } from '../application/Agent.js';
 import { PluginManager } from '../application/PluginManager.js';
+import { StartupRecovery } from '../application/StartupRecovery.js';
+import type { JobQueue } from '../ports/JobQueue.js';
 import { ConfigError } from '../domain/errors.js';
 import { asId, type OwnerId } from '../domain/model/ids.js';
 import type { Repositories } from '../ports/Repositories.js';
@@ -32,6 +36,8 @@ export interface CreateShitsujiOptions {
   channels?: boolean;
   /** Storage. Defaults to Postgres when database.url is set (S9), else in memory. */
   repos?: Repositories;
+  /** Background jobs. Defaults to pg-boss with Postgres, else in memory. */
+  jobs?: JobQueue;
   /** Extra plugins, loaded after the built-ins and before the plugins directory. */
   plugins?: readonly ShitsujiPlugin[];
 }
@@ -56,6 +62,7 @@ export async function createShitsuji(
 
   const onStop: (() => Promise<void>)[] = [];
   let repos = options.repos;
+  let jobs: JobQueue | undefined = options.jobs;
   if (!repos && config.database.url) {
     const database = PostgresDatabase.connect({ url: config.database.url.reveal(), log });
     onStop.push(() => database.close());
@@ -70,9 +77,11 @@ export async function createShitsuji(
       );
     }
     repos = new PostgresRepositories(database.db);
+    jobs ??= new PgBossJobQueue(config.database.url.reveal(), log);
     log.info('Using Postgres');
   }
   repos ??= inMemoryWithWarning(log);
+  jobs ??= new InMemoryJobQueue(log, services.clock);
   await repos.owners.upsert({
     id: OWNER_ID,
     displayName: config.owner.name,
@@ -102,6 +111,8 @@ export async function createShitsuji(
     log,
     events,
     version: VERSION,
+    jobs,
+    recovery: new StartupRecovery(repos, services.clock, log),
     onStop,
   });
 }

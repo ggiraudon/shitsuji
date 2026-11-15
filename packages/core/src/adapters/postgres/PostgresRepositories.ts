@@ -74,6 +74,12 @@ const toMessage = (r: Selectable<MessagesTable>): Message => {
   return m;
 };
 
+/** The Kysely transaction behind a port Transaction, for adapters that share it (e.g. jobs). */
+export function kyselyOf(tx: Transaction): KyselyTx<Database> {
+  if (!(tx instanceof PgTransaction)) throw new TypeError('Not a Postgres transaction');
+  return tx.trx;
+}
+
 /** Repositories on Postgres via Kysely. Pass a Transaction to join a unit of work. */
 export class PostgresRepositories implements Repositories {
   constructor(private readonly db: Kysely<Database>) {}

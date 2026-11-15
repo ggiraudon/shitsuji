@@ -1,5 +1,7 @@
 import type { Agent } from '../application/Agent.js';
 import type { PluginManager } from '../application/PluginManager.js';
+import type { StartupRecovery } from '../application/StartupRecovery.js';
+import type { JobQueue } from '../ports/JobQueue.js';
 import { serializeError } from '../domain/errors.js';
 import type { Channel } from '../ports/Channel.js';
 import type { EventBus } from '../ports/EventBus.js';
@@ -12,6 +14,8 @@ export interface ShitsujiParts {
   log: Logger;
   events: EventBus;
   version: string;
+  jobs: JobQueue;
+  recovery: StartupRecovery;
   /** Run last on stop(), e.g. closing the database pool. */
   onStop?: readonly (() => Promise<void>)[];
 }
@@ -28,6 +32,8 @@ export class Shitsuji {
   private readonly plugins: PluginManager;
   private readonly version: string;
   private readonly onStop: readonly (() => Promise<void>)[];
+  readonly jobs: JobQueue;
+  private readonly recovery: StartupRecovery;
   private started: Channel[] = [];
 
   constructor(parts: ShitsujiParts) {
@@ -38,9 +44,13 @@ export class Shitsuji {
     this.events = parts.events;
     this.version = parts.version;
     this.onStop = parts.onStop ?? [];
+    this.jobs = parts.jobs;
+    this.recovery = parts.recovery;
   }
 
   async start(): Promise<void> {
+    await this.recovery.run();
+    await this.jobs.start();
     for (const channel of this.channels) {
       channel.onMessage((message, destination) => {
         void this.handle(channel, message.content, destination);
@@ -64,6 +74,11 @@ export class Shitsuji {
       }
     }
     this.started = [];
+    try {
+      await this.jobs.stop();
+    } catch (error) {
+      this.log.error('Job queue stop failed', { error: serializeError(error) });
+    }
     await this.plugins.disposeAll();
     for (const close of this.onStop) {
       try {
