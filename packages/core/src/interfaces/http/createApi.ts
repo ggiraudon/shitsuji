@@ -26,8 +26,8 @@ export interface ApiDeps {
   ownerId: OwnerId;
   /** Checks the owner key (decision Q3). */
   verifyKey: (key: string | undefined) => boolean;
-  /** From @hono/node-ws in production; omitted in tests that only use REST. */
-  upgradeWebSocket?: UpgradeWebSocket;
+  /** Builds the WebSocket upgrade for this app (@hono/node-ws); omitted in tests that only use REST. */
+  webSocket?: (app: Hono) => UpgradeWebSocket;
 }
 
 const TICKET_TTL_MS = 30_000;
@@ -127,7 +127,8 @@ export function createApi(deps: ApiDeps): Hono {
     return c.json({ ticket, expiresInSeconds: TICKET_TTL_MS / 1000 });
   });
 
-  if (deps.upgradeWebSocket) {
+  const upgradeWebSocket = deps.webSocket?.(app);
+  if (upgradeWebSocket) {
     app.get(
       '/api/events',
       async (c, next) => {
@@ -139,7 +140,7 @@ export function createApi(deps: ApiDeps): Hono {
         tickets.delete(ticket); // single use
         return next();
       },
-      deps.upgradeWebSocket(() => {
+      upgradeWebSocket(() => {
         const offs: (() => void)[] = [];
         return {
           onOpen(_event, ws) {

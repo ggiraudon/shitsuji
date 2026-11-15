@@ -2,6 +2,7 @@ import type { Agent } from '../application/Agent.js';
 import type { PluginManager } from '../application/PluginManager.js';
 import type { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
+import type { RunningApi } from './apiServer.js';
 import { serializeError } from '../domain/errors.js';
 import type { Channel } from '../ports/Channel.js';
 import type { EventBus } from '../ports/EventBus.js';
@@ -16,6 +17,8 @@ export interface ShitsujiParts {
   version: string;
   jobs: JobQueue;
   recovery: StartupRecovery;
+  /** Starts the HTTP API, if enabled; called once the agent runs. */
+  startApi?: () => Promise<RunningApi>;
   /** Run last on stop(), e.g. closing the database pool. */
   onStop?: readonly (() => Promise<void>)[];
 }
@@ -35,6 +38,8 @@ export class Shitsuji {
   readonly jobs: JobQueue;
   private readonly recovery: StartupRecovery;
   private offReplies?: () => void;
+  private readonly startApi?: () => Promise<RunningApi>;
+  private api?: RunningApi;
   private started: Channel[] = [];
 
   constructor(parts: ShitsujiParts) {
@@ -47,6 +52,7 @@ export class Shitsuji {
     this.onStop = parts.onStop ?? [];
     this.jobs = parts.jobs;
     this.recovery = parts.recovery;
+    this.startApi = parts.startApi;
   }
 
   async start(): Promise<void> {
@@ -58,6 +64,10 @@ export class Shitsuji {
       void this.deliver(e.replyChannel, text);
     });
     await this.agent.start();
+    if (this.startApi) {
+      this.api = await this.startApi();
+      this.log.info('API listening', { url: this.api.url });
+    }
     for (const channel of this.channels) {
       channel.onMessage((message, destination) => {
         void this.handle(channel, message.content, destination);
@@ -69,8 +79,15 @@ export class Shitsuji {
     this.log.info('Shitsuji started', { channels: this.started.map((c) => c.name) });
   }
 
+  /** Where the API listens, once started. */
+  get apiUrl(): string | undefined {
+    return this.api?.url;
+  }
+
   async stop(): Promise<void> {
     this.offReplies?.();
+    await this.api?.close();
+    this.api = undefined;
     for (const channel of [...this.started].reverse()) {
       try {
         await channel.stop();

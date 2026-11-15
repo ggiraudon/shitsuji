@@ -103,6 +103,16 @@ export const shitsujiConfigSchema = z
       })
       .strict()
       .default({}),
+    /** The HTTP API that the TUI (and later the web UI) uses (S24). */
+    api: z
+      .object({
+        enabled: z.boolean().default(true),
+        /** 127.0.0.1 keeps it on this machine; Compose sets 0.0.0.0 inside the container. */
+        host: z.string().min(1).default('127.0.0.1'),
+        port: z.number().int().min(0).max(65535).default(3001),
+      })
+      .strict()
+      .default({}),
     channels: z
       .object({
         cli: z

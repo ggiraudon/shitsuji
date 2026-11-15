@@ -89,9 +89,9 @@ export class TestChannel extends BaseChannel {
   }
 }
 
-export const until = async (check: () => boolean, timeoutMs = 1000) => {
+export const until = async (check: () => boolean | Promise<boolean>, timeoutMs = 1000) => {
   const start = Date.now();
-  while (!check()) {
+  while (!(await check())) {
     if (Date.now() - start > timeoutMs) throw new Error('Timed out waiting for condition');
     await new Promise((r) => setTimeout(r, 5));
   }

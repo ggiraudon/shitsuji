@@ -29,6 +29,8 @@ const ENV_OVERRIDES: { vars: string[]; path: string[]; parse?: (v: string) => un
   { vars: ['SHITSUJI_DATA_DIR', 'DATA_DIR'], path: ['paths', 'dataDir'] },
   { vars: ['DATABASE_URL'], path: ['database', 'url'] },
   { vars: ['SHITSUJI_WEBHOOK_PORT'], path: ['channels', 'webhook', 'port'], parse: Number },
+  { vars: ['SHITSUJI_API_HOST'], path: ['api', 'host'] },
+  { vars: ['SHITSUJI_API_PORT'], path: ['api', 'port'], parse: Number },
   { vars: ['SHITSUJI_SEARXNG_URL'], path: ['tools', 'web', 'searxngUrl'] },
   { vars: ['SHITSUJI_CLI_CHANNEL'], path: ['channels', 'cli', 'enabled'], parse: parseBool },
 ];

@@ -84,6 +84,7 @@ describe('crash in the middle of a turn (F02)', () => {
     const config = shitsujiConfigSchema.parse({
       database: { url },
       channels: { cli: { enabled: false }, webhook: { enabled: false } },
+      api: { enabled: false },
       models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/m' } },
     });
     const repos = new PostgresRepositories(database.db);

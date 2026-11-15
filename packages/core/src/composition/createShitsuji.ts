@@ -1,3 +1,4 @@
+import { OwnerKeyFile } from '../adapters/auth/OwnerKeyFile.js';
 import { InMemoryJobQueue } from '../adapters/jobs/InMemoryJobQueue.js';
 import { PgBossJobQueue } from '../adapters/jobs/PgBossJobQueue.js';
 import { InMemoryRepositories } from '../adapters/memory/InMemoryRepositories.js';
@@ -28,6 +29,7 @@ import { CoreToolsPlugin } from '../plugins/coreToolsPlugin.js';
 import { WebToolsPlugin } from '../plugins/webToolsPlugin.js';
 import { AnthropicPlugin, OpenAICompatiblePlugin } from '../plugins/modelPlugins.js';
 import type { ShitsujiConfig } from './config/schema.js';
+import { startApiServer } from './apiServer.js';
 import { loadPluginsFromDirectory } from './loadPluginsFromDirectory.js';
 import { createCoreServices, type CoreServices } from './services.js';
 import { Shitsuji } from './Shitsuji.js';
@@ -49,6 +51,8 @@ export interface CreateShitsujiOptions {
   channels?: boolean;
   /** Storage. Defaults to Postgres when database.url is set (S9), else in memory. */
   repos?: Repositories;
+  /** Start the HTTP API (default: config.api.enabled). The in-process tests turn it off. */
+  api?: boolean;
   /** Background jobs. Defaults to pg-boss with Postgres, else in memory. */
   jobs?: JobQueue;
   /** Extra plugins, loaded after the built-ins and before the plugins directory. */
@@ -162,6 +166,29 @@ export async function createShitsuji(
     version: VERSION,
     jobs,
     recovery: new StartupRecovery(repos, services.clock, log),
+    startApi:
+      (options.api ?? config.api.enabled)
+        ? async () => {
+            const keys = new OwnerKeyFile(config.paths.dataDir);
+            const { created } = await keys.ensure();
+            if (created) {
+              // Shown once (decision Q3). Also saved to owner.key for the TUI on this machine.
+              log.warn(`New owner key for the API: ${created}  (saved to ${keys.keyPath})`);
+            }
+            return startApiServer(
+              {
+                agent,
+                repos: repos!,
+                events,
+                clock: services.clock,
+                log,
+                ownerId: OWNER_ID,
+                verifyKey: (k) => keys.verify(k),
+              },
+              config.api,
+            );
+          }
+        : undefined,
     onStop,
   });
 }

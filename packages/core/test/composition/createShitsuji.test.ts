@@ -19,6 +19,7 @@ const config = (extra: Record<string, unknown> = {}) =>
   shitsujiConfigSchema.parse({
     paths: { dataDir },
     channels: { cli: { enabled: false }, webhook: { enabled: false } },
+    api: { enabled: false },
     models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/test-model' } },
     ...extra,
   });
