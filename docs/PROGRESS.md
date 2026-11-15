@@ -21,9 +21,9 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 - [x] **S11** Model provider port and the OpenAI-compatible adapter
 - [x] **S12** Anthropic adapter
 - [x] **S13** Catalogue, router and decorators
-- [ ] **S14** Container and end-to-end
-      *(Stack verified with `docker compose up` from empty volumes; waiting for a DeepSeek key for the
-      live chat-with-tool-call check.)*
+- [x] **S14** Container and end-to-end
+      *(Verified 2026-11-15 on deepseek-flash: a calculator tool call on the host, and through Compose a
+      conversation that survives a core restart, with usage rows written.)*
 
 ## Acceptance criteria by feature
 
@@ -45,8 +45,9 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 
 - [ ] The same conversation with tool calls works on DeepSeek, an Ollama model and Claude, checked by a recorded
       contract test per adapter (HTTP fixtures, no live calls in CI).
-      *(Contract tests exist for both adapters, but the fixtures are hand-written from the API docs;
-      tick once they are re-recorded from real DeepSeek, Ollama and Claude responses.)*
+      *(DeepSeek: done, with streams recorded from the real API. Ollama and Claude: contract tests on
+      hand-written fixtures only; record them once an Ollama server and an Anthropic key are
+      available.)*
 - [x] Streaming tool calls with fragmented arguments assemble correctly.
 - [x] Switching a purpose to another model is a configuration change only.
 - [x] Every model request writes a usage row with tokens and, where known, cost.
