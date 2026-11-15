@@ -1,0 +1,10 @@
+: hand-written from the documented stream format of this provider; replace with a real recording once an API key is available
+
+data: {"id": "chatcmpl-77", "object": "chat.completion.chunk", "created": 1763000000, "model": "qwen3:4b", "system_fingerprint": "fp_ollama", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "I'll calculate that.\n```tool_call\n{\"name\": \"calcu"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-77", "object": "chat.completion.chunk", "created": 1763000000, "model": "qwen3:4b", "system_fingerprint": "fp_ollama", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "lator\", \"arguments\": {\"expression\": \"2+2\"}}\n```"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-77", "object": "chat.completion.chunk", "created": 1763000000, "model": "qwen3:4b", "system_fingerprint": "fp_ollama", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": "stop"}]}
+
+data: [DONE]
+

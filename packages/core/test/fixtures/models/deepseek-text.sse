@@ -1,0 +1,16 @@
+: hand-written from the documented stream format of this provider; replace with a real recording once an API key is available
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"role": "assistant", "content": null, "reasoning_content": "The user greets me. "}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"reasoning_content": "Reply briefly."}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"content": "Good evening"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"content": ", sir. 執事 at your service."}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [], "usage": {"prompt_tokens": 120, "completion_tokens": 18, "total_tokens": 138, "prompt_cache_hit_tokens": 100, "prompt_cache_miss_tokens": 20, "completion_tokens_details": {"reasoning_tokens": 9}}}
+
+data: [DONE]
+
