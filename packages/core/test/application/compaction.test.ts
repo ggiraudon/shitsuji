@@ -214,6 +214,125 @@ describe('Compactor (S23)', () => {
   });
 });
 
+describe('Compactor: budgets and chunks (review fixes)', () => {
+  function compactorWith(
+    repos: InMemoryRepositories,
+    model: ScriptedProvider,
+    deps: { maxInputChars?: number } = {},
+  ) {
+    return new Compactor({
+      models: new ModelRouter(
+        new Map([[model.id, model]]),
+        { purposes: { chat: 'scripted/m' }, fallbacks: {} },
+        new ModelCatalog(),
+        LOG,
+      ),
+      sessions: repos.sessions,
+      clock,
+      log: LOG,
+      ...deps,
+    });
+  }
+
+  it('compacts on the message limit when no window is known, keeping the newest half', async () => {
+    const { repos, session } = await seed();
+    for (let i = 0; i < 6; i++) {
+      const t = newId<TurnId>();
+      await append(repos, session, 'user', `Question ${i}.`, t);
+      await append(repos, session, 'assistant', `Answer ${i}.`, t);
+    }
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'The open request.', openTurn);
+    const model = new ScriptedProvider([{ content: 'SUMMARY' }]);
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+
+    const transcript = await repos.messages.listBySession(session.id);
+    const result = await compactorWith(repos, model).compactIfNeeded(session, turn, transcript, {
+      maxMessages: 8,
+    });
+
+    // 13 messages, limit 8: the newest 4 or so stay, cut at the start of an exchange.
+    expect(result).toEqual({ summary: 'SUMMARY', count: 10 });
+    const prompt = (model.requests[0]!.messages[0]!.parts[0] as { text: string }).text;
+    expect(prompt).toContain('Question 0.');
+    expect(prompt).toContain('Answer 4.');
+    expect(prompt).not.toContain('Question 5.');
+  });
+
+  it('moves the watermark only past messages a summarize request saw', async () => {
+    const { repos, session } = await seed();
+    for (let i = 0; i < 4; i++) {
+      const t = newId<TurnId>();
+      await append(repos, session, 'user', `Old ${i} `.repeat(30), t);
+      await append(repos, session, 'assistant', `Reply ${i}.`, t);
+    }
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'The open request.', openTurn);
+    // Each exchange is ~230 characters; 300 fit one exchange per request, so four rounds cover all.
+    const model = new ScriptedProvider([
+      { content: 'S1' },
+      { content: 'S2' },
+      { content: 'S3' },
+      { content: 'S4' },
+    ]);
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+    const transcript = await repos.messages.listBySession(session.id);
+
+    const result = await compactorWith(repos, model, { maxInputChars: 300 }).compactIfNeeded(
+      session,
+      turn,
+      transcript,
+      30,
+    );
+
+    expect(model.requests).toHaveLength(4);
+    const prompts = model.requests.map((r) => (r.messages[0]!.parts[0] as { text: string }).text);
+    prompts.forEach((p, i) => expect(p).toContain(`Old ${i}`));
+    // Each request folds into the summary so far.
+    expect(prompts[1]).toContain('S1');
+    expect(result).toEqual({ summary: 'S4', count: 8 });
+  });
+
+  it('stops where a summarize request failed, keeping the earlier rounds', async () => {
+    const { repos, session } = await seed();
+    for (let i = 0; i < 3; i++) {
+      const t = newId<TurnId>();
+      await append(repos, session, 'user', `Old ${i} `.repeat(30), t);
+      await append(repos, session, 'assistant', `Reply ${i}.`, t);
+    }
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'The open request.', openTurn);
+    const model = new ScriptedProvider([{ content: 'S1' }, { content: '' }]);
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+    const transcript = await repos.messages.listBySession(session.id);
+
+    const result = await compactorWith(repos, model, { maxInputChars: 300 }).compactIfNeeded(
+      session,
+      turn,
+      transcript,
+      30,
+    );
+
+    expect(result).toEqual({ summary: 'S1', count: 2 });
+    expect((await repos.sessions.get(session.id))!.summaryCount).toBe(2);
+  });
+});
+
 describe('ContextBuilder: the compaction summary replaces older messages (S23)', () => {
   it('puts the summary at the start of the history and leaves covered messages out', async () => {
     const { repos, session } = await seed();

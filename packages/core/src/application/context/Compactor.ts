@@ -14,6 +14,15 @@ export interface Compaction {
   count: number;
 }
 
+/**
+ * What the visible transcript must fit: the model's window when the catalogue knows it, and the most
+ * messages a model call sends. Going over either one starts a compaction.
+ */
+export interface CompactionBudget {
+  contextWindow?: number;
+  maxMessages?: number;
+}
+
 export interface CompactorDeps {
   models: ModelRouter;
   sessions: SessionRepository;
@@ -21,59 +30,106 @@ export interface CompactorDeps {
   log: Logger;
   /** Compact when the visible transcript passes this fraction of the context window. */
   threshold?: number;
-  /** Most characters of transcript sent to the summarize model. */
+  /** Most characters of transcript sent to the summarize model in one request. */
   maxInputChars?: number;
   /** Most tokens the summary may take. */
   maxSummaryTokens?: number;
+  /** Most summarize requests in one compaction; anything left waits for the next model call. */
+  maxRounds?: number;
 }
 
 const CHARACTERS_PER_TOKEN = 4;
 
 /**
- * Keeps a long conversation inside the model's window: when the visible transcript nears the window,
- * it summarises the messages *older than the open request* into the session's rolling summary and
- * advances its watermark. The full transcript stays stored, and the open request is never summarised
- * away (F04 criterion 5, S23).
+ * Keeps a long conversation inside the model's window: when the visible transcript nears the window
+ * or passes the message limit, it summarises the messages *older than the open request* into the
+ * session's rolling summary and advances its watermark. The watermark only moves past messages that
+ * a summarize request actually saw, in chunks that fit its input. The full transcript stays stored,
+ * and the open request is never summarised away (F04 criterion 5, S23).
  */
 export class Compactor {
   private readonly threshold: number;
   private readonly maxInputChars: number;
   private readonly maxSummaryTokens: number;
+  private readonly maxRounds: number;
 
   constructor(private readonly deps: CompactorDeps) {
     this.threshold = deps.threshold ?? 0.75;
     this.maxInputChars = deps.maxInputChars ?? 24_000;
     this.maxSummaryTokens = deps.maxSummaryTokens ?? 600;
+    this.maxRounds = deps.maxRounds ?? 4;
   }
 
-  /** Whether the messages that would be sent need summarising to fit the window. */
-  needsCompaction(messages: readonly Message[], contextWindow: number): boolean {
-    if (!contextWindow || contextWindow <= 0) return false;
-    return estimateTokens(messages) > contextWindow * this.threshold;
+  /** Whether the messages that would be sent need summarising to fit the budget. */
+  needsCompaction(messages: readonly Message[], budget: CompactionBudget | number): boolean {
+    const { maxMessages } = asBudget(budget);
+    if (maxMessages && visible(messages).length > maxMessages) return true;
+    return this.overWindow(messages, asBudget(budget));
   }
 
   /**
    * Summarises the session's older messages (skipping those already covered by the summary) and
-   * stores the result. `transcript` must be the session's full messages, oldest first.
+   * stores the result. `transcript` must be the session's full messages, oldest first. A number is
+   * read as the context window.
    */
   async compactIfNeeded(
     session: Session,
     turn: Turn,
     transcript: readonly Message[],
-    contextWindow: number,
+    budget: CompactionBudget | number,
     signal?: AbortSignal,
   ): Promise<Compaction | undefined> {
+    const limits = asBudget(budget);
     const covered = Math.min(session.summaryCount ?? 0, transcript.length);
-    if (!this.needsCompaction(transcript.slice(covered), contextWindow)) return undefined;
+    const uncovered = transcript.slice(covered);
+    if (!this.needsCompaction(uncovered, limits)) return undefined;
 
     // The open request and everything after it stay: only what came before this turn is summarised.
     const open = transcript.findIndex((m) => m.turnId === turn.id);
-    const end = open === -1 ? transcript.length : open;
-    if (end <= covered) return undefined;
-    const older = transcript.slice(covered, end).filter((m) => !m.withdrawn);
-    if (!older.length) return undefined;
+    let target = open === -1 ? transcript.length : open;
+    // Over the message limit only: keep the newest half visible, so compaction does not run every turn.
+    if (limits.maxMessages && !this.overWindow(uncovered, limits)) {
+      const keepFrom = transcript.length - Math.floor(limits.maxMessages / 2);
+      target = Math.min(target, startOfExchange(transcript, keepFrom));
+    }
+    if (target <= covered) return undefined;
 
-    const prompt = summarisePrompt(session.summary, renderTranscript(older, this.maxInputChars));
+    let summary = session.summary;
+    let count = covered;
+    for (let round = 0; round < this.maxRounds && count < target; round++) {
+      const end = chunkEnd(transcript, count, target, this.maxInputChars);
+      const older = visible(transcript.slice(count, end));
+      if (older.length) {
+        const next = await this.summarise(session, turn, summary, older, signal);
+        if (next === undefined) break; // failed or empty: keep what is already done
+        summary = next;
+      }
+      count = end;
+    }
+    if (count === covered || !summary) return undefined;
+    await this.deps.sessions.setSummary(session.id, summary, count);
+    this.deps.log.info('Compacted the transcript', {
+      sessionId: session.id,
+      summarisedMessages: count - covered,
+      summaryCount: count,
+    });
+    return { summary, count };
+  }
+
+  private overWindow(messages: readonly Message[], { contextWindow }: CompactionBudget): boolean {
+    if (!contextWindow || contextWindow <= 0) return false;
+    return estimateTokens(messages) > contextWindow * this.threshold;
+  }
+
+  /** One summarize request folding `older` into `previous`; undefined when it failed. */
+  private async summarise(
+    session: Session,
+    turn: Turn,
+    previous: string | undefined,
+    older: readonly Message[],
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    const prompt = summarisePrompt(previous, renderTranscript(older, this.maxInputChars));
     try {
       const { response } = await this.deps.models.complete(
         'summarize',
@@ -85,15 +141,7 @@ export class Compactor {
         },
         { signal },
       );
-      const summary = response.text.trim();
-      if (!summary) return undefined;
-      await this.deps.sessions.setSummary(session.id, summary, end);
-      this.deps.log.info('Compacted the transcript', {
-        sessionId: session.id,
-        summarisedMessages: older.length,
-        summaryCount: end,
-      });
-      return { summary, count: end };
+      return response.text.trim() || undefined;
     } catch (error) {
       // A Stop must reach the caller; a failed summary is not a failed turn, and the full transcript
       // is still there, just larger.
@@ -105,6 +153,45 @@ export class Compactor {
       return undefined;
     }
   }
+}
+
+function asBudget(budget: CompactionBudget | number): CompactionBudget {
+  return typeof budget === 'number' ? { contextWindow: budget } : budget;
+}
+
+function visible(messages: readonly Message[]): Message[] {
+  return messages.filter((m) => !m.withdrawn);
+}
+
+/** The first owner message at or after `index`, so a cut never splits a tool call from its result. */
+function startOfExchange(messages: readonly Message[], index: number): number {
+  for (let i = Math.max(0, index); i < messages.length; i++) {
+    if (messages[i]!.role === 'user') return i;
+  }
+  return messages.length;
+}
+
+/**
+ * Where a summarize request starting at `from` ends: as many messages as fit `maxChars`, cut at the
+ * start of an exchange when one fits, and always at least one message (a huge one is truncated).
+ */
+export function chunkEnd(
+  messages: readonly Message[],
+  from: number,
+  to: number,
+  maxChars: number,
+): number {
+  let chars = 0;
+  let end = from;
+  let boundary = -1;
+  for (let i = from; i < to; i++) {
+    const size = Math.min(lineOf(messages[i]!).length, maxChars) + 1;
+    if (i > from && chars + size > maxChars) break;
+    chars += size;
+    end = i + 1;
+    if (end < to && messages[end]!.role === 'user') boundary = end;
+  }
+  return end < to && boundary > from ? boundary : end;
 }
 
 /** Rough token count: four characters per token is close enough for a threshold. */
@@ -120,19 +207,25 @@ function estimateTokens(messages: readonly Message[]): number {
   return Math.ceil(chars / CHARACTERS_PER_TOKEN);
 }
 
+function lineOf(m: Message): string {
+  const who = m.author === 'owner' ? 'Owner' : m.author === 'assistant' ? 'Shitsuji' : 'System';
+  const text =
+    textOf(m) ||
+    m.parts
+      .filter((p): p is Extract<typeof p, { type: 'tool_result' }> => p.type === 'tool_result')
+      .map((p) => p.content)
+      .join('\n');
+  return `${who}: ${text}`;
+}
+
+/** The chunk as text. Only a single message larger than the whole budget is cut, at its end. */
 function renderTranscript(messages: readonly Message[], maxChars: number): string {
-  const lines = messages.map((m) => {
-    const who = m.author === 'owner' ? 'Owner' : m.author === 'assistant' ? 'Shitsuji' : 'System';
-    const text =
-      textOf(m) ||
-      m.parts
-        .filter((p): p is Extract<typeof p, { type: 'tool_result' }> => p.type === 'tool_result')
-        .map((p) => p.content)
-        .join('\n');
-    return `${who}: ${text}`;
-  });
-  const joined = lines.join('\n');
-  return joined.length > maxChars ? joined.slice(-maxChars) : joined;
+  return messages
+    .map((m) => {
+      const line = lineOf(m);
+      return line.length > maxChars ? `${line.slice(0, maxChars)} [cut]` : line;
+    })
+    .join('\n');
 }
 
 function summarisePrompt(previous: string | undefined, transcript: string): string {

@@ -80,12 +80,17 @@ export class ContextBuilder {
     // Compaction may cover more of the transcript before this call is built; the open request stays.
     let summary = sessionNow.summary;
     let summaryCount = sessionNow.summaryCount ?? 0;
-    if (this.deps.compactor && this.deps.contextWindow) {
+    // Both limits count: without a known window, the message limit alone would otherwise drop older
+    // messages from the context without anything summarising them.
+    if (this.deps.compactor && (this.deps.contextWindow || this.deps.historyLimit)) {
       const compacted = await this.deps.compactor.compactIfNeeded(
         sessionNow,
         turn,
         stored,
-        this.deps.contextWindow,
+        {
+          ...(this.deps.contextWindow && { contextWindow: this.deps.contextWindow }),
+          ...(this.deps.historyLimit && { maxMessages: this.deps.historyLimit }),
+        },
         signal,
       );
       if (compacted) {
