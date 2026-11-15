@@ -122,6 +122,15 @@ describe('environment overrides', () => {
     expect(() => load({ SHITSUJI_API_ENABLED: 'maybe' })).toThrow(/api\.enabled/);
   });
 
+  it('turns the header stability check off in production unless told otherwise', () => {
+    expect(load({}).config.context.stabilityCheck).toBe(true);
+    expect(load({ NODE_ENV: 'production' }).config.context.stabilityCheck).toBe(false);
+    expect(
+      load({ NODE_ENV: 'production', SHITSUJI_STABILITY_CHECK: 'true' }).config.context
+        .stabilityCheck,
+    ).toBe(true);
+  });
+
   it('reads the TUI connection from the environment, keeping the key secret', () => {
     const { config } = load({
       SHITSUJI_API_URL: 'http://127.0.0.1:3001',

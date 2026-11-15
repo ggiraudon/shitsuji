@@ -111,6 +111,17 @@ export const shitsujiConfigSchema = z
       })
       .strict()
       .default({}),
+    /** How each model call's context is built (F04, S23). */
+    context: z
+      .object({
+        /**
+         * Warn when a header injectable changes on every call. Defaults to on, except when NODE_ENV is
+         * production (decided in loadConfig).
+         */
+        stabilityCheck: z.boolean().optional(),
+      })
+      .strict()
+      .default({}),
     /** The HTTP API that the TUI (and later the web UI) uses (S24). */
     api: z
       .object({

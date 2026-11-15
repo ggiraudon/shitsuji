@@ -171,7 +171,7 @@ export async function createShitsuji(
     log,
     events,
     soul,
-    stabilityCheck: process.env.NODE_ENV !== 'production',
+    stabilityCheck: config.context.stabilityCheck ?? true,
   });
   Object.assign(facts, {
     storage: config.database.url && !options.repos ? 'postgres' : 'memory',

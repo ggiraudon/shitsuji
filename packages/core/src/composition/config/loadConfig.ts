@@ -35,6 +35,11 @@ const ENV_OVERRIDES: { vars: string[]; path: string[]; parse?: (v: string) => un
   { vars: ['SHITSUJI_API_ENABLED'], path: ['api', 'enabled'], parse: parseBool },
   { vars: ['SHITSUJI_API_URL'], path: ['tui', 'apiUrl'] },
   { vars: ['SHITSUJI_OWNER_KEY'], path: ['tui', 'ownerKey'] },
+  {
+    vars: ['SHITSUJI_STABILITY_CHECK'],
+    path: ['context', 'stabilityCheck'],
+    parse: parseBool,
+  },
 ];
 
 /**
@@ -67,6 +72,7 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadedConfig {
     );
   }
   const config = parsed.data;
+  config.context.stabilityCheck ??= env.NODE_ENV !== 'production';
   config.paths.dataDir = expandHome(config.paths.dataDir, homeDir);
   config.tools.workspaceDir = expandHome(
     config.tools.workspaceDir ?? path.join(config.paths.dataDir, 'workspace'),
