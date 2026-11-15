@@ -50,6 +50,7 @@ async function main() {
     // is its own channel: the CLI and webhook channels are not started.
     const services = createCoreServices({ ...config.logging, level: 'warn' });
     const shitsuji = await createShitsuji(config, { services, channels: false });
+    await shitsuji.start(); // runs the turn worker; without it messages would queue and never run
     await startTUI({ agent: shitsuji.agent });
     return;
   }
