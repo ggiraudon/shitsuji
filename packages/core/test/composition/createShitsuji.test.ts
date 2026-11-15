@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { shitsujiConfigSchema } from '../../src/composition/config/schema.js';
-import { createShitsuji } from '../../src/composition/createShitsuji.js';
+import { createShitsuji, OWNER_ID } from '../../src/composition/createShitsuji.js';
+import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { loadPluginsFromDirectory } from '../../src/composition/loadPluginsFromDirectory.js';
 import type { ShitsujiPlugin } from '../../src/ports/Plugin.js';
 import { ScriptedProvider, TestChannel, testServices, until } from '../helpers.js';
@@ -56,6 +57,35 @@ describe('createShitsuji', () => {
     expect(channel.stopped).toBe(1);
   });
 
+  it('meters every model call: one usage row, priced from models.catalog', async () => {
+    const { plugin, channel } = fakes(['Done.']);
+    const repos = new InMemoryRepositories();
+    const shitsuji = await createShitsuji(
+      config({
+        models: {
+          providers: { fake: { kind: 'plugin' } },
+          purposes: { chat: 'fake/test-model' },
+          catalog: {
+            'fake/test-model': {
+              capabilities: ['tools'],
+              price: { inputPerMTok: 1, outputPerMTok: 2 },
+            },
+          },
+        },
+      }),
+      { services: testServices(), plugins: [plugin], repos },
+    );
+    await shitsuji.start();
+    channel.receive('Hello');
+    await until(() => channel.sent.length > 0);
+    const rows = await repos.usage.listSince(OWNER_ID, new Date(0));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ provider: 'fake', model: 'test-model', purpose: 'chat' });
+    expect(rows[0]!.turnId).toBeDefined();
+    expect(rows[0]!.cost!.micros).toBe(20); // 10 in × $1/M + 5 out × $2/M
+    await shitsuji.stop();
+  });
+
   it('replies with the error instead of staying silent when the model fails', async () => {
     const { channel, plugin } = fakes([]); // no scripted reply: the model call throws
     const services = testServices();
@@ -82,7 +112,7 @@ describe('createShitsuji', () => {
 
   it('fails clearly when no plugin registers the chat provider', async () => {
     await expect(createShitsuji(config(), { services: testServices() })).rejects.toThrow(
-      /uses provider "fake", but no plugin registered it/,
+      /models\.purposes\.chat: .*uses provider "fake", which is not registered/,
     );
   });
 

@@ -1,6 +1,8 @@
 import { ManualClock } from '../src/adapters/clock/SystemClock.js';
 import { InProcessEventBus } from '../src/adapters/events/InProcessEventBus.js';
 import { MemoryLogger } from '../src/adapters/logging/loggers.js';
+import { ModelCatalog } from '../src/application/models/ModelCatalog.js';
+import { ModelRouter } from '../src/application/models/ModelRouter.js';
 import type { CoreServices } from '../src/composition/services.js';
 import { BaseChannel } from '../src/ports/Channel.js';
 import type { ToolCallId } from '../src/domain/model/ids.js';
@@ -40,6 +42,16 @@ export class ScriptedProvider implements ModelProvider {
   async listModels() {
     return ['m'];
   }
+}
+
+/** A router whose chat purpose is `provider/model`, for tests that need an Agent. */
+export function routerFor(provider: ModelProvider, model = 'test-model'): ModelRouter {
+  return new ModelRouter(
+    new Map([[provider.id, provider]]),
+    { purposes: { chat: `${provider.id}/${model}` }, fallbacks: {} },
+    new ModelCatalog(),
+    new MemoryLogger(),
+  );
 }
 
 /** A request's messages as "role:text" lines (tool results show their content). */

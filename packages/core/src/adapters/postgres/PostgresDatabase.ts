@@ -79,7 +79,7 @@ export class PostgresDatabase {
     const failed = results.find((r) => r.status === 'Error');
     if (error || failed) {
       throw new Error(
-        `Database migration ${failed?.migrationName ?? ''} failed: ${(error as Error)?.message ?? error}`,
+        `${failed ? `Database migration ${failed.migrationName}` : 'Database migration'} failed: ${(error as Error)?.message ?? error}`,
         { cause: error },
       );
     }

@@ -4,7 +4,13 @@ import { CalculatorTool } from '../../src/adapters/tools/CalculatorTool.js';
 import { Agent, StepLimitReached } from '../../src/application/Agent.js';
 import { asId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
-import { ScriptedProvider, testServices, transcript, type ScriptedReply } from '../helpers.js';
+import {
+  routerFor,
+  ScriptedProvider,
+  testServices,
+  transcript,
+  type ScriptedReply,
+} from '../helpers.js';
 
 const OWNER = asId<OwnerId>('owner');
 
@@ -17,8 +23,7 @@ const setup = (replies: ScriptedReply[], extra: { maxSteps?: number } = {}) => {
   const agent = new Agent({
     name: 'Test',
     ownerId: OWNER,
-    llmProvider: llm,
-    model: 'test-model',
+    models: routerFor(llm),
     repos,
     ...services,
     ...extra,

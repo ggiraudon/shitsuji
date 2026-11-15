@@ -39,6 +39,14 @@ models:
     vision: deepseek/deepseek-v4.1-flash
     trust: deepseek/deepseek-v4.1-flash
   fallbacks: {}
+  # What is known about each model. Prices are never guessed: without one, usage is recorded with
+  # an unknown cost. Fill them in from the provider's price list (per million tokens).
+  catalog:
+    deepseek/deepseek-v4.1-flash:
+      capabilities: [tools, vision, reasoning]
+      # price: { currency: USD, inputPerMTok: 0, cachedInputPerMTok: 0, outputPerMTok: 0 }
+  retry:
+    maxAttempts: 3 # transient failures only, and never after the model has started answering
 
 channels:
   cli:

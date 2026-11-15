@@ -20,7 +20,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 - [x] **S10** Job queue and startup recovery
 - [x] **S11** Model provider port and the OpenAI-compatible adapter
 - [x] **S12** Anthropic adapter
-- [ ] **S13** Catalogue, router and decorators
+- [x] **S13** Catalogue, router and decorators
 - [ ] **S14** Container and end-to-end
 
 ## Acceptance criteria by feature
@@ -46,8 +46,8 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
       *(Contract tests exist for both adapters, but the fixtures are hand-written from the API docs;
       tick once they are re-recorded from real DeepSeek, Ollama and Claude responses.)*
 - [x] Streaming tool calls with fragmented arguments assemble correctly.
-- [ ] Switching a purpose to another model is a configuration change only.
-- [ ] Every model request writes a usage row with tokens and, where known, cost.
+- [x] Switching a purpose to another model is a configuration change only.
+- [x] Every model request writes a usage row with tokens and, where known, cost.
 
 ### [F04 — Agent runtime: threads, sessions and turns](features/F04-agent-runtime.md)
 

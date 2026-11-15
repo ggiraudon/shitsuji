@@ -4,11 +4,19 @@ import { InMemoryRepositories } from '../adapters/memory/InMemoryRepositories.js
 import { PostgresDatabase } from '../adapters/postgres/PostgresDatabase.js';
 import { PostgresRepositories } from '../adapters/postgres/PostgresRepositories.js';
 import { Agent } from '../application/Agent.js';
+import {
+  MeteredModelProvider,
+  RedactingModelProvider,
+  RetryingModelProvider,
+} from '../application/models/decorators.js';
+import { ModelCatalog } from '../application/models/ModelCatalog.js';
+import { ModelRouter, NoModelAvailable } from '../application/models/ModelRouter.js';
 import { PluginManager } from '../application/PluginManager.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
 import { ConfigError } from '../domain/errors.js';
 import { asId, type OwnerId } from '../domain/model/ids.js';
+import { Money } from '../domain/model/Money.js';
 import type { Repositories } from '../ports/Repositories.js';
 import type { ShitsujiPlugin } from '../ports/Plugin.js';
 import { CliChannelPlugin, WebhookChannelPlugin } from '../plugins/channelPlugins.js';
@@ -89,12 +97,26 @@ export async function createShitsuji(
     locale: config.owner.locale,
   });
 
-  const chat = resolveChatModel(config, plugins);
+  // Every provider gets the same chain: metering outside, retries inside, redaction closest to the wire.
+  const catalog = catalogFrom(config);
+  const providers = new Map(
+    [...plugins.providers()].map(([id, raw]) => [
+      id,
+      new MeteredModelProvider(
+        new RetryingModelProvider(new RedactingModelProvider(raw), {
+          log,
+          maxAttempts: config.models.retry.maxAttempts,
+        }),
+        { ownerId: OWNER_ID, usage: repos!.usage, catalog, clock: services.clock, log },
+      ),
+    ]),
+  );
+  const models = new ModelRouter(providers, config.models, catalog, log);
+  const chat = selectChat(models);
   log.info('Using chat model', { model: chat.ref });
   const agent = new Agent({
     name: 'Shitsuji',
-    llmProvider: chat.provider,
-    model: chat.model,
+    models,
     ownerId: OWNER_ID,
     repos,
     clock: services.clock,
@@ -141,22 +163,39 @@ function builtInPlugins(config: ShitsujiConfig, withChannels: boolean): Shitsuji
   return list;
 }
 
-/** Picks the provider for the `chat` purpose. Replaced by the ModelRouter in S13. */
-function resolveChatModel(config: ShitsujiConfig, plugins: PluginManager) {
-  const ref = config.models.purposes.chat;
-  if (!ref) {
+/** models.catalog → ModelInfo, with prices as Money. */
+function catalogFrom(config: ShitsujiConfig): ModelCatalog {
+  return new ModelCatalog(
+    Object.entries(config.models.catalog).map(([ref, m]) => ({
+      ref,
+      contextWindow: m.contextWindow,
+      maxOutput: m.maxOutput,
+      capabilities: m.capabilities && new Set(m.capabilities),
+      price: m.price && {
+        inputPerMTok: Money.of(m.price.inputPerMTok, m.price.currency),
+        outputPerMTok: Money.of(m.price.outputPerMTok, m.price.currency),
+        cachedInputPerMTok:
+          m.price.cachedInputPerMTok === undefined
+            ? undefined
+            : Money.of(m.price.cachedInputPerMTok, m.price.currency),
+      },
+    })),
+  );
+}
+
+/** The chat model must exist at startup; a missing one is a configuration problem, said plainly. */
+function selectChat(models: ModelRouter) {
+  try {
+    return models.select('chat');
+  } catch (error) {
+    if (!(error instanceof NoModelAvailable)) throw error;
     throw new ConfigError(
-      'No chat model configured. Set DEEPSEEK_API_KEY (or OPENAI_API_KEY / ANTHROPIC_API_KEY) in .env, ' +
-        'or add models.providers and models.purposes.chat to shitsuji.config.yaml.',
+      error.message.includes('not registered')
+        ? `models.purposes.chat: ${error.message}`
+        : 'No chat model configured. Set DEEPSEEK_API_KEY (or OPENAI_API_KEY / ANTHROPIC_API_KEY) in .env, ' +
+            'or add models.providers and models.purposes.chat to shitsuji.config.yaml.',
+      {},
+      { cause: error },
     );
   }
-  const slash = ref.indexOf('/');
-  const providerId = ref.slice(0, slash);
-  const provider = plugins.providers().get(providerId);
-  if (!provider) {
-    throw new ConfigError(
-      `models.purposes.chat uses provider "${providerId}", but no plugin registered it`,
-    );
-  }
-  return { provider, model: ref.slice(slash + 1), ref };
 }

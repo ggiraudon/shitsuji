@@ -2,16 +2,9 @@ import { z } from 'zod';
 import { Secret } from '../../domain/Secret.js';
 import { LOG_LEVELS, type LogLevel } from '../../ports/Logger.js';
 
-export const MODEL_PURPOSES = [
-  'chat',
-  'task',
-  'helper',
-  'classify',
-  'summarize',
-  'vision',
-  'embed',
-  'trust',
-] as const;
+import { CAPABILITIES, MODEL_PURPOSES } from '../../application/models/ModelCatalog.js';
+
+export { MODEL_PURPOSES };
 
 const secret = z
   .string()
@@ -78,6 +71,35 @@ export const shitsujiConfigSchema = z
         providers: z.record(z.string().regex(/^[A-Za-z0-9_.-]+$/), providerSchema).default({}),
         purposes: purposeMap(modelRef).default({}),
         fallbacks: purposeMap(z.array(modelRef)).default({}),
+        /** What we know about each model. Unknown fields stay unknown; prices are never guessed. */
+        catalog: z
+          .record(
+            modelRef,
+            z
+              .object({
+                contextWindow: z.number().int().positive().optional(),
+                maxOutput: z.number().int().positive().optional(),
+                capabilities: z.array(z.enum(CAPABILITIES)).optional(),
+                price: z
+                  .object({
+                    currency: z
+                      .string()
+                      .regex(/^[A-Z]{3}$/)
+                      .default('USD'),
+                    inputPerMTok: z.number().nonnegative(),
+                    outputPerMTok: z.number().nonnegative(),
+                    cachedInputPerMTok: z.number().nonnegative().optional(),
+                  })
+                  .strict()
+                  .optional(),
+              })
+              .strict(),
+          )
+          .default({}),
+        retry: z
+          .object({ maxAttempts: z.number().int().min(1).max(10).default(3) })
+          .strict()
+          .default({}),
       })
       .strict()
       .default({}),
@@ -140,4 +162,4 @@ export const shitsujiConfigSchema = z
 
 export type ShitsujiConfig = z.infer<typeof shitsujiConfigSchema>;
 export type ProviderConfig = ShitsujiConfig['models']['providers'][string];
-export type ModelPurpose = (typeof MODEL_PURPOSES)[number];
+export type { ModelPurpose } from '../../application/models/ModelCatalog.js';

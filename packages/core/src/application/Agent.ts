@@ -15,20 +15,20 @@ import { Turn, type TurnSource } from '../domain/model/Turn.js';
 import type { Clock } from '../ports/Clock.js';
 import type { AgentRenderContext, ContextInjectable } from '../ports/ContextInjectable.js';
 import type { EventBus } from '../ports/EventBus.js';
-import type { ModelMessage, ModelProvider, ModelRequest } from '../ports/ModelProvider.js';
+import type { ModelMessage, ModelRequest } from '../ports/ModelProvider.js';
 import type { Logger } from '../ports/Logger.js';
 import type { Repositories, Transaction } from '../ports/Repositories.js';
 import type { Tool } from '../ports/Tool.js';
 import { IdentityInjectable, RulesInjectable, ToolListInjectable } from './context/index.js';
-import { complete, type ModelResponse } from './modelCalls.js';
+import type { ModelResponse } from './modelCalls.js';
+import type { ModelRouter } from './models/ModelRouter.js';
 import { ToolRegistry } from './ToolRegistry.js';
 
 export interface AgentOptions {
   name: string;
   ownerId: OwnerId;
-  llmProvider: ModelProvider;
-  /** The provider's model name, e.g. "deepseek-v4.1-flash". */
-  model: string;
+  /** Picks the model for each call by purpose ("chat" here). */
+  models: ModelRouter;
   repos: Repositories;
   clock: Clock;
   log: Logger;
@@ -195,21 +195,21 @@ export class Agent {
   ): Promise<ModelResponse> {
     const { events, repos, clock } = this.options;
     const tools = this.toolRegistry.getToolDefinitions();
-    const request: ModelRequest = {
-      model: this.options.model,
+    const request: Omit<ModelRequest, 'model'> = {
       system: this.buildContext(session, history),
       messages: toModelMessages(trimToWholeExchanges(history)),
       tools: tools.length ? tools : undefined,
       temperature: 0.7,
       maxOutputTokens: 4096,
+      metadata: { turnId: turn.id },
     };
     events.publish('llm.request', {
       agentId: this.name,
       sessionId: session.id,
-      model: request.model,
+      model: this.options.models.select('chat').ref,
     });
     try {
-      const response = await complete(this.options.llmProvider, request);
+      const { response, binding } = await this.options.models.complete('chat', request);
       events.publish('llm.response', {
         agentId: this.name,
         sessionId: session.id,
@@ -220,8 +220,7 @@ export class Agent {
         turnId: turn.id,
         kind: 'model_call',
         data: {
-          provider: this.options.llmProvider.id,
-          model: request.model,
+          model: binding.ref,
           usage: response.usage,
           finishReason: response.finishReason,
         },
