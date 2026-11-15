@@ -31,7 +31,9 @@ personal assistant with its own sandboxed computer, deployed with Docker Compose
 - Development is on **Windows**, in this repo folder. Node 22, pnpm (pinned in `packageManager`), and Docker
   Desktop with the WSL2 backend.
 - Shells: Git Bash or PowerShell. Scripts in `package.json` must work in both, so use Node scripts rather than
-  shell one-liners.
+  shell one-liners. On this machine `bash` on `PATH` may be WSL rather than Git Bash: run the shell scripts
+  with `C:\Program Files\Git\bin\bash.exe`, and add `C:\Program Files\Docker\Docker\resources\bin` to `PATH`
+  for `docker`.
 - Line endings are **LF** (enforced by `.gitattributes`).
 - Docker Desktop mounts Windows folders slowly and file watching across them is unreliable. So dev containers
   keep `node_modules` and database data in named volumes and run watchers inside the container.

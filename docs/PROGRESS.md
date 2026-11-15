@@ -40,7 +40,12 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 - [x] **S23** ContextBuilder, standing instructions and compaction
 - [x] **S24** HTTP API
 - [x] **S25** The TUI as an API client
-- [ ] **S26** End to end and docs
+- [x] **S26** End to end and docs
+      *(Live check 2026-11-15 on `deepseek-flash` against the containerised core: the reply streamed in five
+      deltas; a second message sent mid-turn was steered into the same turn; Stop ended a long turn in
+      121 ms; after restarting core the next reply quoted the earlier exchange. The models' wire formats
+      did not change in this pass, so no fixture was re-recorded. The TUI itself makes these same API
+      calls; its ten-minute interactive run is left to the owner.)*
 
 ## Acceptance criteria by feature
 
@@ -72,6 +77,8 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 ### [F04 — Agent runtime: threads, sessions and turns](features/F04-agent-runtime.md)
 
 - [ ] Two messages from Telegram and the CLI land in the same thread and the agent sees both.
+      *(Telegram waits for [F06](features/F06-channel-gateway.md). Checked instead in S26: messages from the
+      webhook and the API land in one thread and the agent sees both.)*
 - [x] A message sent while the agent works is answered in the same turn.
 - [x] Stop during a long tool call returns control within one second.
 - [x] A runaway loop stops at the step limit with a clear reason.
