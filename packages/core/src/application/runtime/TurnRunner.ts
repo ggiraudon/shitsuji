@@ -1,22 +1,20 @@
 import { serializeError } from '../../domain/errors.js';
 import { newId, type TurnId } from '../../domain/model/ids.js';
-import {
-  textOf,
-  toolCallsOf,
-  type ContentPart,
-  type Message,
-  type MessageAuthor,
-  type MessageRole,
-  type ToolCall,
+import type {
+  ContentPart,
+  Message,
+  MessageAuthor,
+  MessageRole,
+  ToolCall,
 } from '../../domain/model/Message.js';
 import type { Session } from '../../domain/model/Session.js';
 import type { Turn } from '../../domain/model/Turn.js';
 import type { Clock } from '../../ports/Clock.js';
-import type { AgentRenderContext, ContextInjectable } from '../../ports/ContextInjectable.js';
 import type { EventBus } from '../../ports/EventBus.js';
 import type { Logger } from '../../ports/Logger.js';
-import type { ModelMessage, ModelRequest } from '../../ports/ModelProvider.js';
+import type { ModelRequest } from '../../ports/ModelProvider.js';
 import type { Repositories, Transaction } from '../../ports/Repositories.js';
+import type { BuiltContext, ContextBuilder } from '../context/ContextBuilder.js';
 import type { ModelResponse } from '../modelCalls.js';
 import type { ModelRouter } from '../models/ModelRouter.js';
 import type { ToolCatalog } from '../tools/ToolCatalog.js';
@@ -35,9 +33,8 @@ export interface TurnRunnerDeps {
   log: Logger;
   events: EventBus;
   stops: StopController;
-  /** The system prompt pieces, in priority order (ContextBuilder in S23). */
-  injectables: () => readonly ContextInjectable[];
-  historyLimit?: number;
+  /** Builds each model call's context: header, history with context notes, tail (F04). */
+  context: ContextBuilder;
   limits?: Partial<StepLimits>;
 }
 
@@ -115,10 +112,8 @@ export class TurnRunner {
       if (step > 1) await this.assertStillRunning(turn);
       // Reloading the history each step is what steering means: owner messages that arrived during
       // the turn are stored with its id and appear here before the next model call.
-      const history = await this.deps.repos.messages.listBySession(session.id, {
-        limit: this.deps.historyLimit ?? 40,
-      });
-      const response = await this.callModel(session, turn, history, signal);
+      const context = await this.deps.context.build(session, turn);
+      const response = await this.callModel(session, turn, context, signal);
       const parts: ContentPart[] = [];
       // Reasoning is kept in the transcript but never shown as the reply or sent back (F03).
       if (response.reasoning) parts.push({ type: 'reasoning', text: response.reasoning });
@@ -128,7 +123,7 @@ export class TurnRunner {
 
       if (!response.toolCalls.length) {
         // A message steered in after this model call was sent would otherwise go unanswered.
-        if (await this.hasSteeredMessage(session, turn, history)) continue;
+        if (await this.hasSteeredMessage(session, turn, context.sources)) continue;
         this.deps.events.publish('message.sent', {
           sessionId: session.id,
           role: 'assistant',
@@ -180,13 +175,13 @@ export class TurnRunner {
   private async callModel(
     session: Session,
     turn: Turn,
-    history: Message[],
+    context: BuiltContext,
     signal: AbortSignal,
   ): Promise<ModelResponse> {
     const { events, repos, clock, models, agentName } = this.deps;
     const request: Omit<ModelRequest, 'model'> = {
-      system: this.buildContext(session, history),
-      messages: toModelMessages(trimToWholeExchanges(history)),
+      ...(context.system && { system: context.system }),
+      messages: context.messages,
       tools: this.deps.tools.specs(),
       temperature: 0.7,
       maxOutputTokens: 4096,
@@ -275,23 +270,6 @@ export class TurnRunner {
     return { content: outcomeText(outcome), isError: !ok };
   }
 
-  private buildContext(session: Session, messages: Message[]): string {
-    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-    const ctx: AgentRenderContext = {
-      session,
-      messages,
-      toolCalls: lastAssistant ? toolCallsOf(lastAssistant) : [],
-      lastUserMessage: lastUser ? textOf(lastUser) : undefined,
-    };
-    return this.deps
-      .injectables()
-      .filter((i) => applies(i, ctx))
-      .map((i) => i.render(ctx))
-      .filter((s): s is string => s !== null)
-      .join('\n\n');
-  }
-
   private async store(
     session: Session,
     turnId: TurnId,
@@ -323,37 +301,4 @@ export class TurnRunner {
     if (!saved) this.deps.log.warn('Turn was changed elsewhere', { turnId: turn.id, expected });
     return saved;
   }
-}
-
-function applies(injectable: ContextInjectable, ctx: AgentRenderContext): boolean {
-  const condition = injectable.condition;
-  switch (condition.type) {
-    case 'always':
-      return true;
-    case 'tool_used': {
-      const used = (ctx.toolCalls ?? []).map((c) => c.name);
-      return condition.toolNames.length === 0
-        ? used.length > 0
-        : used.some((n) => condition.toolNames.includes(n));
-    }
-    case 'pattern_detected':
-      return !!ctx.lastUserMessage && condition.patterns.some((p) => p.test(ctx.lastUserMessage!));
-    case 'custom':
-      return condition.check(ctx);
-    case 'session_kind':
-      return condition.kinds.includes(ctx.session.kind);
-    case 'once':
-      return false; // per-session tracking arrives with the ContextBuilder (S23)
-  }
-}
-
-/** Never start a window with a tool result whose call was cut off (part of bug 2). */
-function trimToWholeExchanges(messages: Message[]): Message[] {
-  const first = messages.findIndex((m) => m.role === 'user');
-  return first === -1 ? messages : messages.slice(first);
-}
-
-/** Stored messages → model messages; withdrawn messages are left out. */
-function toModelMessages(messages: Message[]): ModelMessage[] {
-  return messages.filter((m) => !m.withdrawn).map((m) => ({ role: m.role, parts: m.parts }));
 }

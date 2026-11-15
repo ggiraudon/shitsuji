@@ -1,0 +1,186 @@
+import type { Message } from '../../domain/model/Message.js';
+import { textOf, toolCallsOf } from '../../domain/model/Message.js';
+import type { OwnerId, SessionId } from '../../domain/model/ids.js';
+import type { Session } from '../../domain/model/Session.js';
+import type { Turn } from '../../domain/model/Turn.js';
+import type {
+  AgentRenderContext,
+  ContextInjectable,
+  InjectionPlacement,
+} from '../../ports/ContextInjectable.js';
+import type { ModelMessage } from '../../ports/ModelProvider.js';
+import type { Repositories } from '../../ports/Repositories.js';
+
+/** One injectable's text, with the id that produced it (for tests and the stability check). */
+export interface RenderedNote {
+  id: string;
+  text: string;
+}
+
+/** What one model call sees: the system prompt, the history with context notes, and the tail. */
+export interface BuiltContext {
+  /** The header injectables joined, or undefined when none rendered. */
+  system?: string;
+  /** The history, oldest first, with context notes at its start and the tail on the newest message. */
+  messages: ModelMessage[];
+  /** The stored messages the request was built from (for steering checks and receipts). */
+  sources: Message[];
+  header: RenderedNote[];
+  context: RenderedNote[];
+  tail?: string;
+}
+
+export interface ContextBuilderDeps {
+  injectables: () => readonly ContextInjectable[];
+  repos: Repositories;
+  ownerId: OwnerId;
+  /** The most recent messages sent to the model; the open request is always kept. */
+  historyLimit?: number;
+}
+
+const PLACEMENT_RANK: Record<InjectionPlacement, number> = { header: 0, context: 1, tail: 2 };
+
+/**
+ * Turns a session's transcript plus every `ContextInjectable` into one model call's context (F04).
+ * Each injectable declares a placement and an order, so where its text lands is a property of the
+ * code, not a convention: the header starts the cached prefix, context notes sit at the start of the
+ * history, and the tail changes every call without touching either (decision Q7).
+ */
+export class ContextBuilder {
+  /** Injectable ids that already rendered once in a session (`once` condition). */
+  private readonly renderedOnce = new Map<SessionId, Set<string>>();
+
+  constructor(private readonly deps: ContextBuilderDeps) {}
+
+  async build(session: Session, turn: Turn): Promise<BuiltContext> {
+    const stored = await this.deps.repos.messages.listBySession(session.id);
+    const owner = await this.deps.repos.owners.get(this.deps.ownerId);
+    const sources = windowMessages(stored, this.deps.historyLimit, turn.id);
+    const lastAssistant = latestWithRole(sources, 'assistant');
+    const lastUser = latestWithRole(sources, 'user');
+
+    const ctx: AgentRenderContext = {
+      session,
+      messages: sources,
+      toolCalls: lastAssistant ? toolCallsOf(lastAssistant) : [],
+      ...(lastUser && { lastUserMessage: textOf(lastUser) }),
+      ...(owner && { owner }),
+    };
+
+    const injectables = [...this.deps.injectables()].sort(
+      (a, b) =>
+        PLACEMENT_RANK[a.placement] - PLACEMENT_RANK[b.placement] ||
+        a.order - b.order ||
+        a.id.localeCompare(b.id),
+    );
+    const rendered: Record<InjectionPlacement, RenderedNote[]> = {
+      header: [],
+      context: [],
+      tail: [],
+    };
+    for (const injectable of injectables) {
+      if (!this.applies(injectable, ctx)) continue;
+      const text = injectable.render(ctx);
+      if (text === null || text.trim() === '') continue;
+      rendered[injectable.placement].push({ id: injectable.id, text });
+      if (injectable.condition.type === 'once') this.markRendered(session.id, injectable.id);
+    }
+
+    const messages = toModelMessages(trimToWholeExchanges(sources));
+    const notes: ModelMessage[] = rendered.context.map((note) => ({
+      role: 'system',
+      parts: [{ type: 'text', text: note.text }],
+    }));
+    const tail = rendered.tail.length ? rendered.tail.map((n) => n.text).join('\n\n') : undefined;
+
+    return {
+      ...(rendered.header.length && { system: rendered.header.map((n) => n.text).join('\n\n') }),
+      messages: attachTail([...notes, ...messages], tail),
+      sources,
+      header: rendered.header,
+      context: rendered.context,
+      ...(tail && { tail }),
+    };
+  }
+
+  /** Evaluates an injectable's condition. `once` is tracked per session, by this instance. */
+  private applies(injectable: ContextInjectable, ctx: AgentRenderContext): boolean {
+    const condition = injectable.condition;
+    switch (condition.type) {
+      case 'always':
+        return true;
+      case 'tool_used': {
+        const used = (ctx.toolCalls ?? []).map((c) => c.name);
+        return condition.toolNames.length === 0
+          ? used.length > 0
+          : used.some((n) => condition.toolNames.includes(n));
+      }
+      case 'pattern_detected':
+        return (
+          !!ctx.lastUserMessage && condition.patterns.some((p) => p.test(ctx.lastUserMessage!))
+        );
+      case 'custom':
+        return condition.check(ctx);
+      case 'session_kind':
+        return condition.kinds.includes(ctx.session.kind);
+      case 'once':
+        return !this.renderedOnce.get(ctx.session.id)?.has(injectable.id);
+    }
+  }
+
+  private markRendered(sessionId: SessionId, injectableId: string): void {
+    const seen = this.renderedOnce.get(sessionId) ?? new Set<string>();
+    seen.add(injectableId);
+    this.renderedOnce.set(sessionId, seen);
+  }
+}
+
+/**
+ * The last `limit` messages, extended back to the message that started the current turn: a long
+ * tool loop must never push the owner's open request out of the window (F04).
+ */
+function windowMessages(
+  messages: Message[],
+  limit: number | undefined,
+  turnId: Turn['id'],
+): Message[] {
+  if (limit === undefined || messages.length <= limit) return messages;
+  let start = messages.length - limit;
+  const open = messages.findIndex((m) => m.turnId === turnId);
+  if (open !== -1 && open < start) start = open;
+  return messages.slice(start);
+}
+
+function latestWithRole(messages: Message[], role: Message['role']): Message | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]!.role === role) return messages[i];
+  }
+  return undefined;
+}
+
+/** Never start a window with a tool result whose call was cut off (part of bug 2). */
+function trimToWholeExchanges(messages: Message[]): Message[] {
+  const first = messages.findIndex((m) => m.role === 'user');
+  return first === -1 ? messages : messages.slice(first);
+}
+
+/** Stored messages → model messages; withdrawn messages are left out. */
+function toModelMessages(messages: Message[]): ModelMessage[] {
+  return messages.filter((m) => !m.withdrawn).map((m) => ({ role: m.role, parts: m.parts }));
+}
+
+/**
+ * The tail goes on the newest message for this call only (never stored), so the next call replaces
+ * it without changing the cached prefix. After a tool result it becomes a short user note instead.
+ */
+function attachTail(messages: ModelMessage[], tail: string | undefined): ModelMessage[] {
+  if (!tail) return messages;
+  const last = messages.at(-1);
+  if (last?.role === 'user') {
+    return [
+      ...messages.slice(0, -1),
+      { ...last, parts: [...last.parts, { type: 'text', text: tail }] },
+    ];
+  }
+  return [...messages, { role: 'user', parts: [{ type: 'text', text: tail }] }];
+}

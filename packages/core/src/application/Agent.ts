@@ -8,6 +8,7 @@ import type { Logger } from '../ports/Logger.js';
 import type { Repositories } from '../ports/Repositories.js';
 import type { Tool } from '../ports/Tool.js';
 import { IdentityInjectable, RulesInjectable, ToolIndexInjectable } from './context/index.js';
+import { ContextBuilder } from './context/ContextBuilder.js';
 import type { ModelRouter } from './models/ModelRouter.js';
 import type { StepLimits } from './runtime/limits.js';
 import { MessageIntake, type Submitted, type SubmitOptions } from './runtime/MessageIntake.js';
@@ -71,11 +72,24 @@ export class Agent {
     ];
     this.sortInjectables();
     this.intake = new MessageIntake({ ...options, agentName: this.name });
-    const runner = new TurnRunner({
-      ...options,
-      agentName: this.name,
-      stops: this.stops,
+    const context = new ContextBuilder({
       injectables: () => this.injectables,
+      repos: options.repos,
+      ownerId: options.ownerId,
+      historyLimit: options.historyLimit,
+    });
+    const runner = new TurnRunner({
+      agentName: this.name,
+      models: options.models,
+      tools: this.tools,
+      pipeline: options.pipeline,
+      repos: options.repos,
+      clock: options.clock,
+      log: options.log,
+      events: options.events,
+      stops: this.stops,
+      context,
+      limits: options.limits,
     });
     this.scheduler = new TurnScheduler({ ...options, runner, intake: this.intake });
   }

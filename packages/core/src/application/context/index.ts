@@ -15,3 +15,9 @@ export {
 export { IdentityInjectable, type IdentityConfig } from './IdentityInjectable.js';
 export { RulesInjectable, type Rule } from './RulesInjectable.js';
 export { ToolIndexInjectable } from './ToolIndexInjectable.js';
+export {
+  ContextBuilder,
+  type BuiltContext,
+  type ContextBuilderDeps,
+  type RenderedNote,
+} from './ContextBuilder.js';
