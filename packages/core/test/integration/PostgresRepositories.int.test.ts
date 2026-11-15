@@ -197,7 +197,7 @@ describe('Postgres-only guarantees', () => {
         'created_at',
         'updated_at',
       ],
-      soul_revisions: ['owner_id', 'revision', 'body', 'source', 'created_at'],
+      soul_revisions: ['owner_id', 'revision', 'body', 'fragments', 'source', 'created_at'],
     };
     for (const [table, cols] of Object.entries(expected)) {
       for (const col of cols) expect(actual.has(`${table}.${col}`), `${table}.${col}`).toBe(true);

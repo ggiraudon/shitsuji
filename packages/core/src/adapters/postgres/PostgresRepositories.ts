@@ -100,6 +100,7 @@ const toFragment = (r: Selectable<SoulFragmentsTable>): SoulFragment => {
 const toRevision = (r: Selectable<SoulRevisionsTable>): SoulRevision => ({
   revision: r.revision,
   body: r.body,
+  fragments: r.fragments as SoulFragment[],
   source: r.source,
   createdAt: r.created_at,
 });
@@ -497,6 +498,7 @@ export class PostgresRepositories implements Repositories {
           owner_id: ownerId,
           revision: r.revision,
           body: r.body,
+          fragments: JSON.stringify(r.fragments),
           source: r.source,
           created_at: r.createdAt,
         })

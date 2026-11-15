@@ -293,18 +293,25 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       await repos.soul.appendRevision(owner, {
         revision: 1,
         body: 'Base.\n\nA trait.',
+        fragments,
         source: 'initial',
         createdAt: at(81),
       });
+      const edited = [
+        { id: 'base', kind: 'base' as const, body: 'Base, edited.', position: 0 },
+        { id: 'trait', kind: 'trait' as const, body: 'A trait.', position: 1 },
+      ];
       await repos.soul.appendRevision(owner, {
         revision: 2,
-        body: 'Base.\n\nA trait.\n\nBe terse.',
+        body: 'Base, edited.\n\nA trait.',
+        fragments: edited,
         source: 'owner',
         createdAt: at(82),
       });
       expect(await repos.soul.currentRevision(owner)).toEqual({
         revision: 2,
-        body: 'Base.\n\nA trait.\n\nBe terse.',
+        body: 'Base, edited.\n\nA trait.',
+        fragments: edited,
         source: 'owner',
         createdAt: at(82),
       });

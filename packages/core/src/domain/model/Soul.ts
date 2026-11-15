@@ -22,7 +22,10 @@ export interface SoulFragment {
 
 export interface SoulRevision {
   revision: number;
+  /** The assembled shared text (base and traits), for reading and diffing. */
   body: string;
+  /** The fragments it was assembled from, so a session-kind part is re-assembled per turn. */
+  fragments: readonly SoulFragment[];
   source: SoulSource;
   createdAt: Date;
 }

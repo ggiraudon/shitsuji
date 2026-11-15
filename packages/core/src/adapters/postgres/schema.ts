@@ -1,4 +1,5 @@
 import type { ColumnType, Generated } from 'kysely';
+import type { SoulFragment } from '../../domain/model/Soul.js';
 
 /**
  * Kysely table types for migrations/0001_initial.sql. Kept by hand next to the SQL; the integration
@@ -111,6 +112,7 @@ export interface SoulRevisionsTable {
   owner_id: string;
   revision: number;
   body: string;
+  fragments: Json<SoulFragment[]>;
   source: 'initial' | 'owner' | 'assistant';
   created_at: Timestamp;
 }
