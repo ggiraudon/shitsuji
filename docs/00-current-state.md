@@ -57,6 +57,10 @@ These are concrete problems, not style notes. Each is fixed by the feature named
 11. **Web search depends on an unofficial third-party proxy** (`ddg-api.vercel.app`). [F05, F09]
 12. **Out-of-date model names** (`claude-3-5-sonnet-20241022`, `gpt-4o`) are hard-coded as defaults. [F03]
 13. **Duplicate bootstrap.** `index.ts` and `tui/app.tsx` each build the agent and register tools. [F01]
+14. **The calculator tool always fails** (found in S1). The function it generates starts with
+    `const E,LN10,… = this;`, which is a syntax error, so every expression returns "Missing initializer in
+    const declaration". The sanitizer also strips every letter except `e`, so `sqrt(16)` would become `(16)`
+    even after that is fixed. Pinned by an `it.fails` test in `test/tools/CalculatorTool.test.ts`. [F05]
 
 ## What Shitsuji is missing compared to the reference projects
 
