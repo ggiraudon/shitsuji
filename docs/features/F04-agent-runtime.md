@@ -156,8 +156,11 @@ checks or approvals.
 - **header:** joined into `ModelRequest.system`, in order.
 - **context:** turned into system-role messages at a fixed spot in the history (order 0 means first). Each
   provider adapter then maps these system notes to its own format, as it already does.
-- **tail:** joined into one block and attached to the newest message for this call only. It's never stored
-  in the transcript, so the next call replaces it without touching the cached prefix.
+- **tail:** joined into one block, rendered **once per turn** and attached to the turn's opening owner
+  message. It's never stored in the transcript. Every step of the turn sends it unchanged, so a tool loop
+  keeps hitting the cache; the next turn renders it afresh on its own opening message, which only costs
+  the cache from the previous turn's opening message on. A turn with no owner message in view (a
+  scheduled one, say) gets it as a note at the end.
 
 **A check that the header stays stable.** In development and in tests, the ContextBuilder compares each
 header injectable's output with the previous call in the same session. If one changes on every call, it

@@ -126,11 +126,48 @@ describe('ContextBuilder: placement and order (S23)', () => {
     ]);
   });
 
-  it('adds the tail as a note after a tool result instead of the newest message', async () => {
+  it('keeps the tail on the opening request, unchanged, for every step of a turn', async () => {
+    let now = 'It is 09:00.';
+    const clockNote = new (class extends Note {
+      override render() {
+        return now;
+      }
+    })('clock', 'tail', 2, '');
+    const { builder, session, turn, append } = await fixture([clockNote]);
+    await append('user', text('What is the time?'));
+    const first = await builder.build(session, turn);
+
+    await append('assistant', [
+      { type: 'tool_call', call: { id: asId<ToolCallId>('c1'), name: 'x', arguments: {} } },
+    ]);
+    await append('tool', text('tool output'));
+    now = 'It is 09:01.';
+    const second = await builder.build(session, turn);
+
+    // The second step's request starts with exactly the first one: the provider's cache still matches.
+    expect(second.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool']);
+    expect(second.messages[0]).toEqual(first.messages[0]);
+    expect(second.messages[0]!.parts.at(-1)).toEqual({ type: 'text', text: 'It is 09:00.' });
+
+    // The next turn renders it afresh, on its own opening request.
+    const next = Turn.create({
+      id: newId<TurnId>(),
+      sessionId: session.id,
+      source: 'user',
+      createdAt: new Date(),
+    });
+    await append('assistant', text('Nine.'));
+    await append('user', text('And now?'), next.id);
+    const third = await builder.build(session, next);
+    expect(third.messages.at(-1)!.parts.at(-1)).toEqual({ type: 'text', text: 'It is 09:01.' });
+    expect(third.messages[0]!.parts).toEqual(text('What is the time?'));
+  });
+
+  it('adds the tail as a note at the end when the turn has no owner message', async () => {
     const { builder, session, turn, append } = await fixture([
       new Note('clock', 'tail', 2, 'It is 09:00.'),
     ]);
-    await append('user', text('What is the time?'));
+    await append('user', text('An earlier request.'), newId<TurnId>());
     await append('assistant', [
       { type: 'tool_call', call: { id: asId<ToolCallId>('c1'), name: 'x', arguments: {} } },
     ]);

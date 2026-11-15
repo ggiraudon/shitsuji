@@ -63,6 +63,11 @@ export class ContextBuilder {
   private readonly renderedOnce = new Map<SessionId, Set<string>>();
   /** The previous header text per session and injectable, for the stability check. */
   private readonly headerSeen = new Map<SessionId, Map<string, HeaderState>>();
+  /** The tail of each session's current turn, rendered once so every step of the turn reuses it. */
+  private readonly turnTails = new Map<
+    SessionId,
+    { turnId: Turn['id']; text: string | undefined }
+  >();
 
   constructor(private readonly deps: ContextBuilderDeps) {}
 
@@ -137,12 +142,23 @@ export class ContextBuilder {
       role: 'system',
       parts: [{ type: 'text', text: note.text }],
     }));
-    const tail = rendered.tail.length ? rendered.tail.map((n) => n.text).join('\n\n') : undefined;
+    // The tail is fixed for the turn: re-rendering it on each step would change the opening request
+    // between calls and cost a cache miss for the whole tool loop after it.
+    const frozen = this.turnTails.get(session.id);
+    const tail =
+      frozen?.turnId === turn.id
+        ? frozen.text
+        : rendered.tail.length
+          ? rendered.tail.map((n) => n.text).join('\n\n')
+          : undefined;
+    remember(this.turnTails, session.id, { turnId: turn.id, text: tail });
     this.checkHeaderStability(session.id, rendered.header);
+    const open = openRequestIndex(sources, turn.id);
+    const anchor = open === -1 ? -1 : notes.length + open;
 
     return {
       ...(rendered.header.length && { system: rendered.header.map((n) => n.text).join('\n\n') }),
-      messages: attachTail([...notes, ...messages], tail),
+      messages: attachTail([...notes, ...messages], tail, anchor),
       sources,
       header: rendered.header,
       context: rendered.context,
@@ -178,7 +194,7 @@ export class ContextBuilder {
   private markRendered(sessionId: SessionId, injectableId: string): void {
     const seen = this.renderedOnce.get(sessionId) ?? new Set<string>();
     seen.add(injectableId);
-    this.renderedOnce.set(sessionId, seen);
+    remember(this.renderedOnce, sessionId, seen);
   }
 
   /**
@@ -211,8 +227,31 @@ export class ContextBuilder {
       }
     }
     for (const id of state.keys()) if (!rendered.has(id)) state.delete(id);
-    this.headerSeen.set(sessionId, state);
+    remember(this.headerSeen, sessionId, state);
   }
+}
+
+/** Most sessions whose per-session state is kept in memory; the least recently used are dropped. */
+const MAX_TRACKED_SESSIONS = 256;
+
+/**
+ * Sets a session's entry as the most recent and drops the oldest beyond the cap. This state is a
+ * cache: losing it (or restarting) only re-renders a `once` note or resets the stability check.
+ */
+function remember<V>(map: Map<SessionId, V>, key: SessionId, value: V): void {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > MAX_TRACKED_SESSIONS) map.delete(map.keys().next().value!);
+}
+
+/**
+ * Where the turn's opening owner message sits among the model messages, or -1. It is found the same
+ * way the model messages are made: whole exchanges, withdrawn messages left out.
+ */
+function openRequestIndex(sources: Message[], turnId: Turn['id']): number {
+  return trimToWholeExchanges(sources)
+    .filter((m) => !m.withdrawn)
+    .findIndex((m) => m.turnId === turnId && m.role === 'user');
 }
 
 interface HeaderState {
@@ -257,11 +296,22 @@ function toModelMessages(messages: Message[]): ModelMessage[] {
 }
 
 /**
- * The tail goes on the newest message for this call only (never stored), so the next call replaces
- * it without changing the cached prefix. After a tool result it becomes a short user note instead.
+ * The tail goes on the turn's opening owner message, for this turn only (never stored), so every step
+ * of the turn sends the same prefix and the next turn moves it on. Without an opening message in
+ * view, it goes on the newest message, or after a tool result as a short user note.
  */
-function attachTail(messages: ModelMessage[], tail: string | undefined): ModelMessage[] {
+function attachTail(
+  messages: ModelMessage[],
+  tail: string | undefined,
+  anchor = -1,
+): ModelMessage[] {
   if (!tail) return messages;
+  const target = anchor >= 0 ? messages[anchor] : undefined;
+  if (target?.role === 'user') {
+    return messages.map((m, i) =>
+      i === anchor ? { ...m, parts: [...m.parts, { type: 'text' as const, text: tail }] } : m,
+    );
+  }
   const last = messages.at(-1);
   if (last?.role === 'user') {
     return [
