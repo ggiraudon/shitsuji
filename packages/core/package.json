@@ -1,7 +1,7 @@
 {
   "name": "@shitsuji/core",
   "version": "0.1.0",
-  "description": "A lightweight AI agent framework",
+  "description": "Shitsuji core: agent runtime, channels, persistence and model routing",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -45,5 +45,9 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "private": true
+  "private": true,
+  "files": [
+    "dist",
+    "migrations"
+  ]
 }

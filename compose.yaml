@@ -3,6 +3,43 @@
 name: shitsuji
 
 services:
+  core:
+    image: shitsuji/core
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Use a URL-safe POSTGRES_PASSWORD (letters, digits, - and _), since it goes into this URL.
+      DATABASE_URL: postgres://shitsuji:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/shitsuji
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      # The webhook, on this machine only. Remote access comes later (05-open-questions D2).
+      - '127.0.0.1:${SHITSUJI_WEBHOOK_PORT:-3000}:3000'
+    volumes:
+      - coredata:/data
+    networks: [internal, egress]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   postgres:
     image: pgvector/pgvector:pg17
     environment:
@@ -23,6 +60,9 @@ networks:
   # No route to the outside world: only services on this network can reach Postgres.
   internal:
     internal: true
+  # Outbound internet for core (model APIs, Telegram later). Postgres is not on it.
+  egress: {}
 
 volumes:
   pgdata:
+  coredata:

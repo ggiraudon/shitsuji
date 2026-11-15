@@ -29,6 +29,7 @@ const ENV_OVERRIDES: { vars: string[]; path: string[]; parse?: (v: string) => un
   { vars: ['SHITSUJI_DATA_DIR', 'DATA_DIR'], path: ['paths', 'dataDir'] },
   { vars: ['DATABASE_URL'], path: ['database', 'url'] },
   { vars: ['SHITSUJI_WEBHOOK_PORT'], path: ['channels', 'webhook', 'port'], parse: Number },
+  { vars: ['SHITSUJI_CLI_CHANNEL'], path: ['channels', 'cli', 'enabled'], parse: parseBool },
 ];
 
 /**
@@ -160,6 +161,14 @@ function modelsFromEnv(env: Env): Record<string, unknown> {
   );
   add('anthropic', env.ANTHROPIC_API_KEY, { kind: 'anthropic' }, 'claude-3-5-sonnet-20241022');
   return chat ? { providers, purposes: { chat, task: chat } } : {};
+}
+
+/** "true"/"false" (also 1/0, yes/no); anything else is left as text so the schema reports it. */
+function parseBool(v: string): unknown {
+  const s = v.trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(s)) return true;
+  if (['false', '0', 'no', 'off'].includes(s)) return false;
+  return v;
 }
 
 function setPath(target: Record<string, unknown>, keys: string[], value: unknown): void {

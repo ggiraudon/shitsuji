@@ -39,7 +39,7 @@ personal assistant with its own sandboxed computer, deployed with Docker Compose
 
 ## Commands
 
-The first-pass steps add these. Keep this list true as they appear.
+Keep this list true as commands change.
 
 | Command | What it does |
 |---------|--------------|
@@ -50,6 +50,12 @@ The first-pass steps add these. Keep this list true as they appear.
 | `pnpm lint` | ESLint + Prettier check |
 | `pnpm check` | Type-check, lint, import-direction check and tests: **run before every commit** |
 | `docker compose up` | Start the stack (`core` + `postgres`) |
+| `docker compose -f compose.yaml -f compose.dev.yaml up -d postgres` | Only Postgres, published on 127.0.0.1:5432, for running core on the host |
+| `pnpm --filter @shitsuji/core dev` | Run core from source with reload (reads `.env` and `shitsuji.config.yaml`) |
+| `node packages/core/dist/cli.js tui` | The terminal UI, after `pnpm build` |
+
+Commands that pipe output (`pnpm check | grep …`) hide failures: use `set -o pipefail` before
+committing on the result.
 
 
 ## Architecture rules

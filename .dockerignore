@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+.git
+.github
+docs
+logos
+*.log
+.env
+.env.*
+!.env.example
+shitsuji.config.yaml

@@ -22,6 +22,8 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 - [x] **S12** Anthropic adapter
 - [x] **S13** Catalogue, router and decorators
 - [ ] **S14** Container and end-to-end
+      *(Stack verified with `docker compose up` from empty volumes; waiting for a DeepSeek key for the
+      live chat-with-tool-call check.)*
 
 ## Acceptance criteria by feature
 
@@ -37,7 +39,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 
 - [x] Restarting `core` keeps all threads, messages and queued turns.
 - [x] A turn can be started by only one worker at a time (proved by a concurrency test).
-- [ ] `docker compose up` creates the schema from migrations.
+- [x] `docker compose up` creates the schema from migrations.
 
 ### [F03 — Model providers and router](features/F03-model-providers.md)
 

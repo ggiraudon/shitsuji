@@ -115,6 +115,12 @@ describe('environment overrides', () => {
     expect(config.channels.webhook.port).toBe(8080);
     expect(config.database.url!.reveal()).toBe('postgres://u:p@db/shitsuji');
   });
+
+  it('turns the CLI channel off from the environment, and rejects a non-boolean', () => {
+    expect(load({ SHITSUJI_CLI_CHANNEL: 'false' }).config.channels.cli.enabled).toBe(false);
+    expect(load({ SHITSUJI_CLI_CHANNEL: 'yes' }).config.channels.cli.enabled).toBe(true);
+    expect(() => load({ SHITSUJI_CLI_CHANNEL: 'maybe' })).toThrow(/channels\.cli\.enabled/);
+  });
 });
 
 describe('invalid configuration', () => {
