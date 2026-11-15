@@ -1,8 +1,12 @@
 import { BaseTool, type ToolResult, type ToolExecuteParams } from '../base.js';
+import { ExpressionEvaluator } from './ExpressionEvaluator.js';
 
 export class CalculatorTool extends BaseTool {
   readonly name = 'calculator';
-  readonly description = 'Perform mathematical calculations. Use this for any math operations.';
+  readonly description =
+    'Evaluate an arithmetic expression. Supports + - * / % ^ (power), parentheses, functions ' +
+    '(sqrt, abs, round, floor, ceil, min, max, pow, log, ln, log10, log2, exp, sin, cos, tan, ' +
+    'hypot, …) and constants (pi, e, tau). Use this for any math instead of calculating yourself.';
   readonly schema = {
     type: 'object',
     properties: {
@@ -27,46 +31,14 @@ export class CalculatorTool extends BaseTool {
     }
 
     try {
-      const safeEval = this.createSafeEvaluator();
-      const result = safeEval(expression);
-
-      return {
-        success: true,
-        result: String(result),
-      };
+      const result = this.evaluator.evaluate(expression);
+      // 15 significant digits hides binary floating-point noise (0.1 + 0.2 → 0.3).
+      return { success: true, result: String(Number(result.toPrecision(15))) };
     } catch (error) {
-      return {
-        success: false,
-        result: '',
-        error: `Calculation error: ${String(error)}`,
-      };
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, result: '', error: `Calculation error: ${message}` };
     }
   }
 
-  private createSafeEvaluator(): (expr: string) => number {
-    const mathConstants: Record<string, number> = {
-      E: Math.E,
-      LN10: Math.LN10,
-      LN2: Math.LN2,
-      LOG10E: Math.LOG10E,
-      LOG2E: Math.LOG2E,
-      PI: Math.PI,
-      SQRT1_2: Math.SQRT1_2,
-      SQRT2: Math.SQRT2,
-    };
-
-    return (expr: string) => {
-      const sanitized = expr.replace(/[^0-9+\-*/().eE%^\s]/g, '');
-      const funcNames = Object.keys(mathConstants).join(',');
-      const funcBody = `
-        const ${funcNames} = this;
-        const { abs, acos, acosh, asin, asinh, atan, atanh, atan2, 
-          ceil, cos, cosh, exp, floor, log, log10, log2, max, min, 
-          pow, random, round, sign, sin, sinh, sqrt, tan, tanh, trunc } = Math;
-        return ${sanitized};
-      `;
-      const fn = new Function(funcBody).bind(mathConstants);
-      return fn();
-    };
-  }
+  private readonly evaluator = new ExpressionEvaluator();
 }
