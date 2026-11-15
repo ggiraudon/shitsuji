@@ -88,7 +88,6 @@ export class Agent {
       new ClockInjectable(options.clock),
       new CompactionSummaryInjectable(),
     ];
-    this.sortInjectables();
     this.intake = new MessageIntake({ ...options, agentName: this.name });
     const contextWindow = contextWindowOf(options.models);
     const context = new ContextBuilder({
@@ -133,9 +132,9 @@ export class Agent {
     return this.scheduler.idle();
   }
 
+  /** Adds an injectable; the ContextBuilder places it by its placement and order. */
   addInjectable(injectable: ContextInjectable): void {
     this.injectables.push(injectable);
-    this.sortInjectables();
   }
 
   getTools(): Tool[] {
@@ -207,18 +206,9 @@ export class Agent {
       off();
     }
   }
-
-  /** Placement first (header, context, tail), then ascending order within each (F04). */
-  private sortInjectables(): void {
-    const rank = { header: 0, context: 1, tail: 2 } as const;
-    this.injectables.sort(
-      (a, b) =>
-        rank[a.placement] - rank[b.placement] || a.order - b.order || a.id.localeCompare(b.id),
-    );
-  }
 }
 
-/** The chat model's context window, when the catalogue knows it; without one, no compaction. */
+/** The chat model's context window, when the catalogue knows it; without one, only the message limit. */
 function contextWindowOf(models: ModelRouter): number | undefined {
   try {
     return models.select('chat').info?.contextWindow;
