@@ -1,0 +1,20 @@
+[
+  "application/Agent.ts -> adapters/events/MessageBus.ts",
+  "application/Agent.ts -> adapters/logging/logger.ts",
+  "application/Agent.ts -> adapters/storage/SessionStore.ts",
+  "application/PluginManager.ts -> adapters/logging/logger.ts",
+  "application/ToolRegistry.ts -> adapters/logging/logger.ts",
+  "domain/Session.ts -> adapters/events/MessageBus.ts",
+  "domain/Session.ts -> adapters/logging/logger.ts",
+  "domain/Session.ts -> adapters/storage/SessionStore.ts",
+  "domain/Session.ts -> ports/LLMProvider.ts",
+  "interfaces/tui/app.tsx -> adapters/models/AnthropicProvider.ts",
+  "interfaces/tui/app.tsx -> adapters/models/OpenAIProvider.ts",
+  "interfaces/tui/app.tsx -> adapters/storage/SessionStore.ts",
+  "interfaces/tui/app.tsx -> adapters/tools/CalculatorTool.ts",
+  "interfaces/tui/app.tsx -> adapters/tools/ExecuteCommandTool.ts",
+  "interfaces/tui/app.tsx -> adapters/tools/FileSystemTool.ts",
+  "interfaces/tui/app.tsx -> adapters/tools/SystemInfoTool.ts",
+  "interfaces/tui/app.tsx -> adapters/tools/WebSearchTool.ts",
+  "interfaces/tui/app.tsx -> composition/config.ts"
+]

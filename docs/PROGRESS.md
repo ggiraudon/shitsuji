@@ -10,7 +10,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 
 - [x] **S1** Tooling baseline
 - [x] **S2** pnpm monorepo
-- [ ] **S3** Layer folders and the import check
+- [x] **S3** Layer folders and the import check
 - [ ] **S4** Core ports: logger, clock, event bus, errors
 - [ ] **S5** Configuration
 - [ ] **S6** Plugins and the composition root
