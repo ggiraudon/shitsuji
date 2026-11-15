@@ -22,7 +22,7 @@ import type { Tool } from '../ports/Tool.js';
 import { TurnLock } from './TurnLock.js';
 import { type ToolCatalog } from './tools/ToolCatalog.js';
 import { outcomeText, type ToolPipeline } from './tools/ToolPipeline.js';
-import { IdentityInjectable, RulesInjectable, ToolListInjectable } from './context/index.js';
+import { IdentityInjectable, RulesInjectable, ToolIndexInjectable } from './context/index.js';
 import type { ModelResponse } from './modelCalls.js';
 import type { ModelRouter } from './models/ModelRouter.js';
 
@@ -82,7 +82,7 @@ export class Agent {
     this.turnLock = new TurnLock(options.repos);
     this.injectables = [
       new IdentityInjectable({ name: this.name, description: 'a helpful AI assistant' }),
-      new ToolListInjectable(this.tools.specs()),
+      new ToolIndexInjectable(() => this.tools.list()),
       new RulesInjectable([
         { id: 'helpful', text: 'Be helpful and concise' },
         { id: 'safe', text: 'Do not reveal sensitive information' },
@@ -102,9 +102,6 @@ export class Agent {
 
   registerTool(tool: Tool): void {
     this.tools.add(tool);
-    this.injectables = this.injectables.filter((i) => i.id !== 'tool-list');
-    this.injectables.push(new ToolListInjectable(this.tools.specs()));
-    this.sortInjectables();
   }
 
   /** Starts a new session in the owner's thread, e.g. a fresh conversation in the TUI. */
@@ -202,7 +199,7 @@ export class Agent {
     history: Message[],
   ): Promise<ModelResponse> {
     const { events, repos, clock } = this.options;
-    const tools = this.tools.specs();
+    const tools = this.tools.specs(this.discoveredIn(session.id));
     const request: Omit<ModelRequest, 'model'> = {
       system: this.buildContext(session, history),
       messages: toModelMessages(trimToWholeExchanges(history)),
@@ -268,12 +265,26 @@ export class Agent {
       events,
       writeFenced: (fn) => this.turnLock.write(turn.id, fn),
     });
+    // Deferred tools the model has found or used are sent with the session's next requests.
+    const found = this.discoveredIn(session.id);
+    found.add(call.name);
+    if (outcome.kind === 'ok' && Array.isArray(outcome.data?.names)) {
+      for (const n of outcome.data.names) if (typeof n === 'string') found.add(n);
+    }
     if (outcome.kind === 'ok') events.publish('tool.result', { ...meta, success: true });
     else events.publish('tool.error', { ...meta, error: outcome.content });
     if (outcome.kind === 'error' && outcome.reason === 'repeated_failure') {
       throw new Error(outcome.content); // ends the turn instead of looping (F05)
     }
     return { content: outcomeText(outcome), isError: outcome.kind !== 'ok' };
+  }
+
+  /** Deferred tools discovered in a session (kept in memory; a restart forgets them, harmlessly). */
+  private readonly discovered = new Map<string, Set<string>>();
+  private discoveredIn(sessionId: string): Set<string> {
+    let set = this.discovered.get(sessionId);
+    if (!set) this.discovered.set(sessionId, (set = new Set()));
+    return set;
   }
 
   /** The turn's cancellation signal. Stop (S22) will abort it; until then it never fires. */
