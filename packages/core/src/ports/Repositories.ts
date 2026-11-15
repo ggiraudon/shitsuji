@@ -1,5 +1,6 @@
 import type { MessageId, OwnerId, SessionId, ThreadId, TurnId } from '../domain/model/ids.js';
 import type { Message } from '../domain/model/Message.js';
+import type { Money } from '../domain/model/Money.js';
 import type { Session } from '../domain/model/Session.js';
 import type { Thread } from '../domain/model/Thread.js';
 import type { Turn, TurnStatus } from '../domain/model/Turn.js';
@@ -85,6 +86,28 @@ export interface TurnEventRepository {
   listByTurn(turnId: TurnId, tx?: Transaction): Promise<TurnEvent[]>;
 }
 
+/** One model request: what it cost in tokens and, when the price is known, money (F03, F22). */
+export interface UsageRecord {
+  ownerId: OwnerId;
+  turnId?: TurnId;
+  purpose?: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  /** Undefined when the model has no configured price. */
+  cost?: Money;
+  at: Date;
+}
+
+export interface UsageRepository {
+  append(record: UsageRecord, tx?: Transaction): Promise<void>;
+  /** Records at or after `since`, oldest first. */
+  listSince(ownerId: OwnerId, since: Date, tx?: Transaction): Promise<UsageRecord[]>;
+}
+
 /** Every repository plus the unit of work that spans them. One adapter provides all of them. */
 export interface Repositories {
   uow: UnitOfWork;
@@ -94,4 +117,5 @@ export interface Repositories {
   turns: TurnRepository;
   messages: MessageRepository;
   turnEvents: TurnEventRepository;
+  usage: UsageRepository;
 }

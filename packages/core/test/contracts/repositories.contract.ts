@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { asId, newId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
 import type { Message } from '../../src/domain/model/Message.js';
+import { Money } from '../../src/domain/model/Money.js';
 import { Session } from '../../src/domain/model/Session.js';
 import { Turn } from '../../src/domain/model/Turn.js';
 import type { Repositories } from '../../src/ports/Repositories.js';
@@ -209,6 +210,41 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
         ['tool_start', 2],
       ]);
       expect(events[0]!.at).toEqual(at(51));
+    });
+
+    it('records usage with and without a known cost, and lists it by time', async () => {
+      const repos = await create();
+      const { session } = await seed(repos);
+      const t = turn(session.id, 70);
+      await repos.turns.insert(t);
+      await repos.usage.append({
+        ownerId: owner,
+        turnId: t.id,
+        purpose: 'chat',
+        provider: 'deepseek',
+        model: 'deepseek-v4.1-flash',
+        inputTokens: 1200,
+        outputTokens: 80,
+        cachedInputTokens: 1000,
+        reasoningTokens: 20,
+        cost: Money.fromMicros(345, 'USD'),
+        at: at(71),
+      });
+      await repos.usage.append({
+        ownerId: owner,
+        provider: 'local',
+        model: 'qwen3:4b',
+        inputTokens: 50,
+        outputTokens: 5,
+        at: at(72),
+      });
+      const rows = await repos.usage.listSince(owner, at(71));
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({ turnId: t.id, purpose: 'chat', cachedInputTokens: 1000 });
+      expect(rows[0]!.cost!.micros).toBe(345);
+      expect(rows[0]!.at).toEqual(at(71));
+      expect(rows[1]!.cost).toBeUndefined();
+      expect(await repos.usage.listSince(owner, at(72))).toHaveLength(1);
     });
 
     it('rejects duplicate ids', async () => {

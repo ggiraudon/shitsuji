@@ -171,6 +171,21 @@ describe('Postgres-only guarantees', () => {
       ],
       turn_events: ['id', 'owner_id', 'turn_id', 'kind', 'data', 'at'],
       channel_bindings: ['channel', 'external_chat_id', 'owner_id', 'verified_at'],
+      usage: [
+        'id',
+        'owner_id',
+        'turn_id',
+        'purpose',
+        'provider',
+        'model',
+        'input_tokens',
+        'output_tokens',
+        'cached_input_tokens',
+        'reasoning_tokens',
+        'cost_micros',
+        'currency',
+        'at',
+      ],
     };
     for (const [table, cols] of Object.entries(expected)) {
       for (const col of cols) expect(actual.has(`${table}.${col}`), `${table}.${col}`).toBe(true);

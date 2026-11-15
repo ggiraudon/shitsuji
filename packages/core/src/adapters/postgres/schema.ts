@@ -79,6 +79,22 @@ export interface ChannelBindingsTable {
   verified_at: Timestamp | null;
 }
 
+export interface UsageTable {
+  id: Generated<string>;
+  owner_id: string;
+  turn_id: string | null;
+  purpose: string | null;
+  provider: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_input_tokens: number | null;
+  reasoning_tokens: number | null;
+  cost_micros: ColumnType<string | null, number | null, number | null>; // bigint comes back as a string
+  currency: string | null;
+  at: Timestamp;
+}
+
 export interface Database {
   owners: OwnersTable;
   threads: ThreadsTable;
@@ -87,4 +103,5 @@ export interface Database {
   messages: MessagesTable;
   turn_events: TurnEventsTable;
   channel_bindings: ChannelBindingsTable;
+  usage: UsageTable;
 }

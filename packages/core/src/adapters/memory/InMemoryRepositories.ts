@@ -23,7 +23,10 @@ import type {
   TurnEventRepository,
   TurnRepository,
   UnitOfWork,
+  UsageRecord,
+  UsageRepository,
 } from '../../ports/Repositories.js';
+import { Money } from '../../domain/model/Money.js';
 
 interface ThreadRow {
   id: ThreadId;
@@ -47,6 +50,8 @@ interface State {
   turns: Map<TurnId, TurnProps>;
   messages: Message[];
   turnEvents: TurnEvent[];
+  /** Money is stored as plain fields so the state can be cloned. */
+  usage: (Omit<UsageRecord, 'cost'> & { costMicros?: number; currency?: string })[];
 }
 
 const emptyState = (): State => ({
@@ -56,6 +61,7 @@ const emptyState = (): State => ({
   turns: new Map(),
   messages: [],
   turnEvents: [],
+  usage: [],
 });
 
 const copy = <T>(value: T): T => structuredClone(value);
@@ -190,6 +196,22 @@ export class InMemoryRepositories implements Repositories {
     },
     listByTurn: async (turnId) =>
       this.state.turnEvents.filter((e) => e.turnId === turnId).map(copy),
+  };
+
+  readonly usage: UsageRepository = {
+    append: async (r) => {
+      const { cost, ...rest } = r;
+      this.state.usage.push(copy({ ...rest, costMicros: cost?.micros, currency: cost?.currency }));
+    },
+    listSince: async (ownerId, since) =>
+      this.state.usage
+        .filter((u) => u.ownerId === ownerId && u.at.getTime() >= since.getTime())
+        .sort((a, b) => a.at.getTime() - b.at.getTime())
+        .map(({ costMicros, currency, ...rest }) => {
+          const record: UsageRecord = copy(rest);
+          if (costMicros !== undefined) record.cost = Money.fromMicros(costMicros, currency);
+          return record;
+        }),
   };
 
   private sessionsOf(threadId: ThreadId): SessionRow[] {

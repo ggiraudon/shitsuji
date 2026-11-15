@@ -22,7 +22,10 @@ import type {
   TurnEventRepository,
   TurnRepository,
   UnitOfWork,
+  UsageRecord,
+  UsageRepository,
 } from '../../ports/Repositories.js';
+import { Money } from '../../domain/model/Money.js';
 import type { Database, MessagesTable, SessionsTable, TurnsTable } from './schema.js';
 
 /** The port's opaque Transaction, carrying the Kysely transaction it stands for. */
@@ -82,7 +85,11 @@ export function kyselyOf(tx: Transaction): KyselyTx<Database> {
 
 /** Repositories on Postgres via Kysely. Pass a Transaction to join a unit of work. */
 export class PostgresRepositories implements Repositories {
-  constructor(private readonly db: Kysely<Database>) {}
+  readonly usage: UsageRepository;
+
+  constructor(private readonly db: Kysely<Database>) {
+    this.usage = usageRepository((tx) => this.ex(tx));
+  }
 
   /** The executor for a call: the transaction if one is given, else the pool. */
   private ex(tx?: Transaction): Kysely<Database> {
@@ -394,6 +401,59 @@ export class PostgresRepositories implements Repositories {
         data: r.data,
         at: r.at,
       })),
+  };
+}
+
+/** Not a member above so the class reads in table order; attached in the constructor. */
+function usageRepository(ex: (tx?: Transaction) => Kysely<Database>): UsageRepository {
+  return {
+    append: async (r, tx) => {
+      await ex(tx)
+        .insertInto('usage')
+        .values({
+          owner_id: r.ownerId,
+          turn_id: r.turnId ?? null,
+          purpose: r.purpose ?? null,
+          provider: r.provider,
+          model: r.model,
+          input_tokens: r.inputTokens,
+          output_tokens: r.outputTokens,
+          cached_input_tokens: r.cachedInputTokens ?? null,
+          reasoning_tokens: r.reasoningTokens ?? null,
+          cost_micros: r.cost?.micros ?? null,
+          currency: r.cost?.currency ?? null,
+          at: r.at,
+        })
+        .execute();
+    },
+    listSince: async (ownerId, since, tx) =>
+      (
+        await ex(tx)
+          .selectFrom('usage')
+          .selectAll()
+          .where('owner_id', '=', ownerId)
+          .where('at', '>=', since)
+          .orderBy('at')
+          .orderBy('id')
+          .execute()
+      ).map((row) => {
+        const record: UsageRecord = {
+          ownerId: row.owner_id as OwnerId,
+          provider: row.provider,
+          model: row.model,
+          inputTokens: row.input_tokens,
+          outputTokens: row.output_tokens,
+          at: row.at,
+        };
+        if (row.turn_id !== null) record.turnId = row.turn_id as TurnId;
+        if (row.purpose !== null) record.purpose = row.purpose;
+        if (row.cached_input_tokens !== null) record.cachedInputTokens = row.cached_input_tokens;
+        if (row.reasoning_tokens !== null) record.reasoningTokens = row.reasoning_tokens;
+        if (row.cost_micros !== null) {
+          record.cost = Money.fromMicros(Number(row.cost_micros), row.currency ?? 'USD');
+        }
+        return record;
+      }),
   };
 }
 
