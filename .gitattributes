@@ -1,0 +1,7 @@
+# Keep LF everywhere, including on Windows checkouts (overrides core.autocrlf).
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
