@@ -1,0 +1,49 @@
+# Shitsuji configuration. Copy to shitsuji.config.yaml (ignored by git) and adjust.
+# Values can use ${VAR} or ${VAR:-default}; secrets belong in .env, not here.
+
+owner:
+  name: Owner
+  # timezone: Europe/Paris   # defaults to this machine's timezone
+  locale: en
+
+logging:
+  level: info # debug | info | warn | error
+  format: pretty # pretty for a terminal, json for containers
+
+paths:
+  dataDir: ~/.shitsuji/data
+
+database:
+  url: ${DATABASE_URL:-postgres://shitsuji:shitsuji@localhost:5432/shitsuji}
+
+models:
+  providers:
+    deepseek:
+      kind: openai-compatible
+      baseUrl: https://api.deepseek.com/v1
+      apiKey: ${DEEPSEEK_API_KEY}
+    # openrouter:
+    #   kind: openai-compatible
+    #   baseUrl: https://openrouter.ai/api/v1
+    #   apiKey: ${OPENROUTER_API_KEY}
+    # local:
+    #   kind: openai-compatible
+    #   baseUrl: http://ollama:11434/v1
+    # anthropic:
+    #   kind: anthropic
+    #   apiKey: ${ANTHROPIC_API_KEY}
+  purposes:
+    chat: deepseek/deepseek-v4.1-flash
+    task: deepseek/deepseek-v4.1-flash
+    summarize: deepseek/deepseek-v4.1-flash
+    vision: deepseek/deepseek-v4.1-flash
+    trust: deepseek/deepseek-v4.1-flash
+  fallbacks: {}
+
+channels:
+  cli:
+    enabled: true
+  webhook:
+    enabled: true
+    port: 3000
+    path: /webhook

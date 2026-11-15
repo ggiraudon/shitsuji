@@ -5,3 +5,6 @@ dist/
 .DS_Store
 openclaw/
 opencode/
+
+# Local configuration (copy from shitsuji.config.example.yaml)
+shitsuji.config.yaml

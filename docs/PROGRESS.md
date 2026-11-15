@@ -12,7 +12,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 - [x] **S2** pnpm monorepo
 - [x] **S3** Layer folders and the import check
 - [x] **S4** Core ports: logger, clock, event bus, errors
-- [ ] **S5** Configuration
+- [x] **S5** Configuration
 - [ ] **S6** Plugins and the composition root
 - [ ] **S7** Domain model
 - [ ] **S8** Persistence ports and in-memory adapters

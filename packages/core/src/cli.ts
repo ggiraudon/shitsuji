@@ -42,8 +42,13 @@ async function main() {
 
   if (command === 'tui') {
     const { startTUI } = await import('./interfaces/tui/app.js');
+    const { loadConfig } = await import('./composition/config/loadConfig.js');
     const { createCoreServices } = await import('./composition/services.js');
-    await startTUI(createCoreServices());
+    const { createAgent } = await import('./composition/createAgent.js');
+    const { config } = loadConfig();
+    // The TUI draws the screen, so it gets a logger that only reports warnings and errors.
+    const services = createCoreServices({ ...config.logging, level: 'warn' });
+    await startTUI({ agent: createAgent(config, services).agent });
     return;
   }
 
@@ -52,7 +57,9 @@ async function main() {
   await startServer();
 }
 
-main().catch((err) => {
-  console.error(err);
+main().catch((err: unknown) => {
+  // Configuration problems are the user's to fix: show the message, not a stack trace.
+  if (err instanceof Error && err.name === 'ConfigError') console.error(err.message);
+  else console.error(err);
   process.exit(1);
 });

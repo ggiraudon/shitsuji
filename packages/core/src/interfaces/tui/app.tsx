@@ -1,22 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { render, Box, Text, useInput } from 'ink';
-import { Agent } from '../../application/Agent.js';
-import { OpenAIProvider } from '../../adapters/models/OpenAIProvider.js';
-import { AnthropicProvider } from '../../adapters/models/AnthropicProvider.js';
-import { CalculatorTool } from '../../adapters/tools/CalculatorTool.js';
-import { WebSearchTool } from '../../adapters/tools/WebSearchTool.js';
-import { FileReadTool, FileWriteTool, FileListTool } from '../../adapters/tools/FileSystemTool.js';
-import { ExecuteCommandTool } from '../../adapters/tools/ExecuteCommandTool.js';
-import { SystemInfoTool } from '../../adapters/tools/SystemInfoTool.js';
-import { SessionStore } from '../../adapters/storage/SessionStore.js';
-import { join } from 'path';
-import { configManager } from '../../composition/config.js';
-import type { Logger } from '../../ports/Logger.js';
-import type { EventBus } from '../../ports/EventBus.js';
+import type { Agent } from '../../application/Agent.js';
 
 export interface TuiServices {
-  log: Logger;
-  events: EventBus;
+  /** A ready agent, built by the composition root. */
+  agent: Agent;
 }
 
 const colors = {
@@ -52,44 +40,7 @@ const ShitsujiApp = ({ services }: { services: TuiServices }) => {
 
   const initAgent = async () => {
     try {
-      const configDir = configManager.getConfigDir();
-      const dataDir = join(configDir, 'data');
-
-      const openaiKey = process.env.OPENAI_API_KEY;
-      const anthropicKey = process.env.ANTHROPIC_API_KEY;
-
-      let llm;
-      let model = 'gpt-4o-mini';
-
-      if (anthropicKey) {
-        llm = new AnthropicProvider(anthropicKey, services.log);
-        model = 'claude-3-5-sonnet-20241022';
-      } else if (openaiKey) {
-        llm = new OpenAIProvider(openaiKey, services.log);
-      } else {
-        setError('No API key set (OPENAI_API_KEY or ANTHROPIC_API_KEY)');
-        return;
-      }
-
-      const sessionStore = new SessionStore(join(dataDir, 'sessions'), services.log);
-
-      const newAgent = new Agent({
-        name: 'Shitsuji',
-        llmProvider: llm,
-        model,
-        sessionStore,
-        log: services.log,
-        events: services.events,
-      });
-
-      newAgent.registerTool(new CalculatorTool());
-      newAgent.registerTool(new WebSearchTool());
-      newAgent.registerTool(new FileReadTool());
-      newAgent.registerTool(new FileWriteTool());
-      newAgent.registerTool(new FileListTool());
-      newAgent.registerTool(new ExecuteCommandTool());
-      newAgent.registerTool(new SystemInfoTool());
-
+      const newAgent = services.agent;
       const session = newAgent.createSession();
 
       setAgent(newAgent);
