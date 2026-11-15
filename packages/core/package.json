@@ -1,0 +1,41 @@
+{
+  "name": "@shitsuji/core",
+  "version": "0.1.0",
+  "description": "A lightweight AI agent framework",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "shitsuji": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/cli.js",
+    "tui": "node dist/cli.js tui",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.0",
+    "hono": "^4.0.0",
+    "ink": "^5.0.0",
+    "react": "^18.3.0",
+    "yargs": "^17.7.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@types/yargs": "^17.0.35",
+    "tsx": "^4.15.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "private": true
+}

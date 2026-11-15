@@ -1,55 +1,27 @@
 {
-  "name": "shitsuji",
-  "version": "0.1.0",
-  "description": "A lightweight AI agent framework",
+  "name": "shitsuji-workspace",
+  "private": true,
+  "description": "Shitsuji: a proactive personal assistant with its own sandboxed computer",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "bin": {
-    "shitsuji": "./dist/cli.js"
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx watch src/index.ts",
-    "start": "shitsuji",
-    "tui": "shitsuji tui",
-    "daemon": "shitsuji daemon",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
-  },
-  "keywords": [
-    "ai",
-    "agent",
-    "llm",
-    "tui"
-  ],
-  "license": "MIT",
-  "dependencies": {
-    "dotenv": "^16.4.0",
-    "hono": "^4.0.0",
-    "ink": "^5.0.0",
-    "react": "^18.3.0",
-    "yargs": "^17.7.0",
-    "zod": "^3.23.0"
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
-    "@types/node": "^22.0.0",
-    "@types/react": "^18.3.0",
-    "@types/yargs": "^17.0.35",
-    "eslint": "^9.0.0",
+    "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.14.0",
-    "prettier": "^3.3.0",
-    "tsx": "^4.15.0",
-    "typescript": "^5.5.0",
-    "typescript-eslint": "^8.72.2",
-    "vitest": "^2.0.0"
-  },
-  "engines": {
-    "node": ">=22.0.0"
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.2"
   }
 }

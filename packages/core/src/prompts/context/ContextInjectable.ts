@@ -1,11 +1,7 @@
 import { type Session } from '../../core/Session.js';
 
 export type InjectionConditionType =
-  | 'always'
-  | 'tool_used'
-  | 'pattern_detected'
-  | 'custom'
-  | 'once';
+  'always' | 'tool_used' | 'pattern_detected' | 'custom' | 'once';
 
 export interface InjectionConditionAlways {
   type: 'always';

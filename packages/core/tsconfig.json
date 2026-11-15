@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react",
+    "outDir": "./dist",
+    "noEmit": true,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false,
+    "isolatedModules": false
+  },
+  "include": ["src/**/*", "test/**/*", "vitest.config.ts"]
+}
