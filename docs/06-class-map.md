@@ -341,7 +341,11 @@ classDiagram
   class TaskLedgerInjectable
   class ChannelStyleInjectable
   class Compactor {
-    +compactIfNeeded(transcript, window)
+    +compactIfNeeded(session, turn, transcript, window) Compaction
+  }
+  class SoulService {
+    +current(sessionKind) SoulRevision
+    +confirmEdit() SoulRevision
   }
   class SteeringInbox {
     +push(message)
@@ -358,6 +362,7 @@ classDiagram
 
   TurnScheduler --> TurnRunner
   TurnRunner --> ContextBuilder
+  TurnRunner --> SoulService : the turn's revision
   TurnRunner --> ModelRouter
   TurnRunner --> ToolPipeline
   TurnRunner --> SteeringInbox

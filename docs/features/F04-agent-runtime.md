@@ -61,8 +61,7 @@ an illegal one. The repository persists them with compare-and-set ([F02](F02-per
 | `TurnScheduler` | Job handler for `session.drain`: for each session with no running turn, start its oldest queued turn |
 | `TurnRunner` | Runs one turn: builds context, streams the model, executes tools, handles steering, writes the result |
 | `ContextBuilder` | Composite of `ContextInjectable`s plus transcript selection and compaction |
-| `Compactor` | Summarises older transcript when it nears the model's window; keeps the full transcript stored |
-| `SteeringInbox` | Collects owner messages for a running session; `TurnRunner` drains it before each model call |
+| `Compactor` | Summarises older transcript when it nears the model's window; keeps the full transcript stored || `SteeringInbox` | Collects owner messages for a running session; `TurnRunner` drains it before each model call |
 | `StopController` | Holds the `AbortController` per running turn; Stop aborts, then marks the turn cancelled |
 | `ReplyComposer` | Sends interim updates and the final reply through the gateway ([F06](F06-channel-gateway.md)) |
 
@@ -181,7 +180,8 @@ The SOUL is **assembled and evolving**, not a single file you edit:
   turn records the revision it ran with. A `SOUL.md` export in the data folder lets you read it, and
   editing that file creates a new revision once you confirm the change.
 - **Changes between turns only.** A new revision takes effect at the next turn, never in the middle of one.
-  Small changes are batched into one revision rather than causing a cache miss each.
+  One confirmation makes one revision, so several edits are applied together rather than causing a
+  cache miss each.
 - **Shitsuji proposes, you decide.** Shitsuji may *propose* a change, shown as a before/after diff, but
   it's applied only after you confirm. This uses the approvals in [F11](F11-trust-and-approvals.md); until
   F11 exists, only you can change it.
@@ -189,6 +189,15 @@ The SOUL is **assembled and evolving**, not a single file you edit:
 
 The mood, which changes far more often, is a separate feature that lives in the tail:
 [F25](F25-mood.md).
+
+#### Compaction
+
+When the transcript approaches the chat model's context window, the `Compactor` summarises the messages
+**older than the open request** into the session's rolling summary. `sessions.summary_count` is the
+watermark: the messages a summary covers stay in the database but are no longer sent, so nothing is
+summarised twice. `CompactionSummaryInjectable` puts the summary at the start of the history, and the
+newest request is never summarised away (F04 criterion 5). When `models.catalog` does not give the
+model's context window, no compaction runs and only the recent-message window applies.
 
 ### Interruptions and failures
 

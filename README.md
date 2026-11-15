@@ -30,7 +30,8 @@ Telegram, the web UI and the sandbox come next. The plan and progress are in [do
    ```
 
    Enter sends (also while it works, to add to the current request), Esc stops the current turn,
-   `/new` starts a new conversation, `/exit` quits.
+   `/new` starts a new conversation, `/soul` shows the standing instructions (and confirms an edit of
+   `SOUL.md`), `/exit` quits.
 
 ## Development
 

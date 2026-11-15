@@ -37,7 +37,7 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 - [x] **S20** Message intake and the turn scheduler
 - [x] **S21** TurnRunner with streaming
 - [x] **S22** Stop and steering
-- [ ] **S23** ContextBuilder, standing instructions and compaction
+- [x] **S23** ContextBuilder, standing instructions and compaction
 - [x] **S24** HTTP API
 - [x] **S25** The TUI as an API client
 - [ ] **S26** End to end and docs
@@ -75,7 +75,7 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 - [x] A message sent while the agent works is answered in the same turn.
 - [x] Stop during a long tool call returns control within one second.
 - [x] A runaway loop stops at the step limit with a clear reason.
-- [ ] A long conversation compacts without losing the open request.
+- [x] A long conversation compacts without losing the open request.
 
 ### [F05 — Tool system v2](features/F05-tool-system.md)
 
