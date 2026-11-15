@@ -25,6 +25,23 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
       *(Verified 2026-11-15 on deepseek-flash: a calculator tool call on the host, and through Compose a
       conversation that survives a core restart, with usage rows written.)*
 
+## Second pass steps
+
+See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 come first.
+
+- [ ] **S15** Tool v2 port and schemas
+- [ ] **S16** The execution pipeline
+- [ ] **S17** Built-in tools on v2
+- [ ] **S18** Web search and fetch
+- [ ] **S19** Deferred discovery
+- [ ] **S20** Message intake and the turn scheduler
+- [ ] **S21** TurnRunner with streaming
+- [ ] **S22** Stop and steering
+- [ ] **S23** ContextBuilder, standing instructions and compaction
+- [ ] **S24** HTTP API
+- [ ] **S25** The TUI as an API client
+- [ ] **S26** End to end and docs
+
 ## Acceptance criteria by feature
 
 ### [F01 — Core architecture and composition root](features/F01-core-architecture.md)

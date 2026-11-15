@@ -7,7 +7,8 @@ personal assistant with its own sandboxed computer, deployed with Docker Compose
 
 - `docs/README.md` is the index. **The docs are the spec**: build what the feature file says, and if the
   design has to change, change the doc in the same commit.
-- `docs/07-first-pass-plan.md` is the current plan (steps S1–S14), and `docs/PROGRESS.md` is the checklist.
+- `docs/08-second-pass-plan.md` is the current plan (steps S15–S26; the first pass, `07`, is done), and
+  `docs/PROGRESS.md` is the checklist.
 - `docs/05-open-questions.md` holds the decisions. Don't reopen a decided one without asking. If an open one
   blocks you, ask.
 - `docs/06-class-map.md` gives the intended class structure.
