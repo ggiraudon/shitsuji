@@ -18,4 +18,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Type-check, lint, import-direction check and unit tests (no network, no Docker).
       - run: pnpm check
+      # Postgres in Docker via Testcontainers (the runner has Docker).
+      - run: pnpm test:integration
       - run: pnpm build

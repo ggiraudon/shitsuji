@@ -1,4 +1,6 @@
 import { InMemoryRepositories } from '../adapters/memory/InMemoryRepositories.js';
+import { PostgresDatabase } from '../adapters/postgres/PostgresDatabase.js';
+import { PostgresRepositories } from '../adapters/postgres/PostgresRepositories.js';
 import { Agent } from '../application/Agent.js';
 import { PluginManager } from '../application/PluginManager.js';
 import { ConfigError } from '../domain/errors.js';
@@ -52,7 +54,25 @@ export async function createShitsuji(
     await plugins.load(await loadPluginsFromDirectory(config.plugins.directory, log));
   }
 
-  const repos = options.repos ?? inMemoryWithWarning(log);
+  const onStop: (() => Promise<void>)[] = [];
+  let repos = options.repos;
+  if (!repos && config.database.url) {
+    const database = PostgresDatabase.connect({ url: config.database.url.reveal(), log });
+    onStop.push(() => database.close());
+    try {
+      await database.migrate();
+    } catch (error) {
+      await database.close();
+      throw new ConfigError(
+        `Cannot use the database at database.url: ${(error as Error).message}`,
+        {},
+        { cause: error },
+      );
+    }
+    repos = new PostgresRepositories(database.db);
+    log.info('Using Postgres');
+  }
+  repos ??= inMemoryWithWarning(log);
   await repos.owners.upsert({
     id: OWNER_ID,
     displayName: config.owner.name,
@@ -82,6 +102,7 @@ export async function createShitsuji(
     log,
     events,
     version: VERSION,
+    onStop,
   });
 }
 

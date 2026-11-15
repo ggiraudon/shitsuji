@@ -16,7 +16,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 - [x] **S6** Plugins and the composition root
 - [x] **S7** Domain model
 - [x] **S8** Persistence ports and in-memory adapters
-- [ ] **S9** Postgres adapters
+- [x] **S9** Postgres adapters
 - [ ] **S10** Job queue and startup recovery
 - [ ] **S11** Model provider port and the OpenAI-compatible adapter
 - [ ] **S12** Anthropic adapter

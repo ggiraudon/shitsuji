@@ -1,0 +1,28 @@
+# Shitsuji stack. `docker compose up` for the services; see compose.dev.yaml for local development.
+# Must run unchanged on a plain Linux host: no Windows paths, no Docker Desktop-only features.
+name: shitsuji
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: shitsuji
+      POSTGRES_USER: shitsuji
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U shitsuji -d shitsuji']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+networks:
+  # No route to the outside world: only services on this network can reach Postgres.
+  internal:
+    internal: true
+
+volumes:
+  pgdata:

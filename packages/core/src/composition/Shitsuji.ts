@@ -12,6 +12,8 @@ export interface ShitsujiParts {
   log: Logger;
   events: EventBus;
   version: string;
+  /** Run last on stop(), e.g. closing the database pool. */
+  onStop?: readonly (() => Promise<void>)[];
 }
 
 /**
@@ -25,6 +27,7 @@ export class Shitsuji {
   private readonly channels: readonly Channel[];
   private readonly plugins: PluginManager;
   private readonly version: string;
+  private readonly onStop: readonly (() => Promise<void>)[];
   private started: Channel[] = [];
 
   constructor(parts: ShitsujiParts) {
@@ -34,6 +37,7 @@ export class Shitsuji {
     this.log = parts.log;
     this.events = parts.events;
     this.version = parts.version;
+    this.onStop = parts.onStop ?? [];
   }
 
   async start(): Promise<void> {
@@ -61,6 +65,13 @@ export class Shitsuji {
     }
     this.started = [];
     await this.plugins.disposeAll();
+    for (const close of this.onStop) {
+      try {
+        await close();
+      } catch (error) {
+        this.log.error('Shutdown step failed', { error: serializeError(error) });
+      }
+    }
     this.log.info('Shitsuji stopped');
   }
 

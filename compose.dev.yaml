@@ -1,0 +1,12 @@
+# Local development overrides: docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
+# Publishes Postgres on 127.0.0.1 only, so core can run on the host with
+# DATABASE_URL=postgres://shitsuji:<POSTGRES_PASSWORD>@localhost:5432/shitsuji
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:5432:5432'
+    # Ports cannot be published from an internal-only network, so dev adds a host-reachable one.
+    networks: [internal, devhost]
+
+networks:
+  devhost: {}
