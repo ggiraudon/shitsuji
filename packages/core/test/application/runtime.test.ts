@@ -7,6 +7,7 @@ import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { asId, type OwnerId, type ToolCallId } from '../../src/domain/model/ids.js';
+import { textOf } from '../../src/domain/model/Message.js';
 import type {
   ModelProvider,
   ModelRequest,
@@ -247,6 +248,18 @@ describe('runtime: Stop (S22)', () => {
 });
 
 describe('runtime: replies go back where the message came from', () => {
+  it('lands messages from the webhook and the API in the same thread (F04 criterion 1, without Telegram)', async () => {
+    const { agent, repos } = await setup([{ text: 'One.' }, { text: 'Two.' }]);
+    const webhook = await agent.send('from the webhook', { channel: 'webhook' });
+    const tui = await agent.send('from the TUI', { channel: 'api' });
+
+    expect(tui.sessionId).toBe(webhook.sessionId);
+    const mine = (await repos.messages.listBySession(webhook.sessionId)).filter(
+      (m) => m.author === 'owner',
+    );
+    expect(mine.map((m) => textOf(m))).toEqual(['from the webhook', 'from the TUI']);
+    expect(mine.map((m) => m.channel)).toEqual(['webhook', 'api']);
+  });
   it('publishes the reply with its reply channel', async () => {
     const { agent, services } = await setup([{ text: 'Pong.' }]);
     const seen: { replyChannel?: string; reply?: string }[] = [];
