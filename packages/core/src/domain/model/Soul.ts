@@ -41,6 +41,22 @@ export class SoulTooLarge extends ShitsujiError {
   }
 }
 
+/** The SOUL cannot be empty: the header states who Shitsuji is. */
+export class SoulEmpty extends ShitsujiError {
+  override readonly name = 'SoulEmpty';
+  constructor() {
+    super('soul_empty', 'The SOUL would be empty; keep at least one fragment with text');
+  }
+}
+
+/** An edit was confirmed when SOUL.md had not been changed. */
+export class SoulNoPendingEdit extends ShitsujiError {
+  override readonly name = 'SoulNoPendingEdit';
+  constructor(file: string) {
+    super('soul_no_pending_edit', `${file} is unchanged; there is no edit to confirm`, { file });
+  }
+}
+
 /**
  * Assembles the SOUL from its fragments: base and traits always, session fragments only for their own
  * session kind. The database holds the fragments; a revision is the assembled text (Q6).
