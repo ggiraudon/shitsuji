@@ -340,6 +340,8 @@ function applies(injectable: ContextInjectable, ctx: AgentRenderContext): boolea
       return !!ctx.lastUserMessage && condition.patterns.some((p) => p.test(ctx.lastUserMessage!));
     case 'custom':
       return condition.check(ctx);
+    case 'session_kind':
+      return condition.kinds.includes(ctx.session.kind);
     case 'once':
       return false; // per-session tracking arrives with the ContextBuilder (S23)
   }

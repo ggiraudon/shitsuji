@@ -165,7 +165,12 @@ export class Agent {
     }
   }
 
+  /** Placement first (header, context, tail), then ascending order within each (F04). */
   private sortInjectables(): void {
-    this.injectables.sort((a, b) => b.priority - a.priority);
+    const rank = { header: 0, context: 1, tail: 2 } as const;
+    this.injectables.sort(
+      (a, b) =>
+        rank[a.placement] - rank[b.placement] || a.order - b.order || a.id.localeCompare(b.id),
+    );
   }
 }

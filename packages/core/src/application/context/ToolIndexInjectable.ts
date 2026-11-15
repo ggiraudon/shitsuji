@@ -9,7 +9,8 @@ export class ToolIndexInjectable extends BaseContextInjectable {
   readonly id = 'tool-index';
   readonly name = 'Tool index';
   readonly description = 'Names of tools that can be found with tool_search';
-  override priority = 90;
+  override placement = 'header' as const;
+  override order = 1;
 
   constructor(private readonly tools: () => readonly Tool[]) {
     super();

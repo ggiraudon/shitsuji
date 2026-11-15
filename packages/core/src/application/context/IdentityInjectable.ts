@@ -11,7 +11,8 @@ export class IdentityInjectable extends BaseContextInjectable {
   readonly id = 'identity';
   readonly name = 'Agent Identity';
   readonly description = 'Defines the agent name and description';
-  override priority = 100;
+  override placement = 'header' as const;
+  override order = -1;
 
   constructor(private config: IdentityConfig) {
     super();

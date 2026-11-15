@@ -1,8 +1,18 @@
 import type { Message, ToolCall } from '../domain/model/Message.js';
-import type { Session } from '../domain/model/Session.js';
+import type { Session, SessionKind } from '../domain/model/Session.js';
+
+/**
+ * Where an injectable's text goes. Ordered by how often it changes, so the provider's prompt cache
+ * keeps matching a prefix: the header changes almost never, context notes on compaction, the tail
+ * every call (F04, decision Q7).
+ */
+export type InjectionPlacement =
+  | 'header' // the system prompt; only stable content
+  | 'context' // system-role notes inside the history
+  | 'tail'; // attached to the newest message for this call only, never stored
 
 export type InjectionConditionType =
-  'always' | 'tool_used' | 'pattern_detected' | 'custom' | 'once';
+  'always' | 'tool_used' | 'pattern_detected' | 'custom' | 'once' | 'session_kind';
 
 export interface InjectionConditionAlways {
   type: 'always';
@@ -23,8 +33,14 @@ export interface InjectionConditionCustom {
   check: (context: AgentRenderContext) => boolean;
 }
 
+/** Rendered at most once per session (tracked by the ContextBuilder). */
 export interface InjectionConditionOnce {
   type: 'once';
+}
+
+export interface InjectionConditionSessionKind {
+  type: 'session_kind';
+  kinds: readonly SessionKind[];
 }
 
 export type InjectionCondition =
@@ -32,7 +48,8 @@ export type InjectionCondition =
   | InjectionConditionToolUsed
   | InjectionConditionPatternDetected
   | InjectionConditionCustom
-  | InjectionConditionOnce;
+  | InjectionConditionOnce
+  | InjectionConditionSessionKind;
 
 export interface AgentRenderContext {
   session: Session;
@@ -41,13 +58,27 @@ export interface AgentRenderContext {
   /** Tool calls in the latest assistant message. */
   toolCalls?: ToolCall[];
   lastUserMessage?: string;
+  /** Your profile, for the owner injectable. */
+  owner?: {
+    displayName: string;
+    timezone: string;
+    locale: string;
+  };
+  /** The SOUL revision this turn runs with, fixed at the turn's start. */
+  soul?: { revision: number; body: string };
+  /** The compaction summary of older messages, when there is one. */
+  summary?: string;
+  /** How many of the session's oldest messages that summary covers. */
+  summaryCount?: number;
 }
 
 export interface ContextInjectable {
   readonly id: string;
   readonly name: string;
   readonly description: string;
-  readonly priority: number;
+  readonly placement: InjectionPlacement;
+  /** Ascending within a placement: -1 comes before 0. */
+  readonly order: number;
   readonly condition: InjectionCondition;
 
   render(context: AgentRenderContext): string | null;
@@ -57,7 +88,8 @@ export abstract class BaseContextInjectable implements ContextInjectable {
   abstract readonly id: string;
   abstract readonly name: string;
   abstract readonly description: string;
-  priority = 50;
+  placement: InjectionPlacement = 'header';
+  order = 0;
   condition: InjectionCondition = { type: 'always' };
 
   abstract render(context: AgentRenderContext): string | null;

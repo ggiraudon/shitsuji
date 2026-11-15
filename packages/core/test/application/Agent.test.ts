@@ -166,7 +166,8 @@ describe('Agent', () => {
       id: 'calc-hint',
       name: 'hint',
       description: '',
-      priority: 1,
+      placement: 'header',
+      order: 10,
       condition: { type: 'tool_used', toolNames: ['math.evaluate'] },
       render: () => 'CALCULATOR WAS USED',
     });
