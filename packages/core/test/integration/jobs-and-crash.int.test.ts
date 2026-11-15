@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PgBossJobQueue } from '../../src/adapters/jobs/PgBossJobQueue.js';
 import { NullLogger } from '../../src/adapters/logging/loggers.js';
@@ -10,7 +13,17 @@ import type { ShitsujiPlugin } from '../../src/ports/Plugin.js';
 import { ScriptedProvider, testServices, transcript, until } from '../helpers.js';
 import { closeAll, freshDatabase } from './postgres.js';
 
-afterAll(closeAll);
+const dataDirs: string[] = [];
+const tempDataDir = (): string => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shitsuji-int-'));
+  dataDirs.push(dir);
+  return dir;
+};
+
+afterAll(() => {
+  for (const dir of dataDirs) fs.rmSync(dir, { recursive: true, force: true });
+  closeAll();
+});
 
 describe('PgBossJobQueue', () => {
   it('runs a job enqueued in a committed transaction, and drops one from a rolled-back one', async () => {
@@ -83,6 +96,7 @@ describe('crash in the middle of a turn (F02)', () => {
     const { database, url } = await freshDatabase();
     const config = shitsujiConfigSchema.parse({
       database: { url },
+      paths: { dataDir: tempDataDir() },
       channels: { webhook: { enabled: false } },
       api: { enabled: false },
       models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/m' } },
