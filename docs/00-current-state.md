@@ -52,11 +52,11 @@ These are concrete problems, not style notes. Each is fixed by the feature named
    assistant message sets. [F04]
 9. **Unused pieces.** `PluginManager`, `Memory`, `Session.memory`, `renderForContext()` and most of
    `ConfigManager` have no callers. [F01, F13]
-10. **Hidden global state.** `messageBus`, `configManager` and `logger` are module singletons, which makes
+10. ~~**Hidden global state.**~~ *(fixed in S4/S5: logger, event bus and config are injected)* `messageBus`, `configManager` and `logger` are module singletons, which makes
     testing and running several agents hard. [F01]
 11. **Web search depends on an unofficial third-party proxy** (`ddg-api.vercel.app`). [F05, F09]
 12. **Out-of-date model names** (`claude-3-5-sonnet-20241022`, `gpt-4o`) are hard-coded as defaults. [F03]
-13. **Duplicate bootstrap.** `index.ts` and `tui/app.tsx` each build the agent and register tools. [F01]
+13. ~~**Duplicate bootstrap.**~~ *(fixed in S6: both start from `createShitsuji()`)* `index.ts` and `tui/app.tsx` each build the agent and register tools. [F01]
 14. ~~**The calculator tool always fails**~~ (found and fixed in S1). The function it generated started with
     `const E,LN10,… = this;`, a syntax error, so every expression failed, and its sanitizer stripped
     function names (`sqrt(16)` became `(16)`). It is now a small parser (`ExpressionEvaluator`) that never

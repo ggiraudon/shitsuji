@@ -13,7 +13,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 - [x] **S3** Layer folders and the import check
 - [x] **S4** Core ports: logger, clock, event bus, errors
 - [x] **S5** Configuration
-- [ ] **S6** Plugins and the composition root
+- [x] **S6** Plugins and the composition root
 - [ ] **S7** Domain model
 - [ ] **S8** Persistence ports and in-memory adapters
 - [ ] **S9** Postgres adapters
@@ -27,11 +27,11 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 
 ### [F01 — Core architecture and composition root](features/F01-core-architecture.md)
 
-- [ ] `createShitsuji()` is the only place that constructs adapters; `grep process.env src` matches only
+- [x] `createShitsuji()` is the only place that constructs adapters; `grep process.env src` matches only
       `composition/`.
-- [ ] An import-direction check runs in CI and fails on a violation.
-- [ ] The CLI and TUI start from the same composition root.
-- [ ] Vitest runs; at least the event bus, plugin manager and config loader have unit tests.
+- [x] An import-direction check runs in CI and fails on a violation.
+- [x] The CLI and TUI start from the same composition root.
+- [x] Vitest runs; at least the event bus, plugin manager and config loader have unit tests.
 
 ### [F02 — Persistence and durable jobs](features/F02-persistence.md)
 
