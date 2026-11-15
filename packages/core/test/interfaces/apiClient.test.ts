@@ -7,6 +7,7 @@ import { OwnerKeyFile } from '../../src/adapters/auth/OwnerKeyFile.js';
 import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { Agent } from '../../src/application/Agent.js';
+import { NodeTextFile } from '../../src/adapters/files/NodeTextFile.js';
 import { SoulService } from '../../src/application/soul/SoulService.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
@@ -54,7 +55,7 @@ async function serve(replies: ConstructorParameters<typeof ScriptedProvider>[0])
     ownerId,
     clock: services.clock,
     log: services.log,
-    dataDir: dir,
+    file: new NodeTextFile(path.join(dir, 'SOUL.md')),
   });
   await soul.start();
   const agent = new Agent({

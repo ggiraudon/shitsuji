@@ -24,6 +24,7 @@ function fakeClient(history: MessageDto[] = []) {
     stopped: [] as string[],
     newSessions: 0,
     soulApplied: 0,
+    soulHash: '',
   };
   const client: TuiClient = {
     history: async () => ({ sessionId: 's1', messages: history }),
@@ -47,10 +48,12 @@ function fakeClient(history: MessageDto[] = []) {
         path: '/data/SOUL.md',
         current: 'Be kind.',
         proposed: 'Be very kind.\nSecond line of the edit.',
+        hash: 'h'.repeat(64),
       },
     }),
-    applySoul: async () => {
+    applySoul: async (hash: string) => {
       calls.soulApplied++;
+      calls.soulHash = hash;
       return 4;
     },
     events: async (onEvent: (e: LiveEvent) => void) => {
@@ -188,6 +191,7 @@ describe('TUI', () => {
     await tick();
     frame = ui.lastFrame()!;
     expect(calls.soulApplied).toBe(1);
+    expect(calls.soulHash).toBe('h'.repeat(64));
     expect(frame).toContain('SOUL revision 4 takes effect at the next turn.');
     expect(calls.sent).toEqual([]); // the command never reaches the model
     ui.unmount();

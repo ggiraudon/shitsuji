@@ -57,6 +57,18 @@ export class SoulNoPendingEdit extends ShitsujiError {
   }
 }
 
+/** SOUL.md changed again after it was reviewed: confirming would apply text nobody has seen. */
+export class SoulEditChanged extends ShitsujiError {
+  override readonly name = 'SoulEditChanged';
+  constructor(file: string) {
+    super(
+      'soul_edit_changed',
+      `${file} changed after it was reviewed; review it again before confirming`,
+      { file },
+    );
+  }
+}
+
 /**
  * Assembles the SOUL from its fragments: base and traits always, session fragments only for their own
  * session kind. The database holds the fragments; a revision is the assembled text (Q6).

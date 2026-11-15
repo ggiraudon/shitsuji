@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { OwnerKeyFile } from '../adapters/auth/OwnerKeyFile.js';
 import { InMemoryJobQueue } from '../adapters/jobs/InMemoryJobQueue.js';
 import { PgBossJobQueue } from '../adapters/jobs/PgBossJobQueue.js';
@@ -6,6 +7,7 @@ import { PostgresDatabase } from '../adapters/postgres/PostgresDatabase.js';
 import { PostgresRepositories } from '../adapters/postgres/PostgresRepositories.js';
 import { Agent } from '../application/Agent.js';
 import { SoulService } from '../application/soul/SoulService.js';
+import { NodeTextFile } from '../adapters/files/NodeTextFile.js';
 import {
   MeteredModelProvider,
   RedactingModelProvider,
@@ -124,7 +126,7 @@ export async function createShitsuji(
     ownerId: OWNER_ID,
     clock: services.clock,
     log,
-    dataDir: config.paths.dataDir,
+    file: new NodeTextFile(path.join(config.paths.dataDir, 'SOUL.md')),
   });
   try {
     const revision = await soul.start();

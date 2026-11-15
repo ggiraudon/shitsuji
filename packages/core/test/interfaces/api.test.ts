@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { Agent } from '../../src/application/Agent.js';
+import { NodeTextFile } from '../../src/adapters/files/NodeTextFile.js';
 import { SoulService } from '../../src/application/soul/SoulService.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
@@ -31,7 +32,7 @@ async function setup(options: { dataDir?: string } = {}) {
     ownerId,
     clock: services.clock,
     log: services.log,
-    ...(options.dataDir && { dataDir: options.dataDir }),
+    ...(options.dataDir && { file: new NodeTextFile(path.join(options.dataDir, 'SOUL.md')) }),
   });
   await soul.start();
   const agent = new Agent({
@@ -127,19 +128,30 @@ describe('HTTP API', () => {
 
       await fs.writeFile(path.join(dataDir, 'SOUL.md'), 'New standing instructions.\n', 'utf8');
       const edited = (await (await app.request('/api/soul', { headers: auth })).json()) as {
-        pending?: { proposed: string };
+        pending?: { proposed: string; hash: string };
       };
       expect(edited.pending?.proposed).toBe('New standing instructions.');
+      const confirm = (hash?: string) =>
+        app.request('/api/soul/confirm', {
+          method: 'POST',
+          headers: { ...auth, 'content-type': 'application/json' },
+          body: JSON.stringify(hash ? { hash } : {}),
+        });
 
-      const confirmed = await app.request('/api/soul/confirm', {
-        method: 'POST',
-        headers: auth,
-      });
+      // Without the reviewed hash, nothing is applied.
+      expect((await confirm()).status).toBe(400);
+      // Edited again after the review: a conflict, and the newer text is not applied.
+      await fs.writeFile(path.join(dataDir, 'SOUL.md'), 'Unreviewed text.\n', 'utf8');
+      expect((await confirm(edited.pending!.hash)).status).toBe(409);
+      // Back to the reviewed text, saved with Windows line endings: still the same edit.
+      await fs.writeFile(path.join(dataDir, 'SOUL.md'), 'New standing instructions.\r\n', 'utf8');
+
+      const confirmed = await confirm(edited.pending!.hash);
       expect(confirmed.status).toBe(200);
       expect(await confirmed.json()).toEqual({ revision: 2 });
 
       // Nothing left to apply: a conflict, not a server error.
-      const again = await app.request('/api/soul/confirm', { method: 'POST', headers: auth });
+      const again = await confirm(edited.pending!.hash);
       expect(again.status).toBe(409);
     } finally {
       await fs.rm(dataDir, { recursive: true, force: true });

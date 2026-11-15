@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono';
 import type { UpgradeWebSocket } from 'hono/ws';
 import type { Agent } from '../../application/Agent.js';
 import type { SoulService } from '../../application/soul/SoulService.js';
-import { SoulNoPendingEdit } from '../../domain/model/Soul.js';
+import { SoulEditChanged, SoulNoPendingEdit } from '../../domain/model/Soul.js';
 import { asId, type OwnerId, type SessionId, type TurnId } from '../../domain/model/ids.js';
 import { textOf, toolCallsOf, type Message } from '../../domain/model/Message.js';
 import type { Clock } from '../../ports/Clock.js';
@@ -12,6 +12,7 @@ import type { Logger } from '../../ports/Logger.js';
 import type { Repositories } from '../../ports/Repositories.js';
 import {
   LIVE_EVENT_TYPES,
+  confirmSoulBody,
   postMessageBody,
   type ConfirmSoulResponse,
   type LiveEvent,
@@ -124,12 +125,18 @@ export function createApi(deps: ApiDeps): Hono {
   });
 
   app.post('/api/soul/confirm', async (c) => {
+    const parsed = confirmSoulBody.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json({ error: 'Send the hash of the reviewed edit, from GET /api/soul' }, 400);
+    }
     try {
-      const revision = await deps.soul.confirmEdit();
+      const revision = await deps.soul.confirmEdit(parsed.data.hash);
       return c.json({ revision: revision.revision } satisfies ConfirmSoulResponse);
     } catch (error) {
       // Nothing to apply is a conflict with the current state, not a server fault.
-      if (error instanceof SoulNoPendingEdit) return c.json({ error: error.message }, 409);
+      if (error instanceof SoulNoPendingEdit || error instanceof SoulEditChanged) {
+        return c.json({ error: error.message }, 409);
+      }
       throw error;
     }
   });

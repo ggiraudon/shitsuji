@@ -72,9 +72,13 @@ export class ApiClient {
     return this.request('GET', '/api/soul');
   }
 
-  /** Confirms the edit of SOUL.md; it takes effect at the next turn. Returns the new revision. */
-  async applySoul(): Promise<number> {
-    return (await this.request<{ revision: number }>('POST', '/api/soul/confirm')).revision;
+  /**
+   * Confirms the reviewed edit of SOUL.md (its hash from soul()); it takes effect at the next turn.
+   * Returns the new revision.
+   */
+  async applySoul(hash: string): Promise<number> {
+    return (await this.request<{ revision: number }>('POST', '/api/soul/confirm', { hash }))
+      .revision;
   }
 
   /**

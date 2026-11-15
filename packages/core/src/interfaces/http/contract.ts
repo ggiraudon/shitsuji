@@ -23,8 +23,12 @@ export interface SoulDto {
   revision: number;
   body: string;
   updatedAt: string;
-  pending?: { path: string; current: string; proposed: string };
+  /** `hash` identifies the reviewed text; confirming sends it back. */
+  pending?: { path: string; current: string; proposed: string; hash: string };
 }
+
+/** Confirming applies only the text that was reviewed: its hash from `SoulDto.pending`. */
+export const confirmSoulBody = z.object({ hash: z.string().regex(/^[0-9a-f]{64}$/) });
 
 export interface ConfirmSoulResponse {
   revision: number;

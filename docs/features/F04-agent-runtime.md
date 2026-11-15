@@ -187,20 +187,29 @@ The SOUL is **assembled and evolving**, not a single file you edit:
   F11 exists, only you can change it.
 - **A size cap,** 24 KB (as in OpenMausBot), so the header stays small.
 
-Until Shitsuji can propose changes (F11), the export is the whole shared SOUL: confirming an edit replaces
-the fragments with that text, so there is exactly one thing to review.
+The export holds the shared SOUL (the base and traits, assembled). Confirming an edit of it replaces the
+base and traits with that one text, so there is exactly one thing to review; parts for one session kind
+are not in the export and are kept. A confirmation names the hash of the text you reviewed (`GET
+/api/soul` gives it), and if the file changed since, nothing is applied. Line endings don't count as an
+edit. The size cap is checked for every session kind's assembly when a revision is published, so no
+turn is the first to find its SOUL too large.
 
 The mood, which changes far more often, is a separate feature that lives in the tail:
 [F25](F25-mood.md).
 
 #### Compaction
 
-When the transcript approaches the chat model's context window, the `Compactor` summarises the messages
-**older than the open request** into the session's rolling summary. `sessions.summary_count` is the
-watermark: the messages a summary covers stay in the database but are no longer sent, so nothing is
-summarised twice. `CompactionSummaryInjectable` puts the summary at the start of the history, and the
-newest request is never summarised away (F04 criterion 5). When `models.catalog` does not give the
-model's context window, no compaction runs and only the recent-message window applies.
+When the transcript approaches the chat model's context window, or passes the most messages a call sends
+(the history limit, 40), the `Compactor` summarises the messages **older than the open request** into the
+session's rolling summary. On the message limit alone it keeps the newest half visible, cut at the start
+of an exchange, so it doesn't run every turn. `sessions.summary_count` is the watermark: the messages a
+summary covers stay in the database but are no longer sent, so nothing is summarised twice.
+
+The summarize requests are chunked to fit their input (24,000 characters each, at most four per
+compaction), and each folds into the summary so far. The watermark only moves past messages a request
+actually saw; if one fails, the earlier chunks are kept and the rest waits for the next call. Only a
+single message larger than a whole chunk is cut. `CompactionSummaryInjectable` puts the summary at the
+start of the history, and the newest request is never summarised away (F04 criterion 5).
 
 ### Interruptions and failures
 

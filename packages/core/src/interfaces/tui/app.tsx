@@ -52,6 +52,8 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
   const [status, setStatus] = useState('Connecting…');
   const session = useRef<string | null>(null);
   const turn = useRef<string | null>(null);
+  /** The hash of the SOUL edit shown by /soul: /soul apply confirms only that text. */
+  const reviewedSoul = useRef<string | null>(null);
 
   const add = useCallback((kind: Line['kind'], text: string) => {
     setLines((prev) => [...prev, { id: lineId(), kind, text }].slice(-500));
@@ -138,6 +140,7 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
         try {
           const soul = await client.soul();
           add('note', `SOUL revision ${soul.revision}.`);
+          reviewedSoul.current = soul.pending?.hash ?? null;
           if (soul.pending) {
             add('note', `${soul.pending.path} has an edit waiting. /soul apply keeps it.`);
             add('note', preview(soul.pending.proposed));
@@ -150,8 +153,12 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
         return;
       }
       if (text === '/soul apply') {
+        if (!reviewedSoul.current) {
+          return add('note', 'Review the edit with /soul first, then /soul apply.');
+        }
         try {
-          const revision = await client.applySoul();
+          const revision = await client.applySoul(reviewedSoul.current);
+          reviewedSoul.current = null;
           add('note', `SOUL revision ${revision} takes effect at the next turn.`);
         } catch (error) {
           add('error', (error as Error).message);
