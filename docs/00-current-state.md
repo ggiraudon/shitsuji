@@ -34,7 +34,7 @@ rewires them around a composition root and clear ports.
 
 These are concrete problems, not style notes. Each is fixed by the feature named in brackets.
 
-1. **No conversation continuity.** `index.ts` calls `agent.send(message.content)` without a session ID, and
+1. ~~**No conversation continuity.**~~ *(fixed in S8: messages go to the owner's main chat session)* `index.ts` calls `agent.send(message.content)` without a session ID, and
    `Agent.send` creates a new session whenever no ID is given. Every CLI or webhook message starts a fresh
    conversation. [F04]
 2. **Tool calls break on Anthropic.** `AnthropicProvider` sends tool results as plain user text and never
@@ -42,7 +42,7 @@ These are concrete problems, not style notes. Each is fixed by the feature named
    history to the last 20 messages, which can split a call from its result. [F03]
 3. **OpenAI streaming tool calls fail.** `stream()` runs `JSON.parse` on each argument fragment, but the API
    sends arguments in pieces. Streaming also drops the tool-call mapping that `complete()` has. [F03]
-4. **No loop limit.** `runLoop` has no maximum number of steps and no repeated-failure check, so a model that
+4. ~~**No loop limit.**~~ *(fixed in S8: a step limit per turn; the repeated-failure check comes with F04)* `runLoop` has no maximum number of steps and no repeated-failure check, so a model that
    keeps calling tools never stops. [F04]
 5. **Webhook replies go nowhere.** `WebhookChannel.send` only prints to the console. [F06]
 6. **The shell tool runs on the host, and its allowlist can be bypassed.** The check is
@@ -50,7 +50,7 @@ These are concrete problems, not style notes. Each is fixed by the feature named
 7. **File tools can read and write anywhere** the process can (`resolve(path)` with no root). [F05, F08]
 8. **Dead conditions.** The `once` condition is never true. `tool_used` checks `message.toolName`, which no
    assistant message sets. [F04]
-9. **Unused pieces.** `PluginManager`, `Memory`, `Session.memory`, `renderForContext()` and most of
+9. ~~**Unused pieces.**~~ *(mostly fixed in S4–S8: PluginManager is now the loader; Memory, Session.memory and ConfigManager are gone)* `PluginManager`, `Memory`, `Session.memory`, `renderForContext()` and most of
    `ConfigManager` have no callers. [F01, F13]
 10. ~~**Hidden global state.**~~ *(fixed in S4/S5: logger, event bus and config are injected)* `messageBus`, `configManager` and `logger` are module singletons, which makes
     testing and running several agents hard. [F01]

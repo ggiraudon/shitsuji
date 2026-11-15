@@ -1,4 +1,5 @@
-import { type Session } from '../domain/Session.js';
+import type { Message, ToolCall } from '../domain/model/Message.js';
+import type { Session } from '../domain/model/Session.js';
 
 export type InjectionConditionType =
   'always' | 'tool_used' | 'pattern_detected' | 'custom' | 'once';
@@ -35,7 +36,10 @@ export type InjectionCondition =
 
 export interface AgentRenderContext {
   session: Session;
-  toolCalls?: Array<{ name: string }>;
+  /** The recent messages being sent to the model, oldest first. */
+  messages: Message[];
+  /** Tool calls in the latest assistant message. */
+  toolCalls?: ToolCall[];
   lastUserMessage?: string;
 }
 

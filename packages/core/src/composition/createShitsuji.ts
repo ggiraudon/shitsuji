@@ -1,8 +1,9 @@
-import path from 'node:path';
-import { SessionStore } from '../adapters/storage/SessionStore.js';
+import { InMemoryRepositories } from '../adapters/memory/InMemoryRepositories.js';
 import { Agent } from '../application/Agent.js';
 import { PluginManager } from '../application/PluginManager.js';
 import { ConfigError } from '../domain/errors.js';
+import { asId, type OwnerId } from '../domain/model/ids.js';
+import type { Repositories } from '../ports/Repositories.js';
 import type { ShitsujiPlugin } from '../ports/Plugin.js';
 import { CliChannelPlugin, WebhookChannelPlugin } from '../plugins/channelPlugins.js';
 import { CoreToolsPlugin } from '../plugins/coreToolsPlugin.js';
@@ -14,11 +15,21 @@ import { Shitsuji } from './Shitsuji.js';
 
 export const VERSION = '0.1.0';
 
+/** Shitsuji has one owner (05-open-questions P1); every row still carries owner_id. */
+export const OWNER_ID: OwnerId = asId('owner');
+
+function inMemoryWithWarning(log: CoreServices['log']): Repositories {
+  log.warn('No database configured: conversations are kept in memory and lost on restart');
+  return new InMemoryRepositories();
+}
+
 export interface CreateShitsujiOptions {
   /** Defaults to services built from config.logging. */
   services?: CoreServices;
   /** Load the CLI and webhook channels (if enabled in config). The TUI turns this off. */
   channels?: boolean;
+  /** Storage. Defaults to Postgres when database.url is set (S9), else in memory. */
+  repos?: Repositories;
   /** Extra plugins, loaded after the built-ins and before the plugins directory. */
   plugins?: readonly ShitsujiPlugin[];
 }
@@ -41,13 +52,23 @@ export async function createShitsuji(
     await plugins.load(await loadPluginsFromDirectory(config.plugins.directory, log));
   }
 
+  const repos = options.repos ?? inMemoryWithWarning(log);
+  await repos.owners.upsert({
+    id: OWNER_ID,
+    displayName: config.owner.name,
+    timezone: config.owner.timezone,
+    locale: config.owner.locale,
+  });
+
   const chat = resolveChatModel(config, plugins);
   log.info('Using chat model', { model: chat.ref });
   const agent = new Agent({
     name: 'Shitsuji',
     llmProvider: chat.provider,
     model: chat.model,
-    sessionStore: new SessionStore(path.join(config.paths.dataDir, 'sessions'), log),
+    ownerId: OWNER_ID,
+    repos,
+    clock: services.clock,
     log,
     events,
   });

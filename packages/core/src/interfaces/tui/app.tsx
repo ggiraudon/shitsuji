@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { render, Box, Text, useInput } from 'ink';
 import type { Agent } from '../../application/Agent.js';
+import type { SessionId } from '../../domain/model/ids.js';
 
 export interface TuiServices {
   /** A ready agent, built by the composition root. */
@@ -31,7 +32,7 @@ const ShitsujiApp = ({ services }: { services: TuiServices }) => {
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [agent, setAgent] = useState<Agent | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<SessionId | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,10 +42,10 @@ const ShitsujiApp = ({ services }: { services: TuiServices }) => {
   const initAgent = async () => {
     try {
       const newAgent = services.agent;
-      const session = newAgent.createSession();
+      const newSessionId = await newAgent.startSession();
 
       setAgent(newAgent);
-      setSessionId(session.id);
+      setSessionId(newSessionId);
 
       addMessage('system', 'Shitsuji initialized. Type your message and press Enter.');
     } catch (err) {
@@ -75,7 +76,7 @@ const ShitsujiApp = ({ services }: { services: TuiServices }) => {
     addMessage('assistant', '...');
 
     try {
-      const response = await agent.send(userInput, sessionId);
+      const { reply: response } = await agent.send(userInput, { sessionId, channel: 'tui' });
 
       setMessages((prev) => {
         const updated = [...prev];

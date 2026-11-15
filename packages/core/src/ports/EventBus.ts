@@ -3,10 +3,13 @@
  * survive a crash is written to the database first, then published.
  */
 
-import type { SessionEventMap } from '../domain/Session.js';
-
 /** Every event and its payload. Add new events here so publishers and subscribers are type-checked. */
-export interface ShitsujiEvents extends SessionEventMap {
+export interface ShitsujiEvents {
+  'session.created': { sessionId: string; agentId: string };
+  'session.updated': { sessionId: string; action: string; key?: string; value?: string };
+  'session.ended': { sessionId: string };
+  'message.received': { sessionId: string; role: string; content: string };
+  'message.sent': { sessionId: string; role: string; content?: string; isError?: boolean };
   'system.ready': { version: string };
   'system.error': { error: Record<string, unknown>; event?: string };
   'llm.request': { agentId: string; sessionId: string; model?: string };

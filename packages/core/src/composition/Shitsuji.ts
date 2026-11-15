@@ -68,7 +68,7 @@ export class Shitsuji {
     this.log.info('Message received', { channel: channel.name, length: content.length });
     let reply: string;
     try {
-      reply = await this.agent.send(content);
+      reply = (await this.agent.send(content, { channel: channel.name })).reply;
     } catch (error) {
       this.log.error('Message failed', { channel: channel.name, error: serializeError(error) });
       reply = `Error: ${error instanceof Error ? error.message : String(error)}`;

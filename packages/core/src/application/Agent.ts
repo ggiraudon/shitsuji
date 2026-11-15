@@ -1,316 +1,434 @@
-import { randomUUID } from 'crypto';
-import { Session, type SessionObserver } from '../domain/Session.js';
-import { type SessionStore } from '../adapters/storage/SessionStore.js';
+import { serializeError } from '../domain/errors.js';
 import {
-  type LLMProvider,
-  type LLMCompletionOptions,
+  newId,
+  type OwnerId,
+  type SessionId,
+  type ToolCallId,
+  type TurnId,
+} from '../domain/model/ids.js';
+import {
+  textOf,
+  toolCallsOf,
+  type ContentPart,
   type Message,
-  type ToolDefinition,
+  type MessageAuthor,
+  type MessageRole,
+  type ToolCall,
+} from '../domain/model/Message.js';
+import { Session, type SessionKind } from '../domain/model/Session.js';
+import type { Thread } from '../domain/model/Thread.js';
+import { Turn, type TurnSource } from '../domain/model/Turn.js';
+import type { Clock } from '../ports/Clock.js';
+import type { AgentRenderContext, ContextInjectable } from '../ports/ContextInjectable.js';
+import type { EventBus } from '../ports/EventBus.js';
+import type {
+  LLMCompletionOptions,
+  LLMProvider,
+  LLMResponse,
+  Message as LLMMessage,
+  ToolDefinition,
 } from '../ports/LLMProvider.js';
-import { ToolRegistry } from './ToolRegistry.js';
-import { type Tool } from '../ports/Tool.js';
-import {
-  type ContextInjectable,
-  IdentityInjectable,
-  ToolListInjectable,
-  RulesInjectable,
-} from './context/index.js';
 import type { Logger } from '../ports/Logger.js';
-import type { EventBus, ShitsujiEvents } from '../ports/EventBus.js';
+import type { Repositories, Transaction } from '../ports/Repositories.js';
+import type { Tool } from '../ports/Tool.js';
+import { IdentityInjectable, RulesInjectable, ToolListInjectable } from './context/index.js';
+import { ToolRegistry } from './ToolRegistry.js';
 
 export interface AgentOptions {
-  id?: string;
   name: string;
+  ownerId: OwnerId;
   llmProvider: LLMProvider;
   model?: string;
-  systemPrompt?: string;
-  maxTokens?: number;
-  sessionStore?: SessionStore;
+  repos: Repositories;
+  clock: Clock;
   log: Logger;
   events: EventBus;
+  /** How many recent messages are sent to the model. */
+  historyLimit?: number;
+  /** Model calls per turn before the turn is stopped (a runaway tool loop). */
+  maxSteps?: number;
 }
 
-export interface AgentConfig {
-  id: string;
-  name: string;
-  model?: string;
+export interface SendOptions {
+  /** Defaults to the owner's main chat session. */
+  sessionId?: SessionId;
+  /** The channel the message came in on, e.g. "cli". */
+  channel?: string;
+  source?: TurnSource;
 }
 
+export interface SendResult {
+  reply: string;
+  sessionId: SessionId;
+  turnId: TurnId;
+}
+
+/** A turn stopped because it used up its steps. */
+export class StepLimitReached extends Error {
+  override readonly name = 'StepLimitReached';
+}
+
+/**
+ * Today's agent loop on the new domain model: each message becomes a stored Turn that runs through the
+ * state machine, and every message is stored with content parts. Replaced by the TurnRunner in F04.
+ */
 export class Agent {
-  readonly id: string;
   readonly name: string;
-  private llmProvider: LLMProvider;
-  private sessions = new Map<string, Session>();
-  private activeSession: Session | null = null;
+  private readonly options: Required<Omit<AgentOptions, 'model'>> & { model?: string };
+  private readonly toolRegistry: ToolRegistry;
   private injectables: ContextInjectable[] = [];
-  private toolRegistry: ToolRegistry;
-  private tools: ToolDefinition[] = [];
-  private model?: string;
-  private maxTokens: number;
-  private sessionStore?: SessionStore;
-
-  private readonly log: Logger;
-  private readonly events: EventBus;
-
-  /** Session events are defined in the domain; ShitsujiEvents extends them, so the cast is exact. */
-  private readonly forwardSessionEvent: SessionObserver = (type, payload) =>
-    this.events.publish(type, payload as ShitsujiEvents[typeof type], { source: 'session' });
 
   constructor(options: AgentOptions) {
-    this.log = options.log;
-    this.events = options.events;
-    this.id = options.id ?? randomUUID();
+    this.options = { historyLimit: 40, maxSteps: 40, ...options };
     this.name = options.name;
-    this.llmProvider = options.llmProvider;
-    this.model = options.model;
-    this.maxTokens = options.maxTokens ?? 32000;
-    this.sessionStore = options.sessionStore;
-    this.toolRegistry = new ToolRegistry(this.log);
-
-    this.setupDefaultInjectables();
-    this.log.info(`Agent created: ${this.name} (${this.id})`);
-  }
-
-  private setupDefaultInjectables(): void {
-    this.injectables.push(
-      new IdentityInjectable({
-        name: this.name,
-        description: 'a helpful AI assistant',
-      }),
-    );
-
-    this.injectables.push(new ToolListInjectable([]));
-
-    this.injectables.push(
+    this.toolRegistry = new ToolRegistry(options.log);
+    this.injectables = [
+      new IdentityInjectable({ name: this.name, description: 'a helpful AI assistant' }),
+      new ToolListInjectable([]),
       new RulesInjectable([
         { id: 'helpful', text: 'Be helpful and concise' },
         { id: 'safe', text: 'Do not reveal sensitive information' },
       ]),
-    );
-
-    this.injectables.sort((a, b) => b.priority - a.priority);
+    ];
+    this.sortInjectables();
   }
 
   addInjectable(injectable: ContextInjectable): void {
     this.injectables.push(injectable);
-    this.injectables.sort((a, b) => b.priority - a.priority);
+    this.sortInjectables();
   }
 
-  /** The tools this agent can call. */
   getTools(): Tool[] {
     return this.toolRegistry.list();
   }
 
   registerTool(tool: Tool): void {
     this.toolRegistry.register(tool);
-    this.tools = this.toolRegistry.getToolDefinitions();
-    this.updateToolListInjectable();
-  }
-
-  setTools(tools: ToolDefinition[]): void {
-    this.tools = tools;
-    this.updateToolListInjectable();
-  }
-
-  private updateToolListInjectable(): void {
     this.injectables = this.injectables.filter((i) => i.id !== 'tool-list');
-    this.injectables.push(new ToolListInjectable(this.tools));
-    this.injectables.sort((a, b) => b.priority - a.priority);
+    this.injectables.push(new ToolListInjectable(this.toolRegistry.getToolDefinitions()));
+    this.sortInjectables();
   }
 
-  getSession(sessionId: string): Session | undefined {
-    return this.sessions.get(sessionId);
-  }
-
-  createSession(sessionId?: string): Session {
-    const session = new Session({
-      id: sessionId,
-      agentId: this.id,
-      maxTokens: this.maxTokens,
-      store: this.sessionStore,
-      observer: this.forwardSessionEvent,
+  /** Starts a new session in the owner's thread, e.g. a fresh conversation in the TUI. */
+  async startSession(kind: SessionKind = 'chat'): Promise<SessionId> {
+    const { repos, clock } = this.options;
+    return repos.uow.run(async (tx) => {
+      const thread = await repos.threads.getOrCreateForOwner(this.options.ownerId, clock.now(), tx);
+      return (await this.createSession(thread, kind, tx)).id;
     });
-    this.sessions.set(session.id, session);
-    this.activeSession = session;
-    this.log.info(`Session created: ${session.id} for agent ${this.name}`);
-    return session;
   }
 
-  async send(message: string, sessionId?: string): Promise<string> {
-    let session: Session;
+  /** Sends an owner message and runs the agent until it replies. */
+  async send(content: string, opts: SendOptions = {}): Promise<SendResult> {
+    const { repos, clock, events } = this.options;
 
-    if (sessionId && this.sessions.has(sessionId)) {
-      session = this.sessions.get(sessionId)!;
-    } else {
-      session = this.createSession(sessionId);
+    // Store the message and its queued turn together, so neither exists without the other.
+    const { session, turn } = await repos.uow.run(async (tx) => {
+      const thread = await repos.threads.getOrCreateForOwner(this.options.ownerId, clock.now(), tx);
+      const session = await this.resolveSession(thread, opts.sessionId, tx);
+      const turn = Turn.create({
+        id: newId(),
+        sessionId: session.id,
+        source: opts.source ?? 'user',
+        createdAt: clock.now(),
+        replyChannel: opts.channel,
+      });
+      await repos.turns.insert(turn, tx);
+      await this.store(
+        session,
+        turn.id,
+        'user',
+        'owner',
+        [{ type: 'text', text: content }],
+        tx,
+        opts.channel,
+      );
+      return { session, turn };
+    });
+    events.publish('message.received', { sessionId: session.id, role: 'user', content });
+
+    await this.move(turn, 'queued', () => turn.start(clock.now()));
+    try {
+      const reply = await this.runLoop(session, turn);
+      await this.move(turn, 'running', () => turn.succeed(clock.now()));
+      return { reply, sessionId: session.id, turnId: turn.id };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await this.move(turn, 'running', () => turn.fail(clock.now(), reason)).catch((e: unknown) =>
+        this.options.log.error('Could not mark turn failed', {
+          turnId: turn.id,
+          error: serializeError(e),
+        }),
+      );
+      throw error;
     }
-
-    this.activeSession = session;
-    session.addUserMessage(message);
-
-    return this.runLoop(session);
   }
 
-  private async runLoop(session: Session): Promise<string> {
-    let continueLoop = true;
-    let finalResponse = '';
+  private async runLoop(session: Session, turn: Turn): Promise<string> {
+    for (let step = 1; step <= this.options.maxSteps; step++) {
+      const history = await this.options.repos.messages.listBySession(session.id, {
+        limit: this.options.historyLimit,
+      });
+      const response = await this.callModel(session, turn, history);
+      const calls: ToolCall[] = (response.toolCalls ?? []).map((c) => ({
+        id: c.id as ToolCallId,
+        name: c.name,
+        arguments: c.arguments,
+      }));
+      const parts: ContentPart[] = [];
+      if (response.content) parts.push({ type: 'text', text: response.content });
+      for (const call of calls) parts.push({ type: 'tool_call', call });
+      await this.store(session, turn.id, 'assistant', 'assistant', parts);
 
-    while (continueLoop) {
-      const response = await this.callLLM(session);
-
-      session.addAssistantMessage(response.content, response.toolCalls);
-
-      if (response.toolCalls && response.toolCalls.length > 0) {
-        for (const toolCall of response.toolCalls) {
-          const result = await this.executeTool(session, toolCall);
-          session.addToolMessage(toolCall.id, result);
-        }
-        continueLoop = true;
-      } else {
-        finalResponse = response.content;
-        continueLoop = false;
+      if (calls.length === 0) {
+        this.options.events.publish('message.sent', {
+          sessionId: session.id,
+          role: 'assistant',
+          content: response.content,
+        });
+        return response.content;
+      }
+      for (const call of calls) {
+        const { content, isError } = await this.executeTool(session, turn, call);
+        await this.store(session, turn.id, 'tool', 'system', [
+          { type: 'tool_result', toolCallId: call.id, content, isError },
+        ]);
       }
     }
-
-    return finalResponse;
+    throw new StepLimitReached(
+      `Stopped after ${this.options.maxSteps} model calls without a final answer (step limit)`,
+    );
   }
 
-  private async callLLM(session: Session): Promise<ReturnType<LLMProvider['complete']>> {
-    const contextStr = this.buildContext(session);
-    const recentMessages = session.getRecentMessages(20);
-
-    const messages: Message[] = [
-      { id: randomUUID(), role: 'system', content: contextStr, timestamp: Date.now() },
-      ...recentMessages,
-    ];
-
-    const options: LLMCompletionOptions = {
-      model: this.model,
-      messages,
-      tools: this.tools.length > 0 ? this.tools : undefined,
+  private async callModel(session: Session, turn: Turn, history: Message[]): Promise<LLMResponse> {
+    const { events, repos, clock } = this.options;
+    const system: LLMMessage = {
+      id: newId(),
+      role: 'system',
+      content: this.buildContext(session, history),
+      timestamp: clock.now().getTime(),
+    };
+    const tools: ToolDefinition[] = this.toolRegistry.getToolDefinitions();
+    const request: LLMCompletionOptions = {
+      model: this.options.model,
+      messages: [system, ...toModelMessages(trimToWholeExchanges(history))],
+      tools: tools.length ? tools : undefined,
       temperature: 0.7,
       maxTokens: 4096,
     };
-
-    this.events.publish('llm.request', {
-      agentId: this.id,
+    events.publish('llm.request', {
+      agentId: this.name,
       sessionId: session.id,
-      model: options.model,
+      model: request.model,
     });
-
     try {
-      const response = await this.llmProvider.complete(options);
-
-      this.events.publish('llm.response', {
-        agentId: this.id,
+      const response = await this.options.llmProvider.complete(request);
+      events.publish('llm.response', {
+        agentId: this.name,
         sessionId: session.id,
         contentLength: response.content.length,
         hasToolCalls: !!response.toolCalls?.length,
       });
-
+      await repos.turnEvents.append({
+        turnId: turn.id,
+        kind: 'model_call',
+        data: { model: response.model, usage: response.usage, finishReason: response.finishReason },
+        at: clock.now(),
+      });
       return response;
     } catch (error) {
-      this.events.publish('llm.error', {
-        agentId: this.id,
+      events.publish('llm.error', {
+        agentId: this.name,
         sessionId: session.id,
         error: String(error),
+      });
+      await repos.turnEvents.append({
+        turnId: turn.id,
+        kind: 'model_error',
+        data: { error: serializeError(error) },
+        at: clock.now(),
       });
       throw error;
     }
   }
 
-  private buildContext(session: Session): string {
+  private async executeTool(
+    session: Session,
+    turn: Turn,
+    call: ToolCall,
+  ): Promise<{ content: string; isError: boolean }> {
+    const { events, repos, clock, log } = this.options;
+    const meta = { sessionId: session.id, toolName: call.name, toolCallId: call.id };
+    events.publish('tool.called', meta);
+    await repos.turnEvents.append({
+      turnId: turn.id,
+      kind: 'tool_start',
+      data: { tool: call.name, toolCallId: call.id },
+      at: clock.now(),
+    });
+    log.info('Executing tool', { tool: call.name });
+
+    let content: string;
+    let isError: boolean;
+    try {
+      const result = await this.toolRegistry.execute(call.name, {
+        sessionId: session.id,
+        args: call.arguments,
+      });
+      events.publish('tool.result', { ...meta, success: result.success });
+      isError = !result.success;
+      content = result.success ? result.result : `Error: ${result.error}`;
+    } catch (error) {
+      events.publish('tool.error', { ...meta, error: String(error) });
+      isError = true;
+      content = `Error: ${String(error)}`;
+    }
+    await repos.turnEvents.append({
+      turnId: turn.id,
+      kind: 'tool_end',
+      data: { tool: call.name, toolCallId: call.id, isError },
+      at: clock.now(),
+    });
+    return { content, isError };
+  }
+
+  private buildContext(session: Session, messages: Message[]): string {
+    const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    const ctx: AgentRenderContext = {
+      session,
+      messages,
+      toolCalls: lastAssistant ? toolCallsOf(lastAssistant) : [],
+      lastUserMessage: lastUser ? textOf(lastUser) : undefined,
+    };
     return this.injectables
-      .filter((injectable) => this.checkCondition(injectable, session))
-      .map((injectable) => injectable.render({ session }))
+      .filter((i) => this.applies(i, ctx))
+      .map((i) => i.render(ctx))
       .filter((s): s is string => s !== null)
       .join('\n\n');
   }
 
-  private checkCondition(injectable: ContextInjectable, session: Session): boolean {
+  private applies(injectable: ContextInjectable, ctx: AgentRenderContext): boolean {
     const condition = injectable.condition;
-
-    if (condition.type === 'always') {
-      return true;
-    }
-
-    if (condition.type === 'tool_used') {
-      const lastMessage = session.messages[session.messages.length - 1];
-      if (lastMessage?.role === 'assistant' && lastMessage.toolName) {
+    switch (condition.type) {
+      case 'always':
+        return true;
+      case 'tool_used': {
+        const used = (ctx.toolCalls ?? []).map((c) => c.name);
+        return condition.toolNames.length === 0
+          ? used.length > 0
+          : used.some((n) => condition.toolNames.includes(n));
+      }
+      case 'pattern_detected':
         return (
-          condition.toolNames.length === 0 || condition.toolNames.includes(lastMessage.toolName)
+          !!ctx.lastUserMessage && condition.patterns.some((p) => p.test(ctx.lastUserMessage!))
         );
-      }
-      return false;
+      case 'custom':
+        return condition.check(ctx);
+      case 'once':
+        return false; // per-session tracking arrives with F04 (bug 8)
     }
-
-    if (condition.type === 'pattern_detected') {
-      const lastUserMsg = session.messages.filter((m) => m.role === 'user').pop();
-      if (lastUserMsg) {
-        return condition.patterns.some((p) => p.test(lastUserMsg.content));
-      }
-      return false;
-    }
-
-    if (condition.type === 'custom') {
-      return condition.check({ session });
-    }
-
-    return false;
   }
 
-  private async executeTool(
+  private async resolveSession(thread: Thread, id: SessionId | undefined, tx: Transaction) {
+    const { repos } = this.options;
+    if (id) {
+      const session = await repos.sessions.get(id, tx);
+      if (!session || session.threadId !== thread.id) throw new Error(`Session ${id} not found`);
+      return session;
+    }
+    return (
+      (await repos.sessions.findMainChat(thread.id, tx)) ?? this.createSession(thread, 'chat', tx)
+    );
+  }
+
+  private async createSession(
+    thread: Thread,
+    kind: SessionKind,
+    tx: Transaction,
+  ): Promise<Session> {
+    const session = new Session(newId(), thread.id, kind, this.options.clock.now());
+    await this.options.repos.sessions.insert(session, tx);
+    this.options.events.publish('session.created', { sessionId: session.id, agentId: this.name });
+    return session;
+  }
+
+  private async store(
     session: Session,
-    toolCall: { id: string; name: string; arguments: Record<string, unknown> },
-  ): Promise<string> {
-    this.events.publish('tool.called', {
-      sessionId: session.id,
-      toolName: toolCall.name,
-      toolCallId: toolCall.id,
-    });
-
-    this.log.info(`Executing tool: ${toolCall.name}`);
-
-    try {
-      const result = await this.toolRegistry.execute(toolCall.name, {
+    turnId: TurnId,
+    role: MessageRole,
+    author: MessageAuthor,
+    parts: ContentPart[],
+    tx?: Transaction,
+    channel?: string,
+  ): Promise<void> {
+    await this.options.repos.messages.append(
+      {
+        id: newId(),
+        threadId: session.threadId,
         sessionId: session.id,
-        args: toolCall.arguments,
-      });
-
-      this.events.publish('tool.result', {
-        sessionId: session.id,
-        toolName: toolCall.name,
-        toolCallId: toolCall.id,
-        success: result.success,
-      });
-
-      return result.success ? result.result : `Error: ${result.error}`;
-    } catch (error) {
-      const errorMsg = String(error);
-
-      this.events.publish('tool.error', {
-        sessionId: session.id,
-        toolName: toolCall.name,
-        toolCallId: toolCall.id,
-        error: errorMsg,
-      });
-
-      return `Error: ${errorMsg}`;
-    }
+        turnId,
+        role,
+        author,
+        parts,
+        channel,
+        withdrawn: false,
+        createdAt: this.options.clock.now(),
+      },
+      tx,
+    );
   }
 
-  endSession(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (session) {
-      session.end();
-      this.sessions.delete(sessionId);
-      if (this.activeSession?.id === sessionId) {
-        this.activeSession = null;
+  /** Applies a turn transition and saves it only if no one else moved the turn in the meantime. */
+  private async move(turn: Turn, expected: Turn['status'], apply: () => void): Promise<void> {
+    apply();
+    const saved = await this.options.repos.turns.update(turn, expected);
+    if (!saved)
+      throw new Error(`Turn ${turn.id} was changed by someone else (expected ${expected})`);
+  }
+
+  private sortInjectables(): void {
+    this.injectables.sort((a, b) => b.priority - a.priority);
+  }
+}
+
+/**
+ * Drops messages from the start of a window until it begins with a user message, so a tool result is
+ * never sent without the call that produced it (part of bug 2).
+ */
+function trimToWholeExchanges(messages: Message[]): Message[] {
+  const first = messages.findIndex((m) => m.role === 'user');
+  return first === -1 ? messages : messages.slice(first);
+}
+
+/** Domain messages → today's provider message shape (replaced by content parts in S11). */
+function toModelMessages(messages: Message[]): LLMMessage[] {
+  const out: LLMMessage[] = [];
+  for (const m of messages) {
+    if (m.withdrawn) continue;
+    const at = m.createdAt.getTime();
+    if (m.role === 'tool') {
+      for (const p of m.parts) {
+        if (p.type === 'tool_result') {
+          out.push({
+            id: m.id,
+            role: 'tool',
+            content: p.content,
+            toolCallId: p.toolCallId,
+            timestamp: at,
+          });
+        }
       }
+      continue;
     }
+    const calls = toolCallsOf(m);
+    out.push({
+      id: m.id,
+      role: m.role,
+      content: textOf(m),
+      toolCalls: calls.length ? calls : undefined,
+      timestamp: at,
+    });
   }
-
-  getSessions(): Session[] {
-    return Array.from(this.sessions.values());
-  }
+  return out;
 }
