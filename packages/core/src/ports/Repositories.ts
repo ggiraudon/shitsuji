@@ -4,6 +4,7 @@ import type { Money } from '../domain/model/Money.js';
 import type { Session } from '../domain/model/Session.js';
 import type { Thread } from '../domain/model/Thread.js';
 import type { Turn, TurnStatus } from '../domain/model/Turn.js';
+import type { SoulStore } from './SoulStore.js';
 
 /**
  * An open transaction. Opaque to callers: pass it to repository methods so several writes commit or
@@ -120,4 +121,5 @@ export interface Repositories {
   messages: MessageRepository;
   turnEvents: TurnEventRepository;
   usage: UsageRepository;
+  soul: SoulStore;
 }

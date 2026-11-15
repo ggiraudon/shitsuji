@@ -273,6 +273,52 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       expect(await repos.usage.listSince(owner, at(72))).toHaveLength(1);
     });
 
+    it('stores SOUL fragments and numbered revisions', async () => {
+      const repos = await create();
+      await seed(repos);
+      expect(await repos.soul.currentRevision(owner)).toBeUndefined();
+      await repos.soul.replaceFragments(
+        owner,
+        [
+          { id: 'base', kind: 'base', body: 'Base.', position: 0 },
+          { id: 'trait', kind: 'trait', body: 'A trait.', position: 1 },
+          { id: 'terse', kind: 'session', sessionKind: 'task', body: 'Be terse.', position: 2 },
+        ],
+        at(80),
+      );
+      const fragments = await repos.soul.fragments(owner);
+      expect(fragments.map((f) => f.id)).toEqual(['base', 'trait', 'terse']);
+      expect(fragments[2]).toMatchObject({ kind: 'session', sessionKind: 'task' });
+
+      await repos.soul.appendRevision(owner, {
+        revision: 1,
+        body: 'Base.\n\nA trait.',
+        source: 'initial',
+        createdAt: at(81),
+      });
+      await repos.soul.appendRevision(owner, {
+        revision: 2,
+        body: 'Base.\n\nA trait.\n\nBe terse.',
+        source: 'owner',
+        createdAt: at(82),
+      });
+      expect(await repos.soul.currentRevision(owner)).toEqual({
+        revision: 2,
+        body: 'Base.\n\nA trait.\n\nBe terse.',
+        source: 'owner',
+        createdAt: at(82),
+      });
+      expect((await repos.soul.revisions(owner)).map((r) => r.revision)).toEqual([1, 2]);
+
+      // Replacing the fragments replaces the whole set, not one at a time.
+      await repos.soul.replaceFragments(
+        owner,
+        [{ id: 'base-2', kind: 'base', body: 'New base.', position: 0 }],
+        at(83),
+      );
+      expect((await repos.soul.fragments(owner)).map((f) => f.body)).toEqual(['New base.']);
+    });
+
     it('rejects duplicate ids', async () => {
       const repos = await create();
       const { session } = await seed(repos);

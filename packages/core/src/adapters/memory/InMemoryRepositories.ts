@@ -8,6 +8,7 @@ import {
 } from '../../domain/model/ids.js';
 import type { Message } from '../../domain/model/Message.js';
 import { Session, type SessionKind } from '../../domain/model/Session.js';
+import type { SoulFragment, SoulRevision } from '../../domain/model/Soul.js';
 import { Thread, type ThreadStatus } from '../../domain/model/Thread.js';
 import { Turn, type TurnProps, type TurnStatus } from '../../domain/model/Turn.js';
 import type {
@@ -26,6 +27,7 @@ import type {
   UsageRecord,
   UsageRepository,
 } from '../../ports/Repositories.js';
+import type { SoulStore } from '../../ports/SoulStore.js';
 import { Money } from '../../domain/model/Money.js';
 
 interface ThreadRow {
@@ -52,6 +54,8 @@ interface State {
   turnEvents: TurnEvent[];
   /** Money is stored as plain fields so the state can be cloned. */
   usage: (Omit<UsageRecord, 'cost'> & { costMicros?: number; currency?: string })[];
+  soulFragments: { ownerId: OwnerId; fragment: SoulFragment }[];
+  soulRevisions: { ownerId: OwnerId; revision: SoulRevision }[];
 }
 
 const emptyState = (): State => ({
@@ -62,6 +66,8 @@ const emptyState = (): State => ({
   messages: [],
   turnEvents: [],
   usage: [],
+  soulFragments: [],
+  soulRevisions: [],
 });
 
 const copy = <T>(value: T): T => structuredClone(value);
@@ -223,6 +229,42 @@ export class InMemoryRepositories implements Repositories {
           return record;
         }),
   };
+
+  readonly soul: SoulStore = {
+    fragments: async (ownerId) =>
+      this.state.soulFragments
+        .filter((f) => f.ownerId === ownerId)
+        .map((f) => copy(f.fragment))
+        .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)),
+    replaceFragments: async (ownerId, fragments) => {
+      this.state.soulFragments = this.state.soulFragments.filter((f) => f.ownerId !== ownerId);
+      for (const fragment of fragments) {
+        this.state.soulFragments.push({ ownerId, fragment: copy(fragment) });
+      }
+    },
+    currentRevision: async (ownerId) => {
+      const all = this.revisionsOf(ownerId);
+      return all.at(-1);
+    },
+    revisions: async (ownerId) => this.revisionsOf(ownerId),
+    appendRevision: async (ownerId, revision) => {
+      if (
+        this.state.soulRevisions.some(
+          (r) => r.ownerId === ownerId && r.revision.revision === revision.revision,
+        )
+      ) {
+        throw new Error(`SOUL revision ${revision.revision} already exists`);
+      }
+      this.state.soulRevisions.push({ ownerId, revision: copy(revision) });
+    },
+  };
+
+  private revisionsOf(ownerId: OwnerId): SoulRevision[] {
+    return this.state.soulRevisions
+      .filter((r) => r.ownerId === ownerId)
+      .map((r) => copy(r.revision))
+      .sort((a, b) => a.revision - b.revision);
+  }
 
   private sessionsOf(threadId: ThreadId): SessionRow[] {
     return [...this.state.sessions.values()]

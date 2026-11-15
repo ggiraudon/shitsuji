@@ -150,6 +150,7 @@ describe('Postgres-only guarantees', () => {
         'start_after',
         'reply_channel',
         'error',
+        'soul_revision',
         'created_at',
         'started_at',
         'ended_at',
@@ -186,6 +187,17 @@ describe('Postgres-only guarantees', () => {
         'currency',
         'at',
       ],
+      soul_fragments: [
+        'id',
+        'owner_id',
+        'kind',
+        'session_kind',
+        'body',
+        'position',
+        'created_at',
+        'updated_at',
+      ],
+      soul_revisions: ['owner_id', 'revision', 'body', 'source', 'created_at'],
     };
     for (const [table, cols] of Object.entries(expected)) {
       for (const col of cols) expect(actual.has(`${table}.${col}`), `${table}.${col}`).toBe(true);

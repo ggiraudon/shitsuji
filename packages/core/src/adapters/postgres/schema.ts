@@ -42,6 +42,7 @@ export interface TurnsTable {
   start_after: Timestamp | null;
   reply_channel: string | null;
   error: string | null;
+  soul_revision: number | null;
   created_at: Timestamp;
   started_at: Timestamp | null;
   ended_at: Timestamp | null;
@@ -95,6 +96,25 @@ export interface UsageTable {
   at: Timestamp;
 }
 
+export interface SoulFragmentsTable {
+  id: string;
+  owner_id: string;
+  kind: 'base' | 'trait' | 'session';
+  session_kind: 'chat' | 'task' | 'helper' | 'schedule' | 'observer' | null;
+  body: string;
+  position: number;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface SoulRevisionsTable {
+  owner_id: string;
+  revision: number;
+  body: string;
+  source: 'initial' | 'owner' | 'assistant';
+  created_at: Timestamp;
+}
+
 export interface Database {
   owners: OwnersTable;
   threads: ThreadsTable;
@@ -104,4 +124,6 @@ export interface Database {
   turn_events: TurnEventsTable;
   channel_bindings: ChannelBindingsTable;
   usage: UsageTable;
+  soul_fragments: SoulFragmentsTable;
+  soul_revisions: SoulRevisionsTable;
 }

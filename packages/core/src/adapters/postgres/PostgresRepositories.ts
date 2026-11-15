@@ -9,6 +9,7 @@ import {
 } from '../../domain/model/ids.js';
 import type { ContentPart, Message } from '../../domain/model/Message.js';
 import { Session } from '../../domain/model/Session.js';
+import type { SoulFragment, SoulRevision } from '../../domain/model/Soul.js';
 import { Thread } from '../../domain/model/Thread.js';
 import { Turn, type TurnStatus } from '../../domain/model/Turn.js';
 import type {
@@ -26,7 +27,15 @@ import type {
   UsageRepository,
 } from '../../ports/Repositories.js';
 import { Money } from '../../domain/model/Money.js';
-import type { Database, MessagesTable, SessionsTable, TurnsTable } from './schema.js';
+import type { SoulStore } from '../../ports/SoulStore.js';
+import type {
+  Database,
+  MessagesTable,
+  SessionsTable,
+  SoulFragmentsTable,
+  SoulRevisionsTable,
+  TurnsTable,
+} from './schema.js';
 
 /** The port's opaque Transaction, carrying the Kysely transaction it stands for. */
 class PgTransaction implements Transaction {
@@ -76,6 +85,24 @@ const toMessage = (r: Selectable<MessagesTable>): Message => {
   if (r.external_ref !== null) m.externalRef = r.external_ref;
   return m;
 };
+
+const toFragment = (r: Selectable<SoulFragmentsTable>): SoulFragment => {
+  const fragment: SoulFragment = {
+    id: r.id,
+    kind: r.kind,
+    body: r.body,
+    position: r.position,
+  };
+  if (r.session_kind !== null) fragment.sessionKind = r.session_kind;
+  return fragment;
+};
+
+const toRevision = (r: Selectable<SoulRevisionsTable>): SoulRevision => ({
+  revision: r.revision,
+  body: r.body,
+  source: r.source,
+  createdAt: r.created_at,
+});
 
 /** The Kysely transaction behind a port Transaction, for adapters that share it (e.g. jobs). */
 export function kyselyOf(tx: Transaction): KyselyTx<Database> {
@@ -411,6 +438,70 @@ export class PostgresRepositories implements Repositories {
         data: r.data,
         at: r.at,
       })),
+  };
+
+  readonly soul: SoulStore = {
+    fragments: async (ownerId, tx) =>
+      (
+        await this.ex(tx)
+          .selectFrom('soul_fragments')
+          .selectAll()
+          .where('owner_id', '=', ownerId)
+          .orderBy('position')
+          .orderBy('id')
+          .execute()
+      ).map(toFragment),
+    replaceFragments: async (ownerId, fragments, at, tx) => {
+      const ex = this.ex(tx);
+      await ex.deleteFrom('soul_fragments').where('owner_id', '=', ownerId).execute();
+      if (!fragments.length) return;
+      await ex
+        .insertInto('soul_fragments')
+        .values(
+          fragments.map((f) => ({
+            id: f.id,
+            owner_id: ownerId,
+            kind: f.kind,
+            session_kind: f.sessionKind ?? null,
+            body: f.body,
+            position: f.position,
+            created_at: at,
+            updated_at: at,
+          })),
+        )
+        .execute();
+    },
+    currentRevision: async (ownerId, tx) => {
+      const r = await this.ex(tx)
+        .selectFrom('soul_revisions')
+        .selectAll()
+        .where('owner_id', '=', ownerId)
+        .orderBy('revision', 'desc')
+        .limit(1)
+        .executeTakeFirst();
+      return r && toRevision(r);
+    },
+    revisions: async (ownerId, tx) =>
+      (
+        await this.ex(tx)
+          .selectFrom('soul_revisions')
+          .selectAll()
+          .where('owner_id', '=', ownerId)
+          .orderBy('revision')
+          .execute()
+      ).map(toRevision),
+    appendRevision: async (ownerId, r, tx) => {
+      await this.ex(tx)
+        .insertInto('soul_revisions')
+        .values({
+          owner_id: ownerId,
+          revision: r.revision,
+          body: r.body,
+          source: r.source,
+          created_at: r.createdAt,
+        })
+        .execute();
+    },
   };
 }
 
