@@ -25,7 +25,8 @@ const modelRef = z
 
 const providerSchema = z
   .object({
-    kind: z.enum(['openai-compatible', 'anthropic']),
+    /** 'plugin': registered by a plugin under this id; the core only checks that one did. */
+    kind: z.enum(['openai-compatible', 'anthropic', 'plugin']),
     baseUrl: z.string().url().optional(),
     apiKey: secret.optional(),
     headers: z.record(z.string()).default({}),
@@ -100,6 +101,8 @@ export const shitsujiConfigSchema = z
     plugins: z
       .object({
         directory: z.string().optional(),
+        /** Each plugin's own settings, keyed by plugin id; passed to it as ctx.config. */
+        settings: z.record(z.record(z.unknown())).default({}),
       })
       .strict()
       .default({}),
