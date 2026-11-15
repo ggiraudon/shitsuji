@@ -1,0 +1,79 @@
+import { z } from 'zod/v4';
+
+/**
+ * The API's request, response and live-event shapes, shared by the server and the TUI. They move to
+ * packages/shared when the web UI (F07) needs them too.
+ */
+
+export const postMessageBody = z.object({
+  content: z.string().min(1).max(100_000),
+  /** "main" or omitted: the owner's main chat session. */
+  sessionId: z.string().min(1).optional(),
+});
+export type PostMessageBody = z.infer<typeof postMessageBody>;
+
+export interface PostMessageResponse {
+  sessionId: string;
+  turnId: string;
+  steered: boolean;
+}
+
+export interface MessageDto {
+  id: string;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  author: 'owner' | 'assistant' | 'system';
+  /** Text parts joined; reasoning is never included. */
+  text: string;
+  toolCalls: { id: string; name: string }[];
+  toolResults: { toolCallId: string; isError: boolean; preview: string }[];
+  withdrawn: boolean;
+  turnId?: string;
+  createdAt: string;
+}
+
+export interface TurnDto {
+  id: string;
+  sessionId: string;
+  status: string;
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  endedAt?: string;
+}
+
+/** Live events on /api/events, as JSON text frames. */
+export type LiveEvent =
+  | {
+      type: 'turn.status';
+      turnId: string;
+      sessionId: string;
+      status: string;
+      reply?: string;
+      error?: string;
+    }
+  | { type: 'turn.text_delta'; turnId: string; sessionId: string; text: string }
+  | { type: 'turn.steered'; turnId: string; sessionId: string }
+  | {
+      type: 'tool.started';
+      turnId: string;
+      sessionId: string;
+      toolName: string;
+      toolCallId: string;
+    }
+  | {
+      type: 'tool.finished';
+      turnId: string;
+      sessionId: string;
+      toolName: string;
+      toolCallId: string;
+      ok: boolean;
+      error?: string;
+    };
+
+export const LIVE_EVENT_TYPES = [
+  'turn.status',
+  'turn.text_delta',
+  'turn.steered',
+  'tool.started',
+  'tool.finished',
+] as const;
