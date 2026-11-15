@@ -1,4 +1,4 @@
-export { Tool, ToolResult, ToolExecuteParams, BaseTool } from './base.js';
+export { type Tool, type ToolResult, type ToolExecuteParams, BaseTool } from './base.js';
 export { ToolRegistry } from './Registry.js';
 export { CalculatorTool } from './implementations/CalculatorTool.js';
 export { WebSearchTool } from './implementations/WebSearchTool.js';

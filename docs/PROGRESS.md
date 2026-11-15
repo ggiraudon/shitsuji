@@ -9,7 +9,7 @@ section; if a criterion changes, change it in the feature file and here in the s
 See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 
 - [x] **S1** Tooling baseline
-- [ ] **S2** pnpm monorepo
+- [x] **S2** pnpm monorepo
 - [ ] **S3** Layer folders and the import check
 - [ ] **S4** Core ports: logger, clock, event bus, errors
 - [ ] **S5** Configuration

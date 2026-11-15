@@ -10,7 +10,7 @@ export class RulesInjectable extends BaseContextInjectable {
   readonly id = 'rules';
   readonly name = 'Agent Rules';
   readonly description = 'Safety and behavioral guidelines';
-  priority = 70;
+  override priority = 70;
 
   constructor(private rules: Rule[]) {
     super();

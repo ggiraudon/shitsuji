@@ -72,6 +72,6 @@ export class ChannelManager {
   }
 }
 
-export { Channel, BaseChannel } from './base.js';
+export { type Channel, BaseChannel } from './base.js';
 export { CLIChannel } from './CLIChannel.js';
 export { WebhookChannel } from './WebhookChannel.js';

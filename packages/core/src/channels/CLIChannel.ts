@@ -9,7 +9,7 @@ export class CLIChannel extends BaseChannel {
   private prompt = '> ';
   private messageHandler: ((message: ChannelMessage, destination: string) => void) | null = null;
 
-  async start(): Promise<void> {
+  override async start(): Promise<void> {
     await super.start();
     this.rl = readline.createInterface({
       input: process.stdin,
@@ -20,7 +20,7 @@ export class CLIChannel extends BaseChannel {
     this.startInputLoop();
   }
 
-  async stop(): Promise<void> {
+  override async stop(): Promise<void> {
     await super.stop();
     if (this.rl) {
       this.rl.close();
@@ -36,7 +36,7 @@ export class CLIChannel extends BaseChannel {
     }
   }
 
-  onMessage(handler: (message: ChannelMessage, destination: string) => void): void {
+  override onMessage(handler: (message: ChannelMessage, destination: string) => void): void {
     super.onMessage(handler);
     this.messageHandler = handler;
   }

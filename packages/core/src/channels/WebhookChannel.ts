@@ -20,7 +20,7 @@ export class WebhookChannel extends BaseChannel {
     this.path = options.path ?? '/webhook';
   }
 
-  async start(): Promise<void> {
+  override async start(): Promise<void> {
     await super.start();
 
     this.server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -85,7 +85,7 @@ export class WebhookChannel extends BaseChannel {
     });
   }
 
-  async stop(): Promise<void> {
+  override async stop(): Promise<void> {
     await super.stop();
     if (this.server) {
       this.server.close();

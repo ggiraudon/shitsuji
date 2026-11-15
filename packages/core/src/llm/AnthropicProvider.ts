@@ -116,7 +116,7 @@ export class AnthropicProvider extends BaseLLMProvider {
 
   // Stub until the adapter is rewritten in S12; yields nothing.
   // eslint-disable-next-line require-yield
-  async *stream(_options: LLMCompletionOptions): AsyncIterable<LLMChunk> {
+  override async *stream(_options: LLMCompletionOptions): AsyncIterable<LLMChunk> {
     logger.warn('Streaming not yet implemented for Anthropic');
     return;
   }

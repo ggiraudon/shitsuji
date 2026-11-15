@@ -145,6 +145,9 @@ export class OpenAIProvider extends BaseLLMProvider {
     };
 
     const choice = data.choices[0];
+    if (!choice) {
+      throw new Error(`OpenAI API returned no choices (response id ${data.id})`);
+    }
     const llmResponse: LLMResponse = {
       id: data.id,
       model: data.model,
@@ -169,7 +172,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     return llmResponse;
   }
 
-  async *stream(options: LLMCompletionOptions): AsyncIterable<LLMChunk> {
+  override async *stream(options: LLMCompletionOptions): AsyncIterable<LLMChunk> {
     const model = options.model ?? this.defaultModel;
     this.logRequest(options);
 

@@ -6,7 +6,7 @@ export class ToolListInjectable extends BaseContextInjectable {
   readonly id = 'tool-list';
   readonly name = 'Available Tools';
   readonly description = 'Lists available tools the agent can use';
-  priority = 90;
+  override priority = 90;
 
   constructor(private tools: ToolDefinition[]) {
     super();
@@ -27,7 +27,7 @@ export class ToolContextInjectable extends BaseContextInjectable {
   readonly id = 'tool-context';
   readonly name = 'Tool Context';
   readonly description = 'Provides context when a tool is being used';
-  priority = 80;
+  override priority = 80;
 
   constructor() {
     super();

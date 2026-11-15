@@ -3,10 +3,7 @@
   "compilerOptions": {
     "jsx": "react",
     "outDir": "./dist",
-    "noEmit": true,
-    "noUncheckedIndexedAccess": false,
-    "noImplicitOverride": false,
-    "isolatedModules": false
+    "noEmit": true
   },
   "include": ["src/**/*", "test/**/*", "vitest.config.ts"]
 }

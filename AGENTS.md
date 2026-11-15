@@ -51,7 +51,6 @@ The first-pass steps add these. Keep this list true as they appear.
 | `pnpm check` | Type-check, lint, import-direction check and tests: **run before every commit** |
 | `docker compose up` | Start the stack (`core` + `postgres`) |
 
-Until S2 lands, the old `npm run build` and `npm run lint` scripts apply.
 
 ## Architecture rules
 
