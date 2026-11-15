@@ -1,8 +1,8 @@
-# Project Overview: Seahorse - AI Agent Framework
+# Project Overview: Shitsuji - AI Agent Framework
 
 ## 1. Project Vision
 
-Seahorse is a lightweight, TypeScript-based AI agent framework designed for simplicity and understandability. Inspired by OpenClaw but built from scratch with a focus on clean OOP principles and event-driven architecture.
+Shitsuji is a lightweight, TypeScript-based AI agent framework designed for simplicity and understandability. Inspired by OpenClaw but built from scratch with a focus on clean OOP principles and event-driven architecture.
 
 **Core Philosophy**: An AI agent is fundamentally a loop where triggers (text, events, timers) initiate LLM calls, which may trigger additional calls or tool executions based on rules.
 
@@ -291,7 +291,7 @@ type InjectionCondition =
 
 | Injectable | Condition | Example Output |
 |------------|-----------|----------------|
-| `AgentIdentity` | always | "You are Seahorse, a helpful AI assistant..." |
+| `AgentIdentity` | always | "You are Shitsuji, a helpful AI assistant..." |
 | `ToolList` | always | "Available tools: web_search, calculator..." |
 | `SafetyRules` | always | "Never reveal personal information..." |
 | `ToolContext` | on tool use | "You are currently using calculator. Format: ..." |
@@ -489,7 +489,7 @@ messageBus.subscribe('agent.response', async ({ sessionId, text }) => {
 ## 6. Project Structure
 
 ```
-seahorse/
+shitsuji/
 ├── src/
 │   ├── index.ts              # Entry point
 │   ├── cli.ts                # CLI interface (OpenTUI)
@@ -571,7 +571,7 @@ import { render, Box, Text } from 'ink';
 
 const App = () => (
   <Box borderStyle="round" borderColor="green">
-    <Text>Hello, Seahorse!</Text>
+    <Text>Hello, Shitsuji!</Text>
   </Box>
 );
 
@@ -683,7 +683,7 @@ class PluginManager {
 | Source | Example | Loading |
 |--------|---------|---------|
 | Local folder | `plugins/telegram/` | `load('./plugins/telegram')` |
-| NPM package | `seahorse-plugin-slack` | `loadNpm('seahorse-plugin-slack')` |
+| NPM package | `shitsuji-plugin-slack` | `loadNpm('shitsuji-plugin-slack')` |
 
 ### Plugin Lifecycle
 
@@ -694,7 +694,7 @@ Discovery → Load → Init → Ready → (use) → Destroy
 ### Project Structure with Plugins
 
 ```
-seahorse/
+shitsuji/
 ├── src/
 │   ├── core/                  # Core system
 │   ├── plugins/               # Built-in plugins
@@ -709,7 +709,7 @@ seahorse/
 │   │       └── filesystem/
 │   └── ...
 ├── plugins/                   # User plugins (gitignored)
-└── seahorse.config.json
+└── shitsuji.config.json
 ```
 
 ---
@@ -765,7 +765,7 @@ seahorse/
 
 ## 10. Key Differences from OpenClaw
 
-| Aspect | OpenClaw | Seahorse |
+| Aspect | OpenClaw | Shitsuji |
 |--------|----------|----------|
 | Size | ~500 files | ~20-30 files |
 | Channels | 40+ built-in | CLI + Webhook (extensible) |

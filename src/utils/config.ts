@@ -11,7 +11,7 @@ const globalConfigSchema = z.object({
   logging: z.object({
     level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   }).default({}),
-  dataDir: z.string().default('~/.seahorse/data'),
+  dataDir: z.string().default('~/.shitsuji/data'),
 });
 
 export type GlobalConfig = z.infer<typeof globalConfigSchema>;
@@ -34,7 +34,7 @@ export class ConfigManager {
   private configDir: string;
 
   constructor(configDir?: string) {
-    this.configDir = configDir ?? join(homedir(), '.seahorse');
+    this.configDir = configDir ?? join(homedir(), '.shitsuji');
     this.globalConfig = this.loadGlobalConfig();
   }
 

@@ -1,19 +1,19 @@
 {
-  "name": "seahorse",
+  "name": "shitsuji",
   "version": "0.1.0",
   "description": "A lightweight AI agent framework",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "seahorse": "./dist/cli.js"
+    "shitsuji": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
-    "start": "seahorse",
-    "tui": "seahorse tui",
-    "daemon": "seahorse daemon",
+    "start": "shitsuji",
+    "tui": "shitsuji tui",
+    "daemon": "shitsuji daemon",
     "test": "vitest",
     "test:watch": "vitest watch",
     "lint": "eslint src --ext .ts",

@@ -29,7 +29,7 @@ export class WebhookChannel extends BaseChannel {
       if (url === '/' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          service: 'Seahorse Webhook Channel',
+          service: 'Shitsuji Webhook Channel',
           status: 'running',
           endpoints: {
             webhook: this.path,

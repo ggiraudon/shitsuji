@@ -37,7 +37,7 @@ interface Message {
   timestamp: number;
 }
 
-const SeahorseApp = () => {
+const ShitsujiApp = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -73,7 +73,7 @@ const SeahorseApp = () => {
       const sessionStore = new SessionStore(join(dataDir, 'sessions'));
       
       const newAgent = new Agent({
-        name: 'Seahorse',
+        name: 'Shitsuji',
         llmProvider: llm,
         model,
         sessionStore,
@@ -92,7 +92,7 @@ const SeahorseApp = () => {
       setAgent(newAgent);
       setSessionId(session.id);
       
-      addMessage('system', 'Seahorse initialized. Type your message and press Enter.');
+      addMessage('system', 'Shitsuji initialized. Type your message and press Enter.');
     } catch (err) {
       setError(String(err));
     }
@@ -178,7 +178,7 @@ const SeahorseApp = () => {
     <Box flexDirection="column" height={process.stdout.rows ?? 24}>
       <Box flexDirection="column" borderStyle="round" borderColor={colors.accent} padding={1} minHeight={3}>
         <Text bold color={colors.accent}>╔════════════════════════════════════════╗</Text>
-        <Text bold color={colors.accent}>║         Seahorse AI Agent             ║</Text>
+        <Text bold color={colors.accent}>║         Shitsuji AI Agent             ║</Text>
         <Text bold color={colors.accent}>╚════════════════════════════════════════╝</Text>
       </Box>
 
@@ -186,7 +186,7 @@ const SeahorseApp = () => {
         {messages.map((msg) => (
           <Box key={msg.id} flexDirection="column" paddingY={0}>
             <Text bold color={msg.role === 'user' ? colors.cyan : msg.role === 'assistant' ? colors.success : colors.warning}>
-              {msg.role === 'user' ? 'You:' : msg.role === 'assistant' ? 'Seahorse:' : 'System:'}
+              {msg.role === 'user' ? 'You:' : msg.role === 'assistant' ? 'Shitsuji:' : 'System:'}
             </Text>
             <Text>{msg.content}</Text>
             <Text color={colors.dim}>{'─'.repeat(50)}</Text>
@@ -202,5 +202,5 @@ const SeahorseApp = () => {
 };
 
 export async function startTUI(): Promise<void> {
-  render(<SeahorseApp />);
+  render(<ShitsujiApp />);
 }

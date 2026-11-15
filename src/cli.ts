@@ -11,7 +11,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   if (command === 'daemon') {
-    const logFile = args.find(a => a.startsWith('--log='))?.split('=')[1] || './seahorse.log';
+    const logFile = args.find(a => a.startsWith('--log='))?.split('=')[1] || './shitsuji.log';
     const indexPath = join(__dirname, 'index.js');
 
     const child: ChildProcess = fork(indexPath, ['--daemon'], {
@@ -35,7 +35,7 @@ async function main() {
       process.exit(code ?? 1);
     });
 
-    console.log(`Seahorse daemon started (PID: ${child.pid})`);
+    console.log(`Shitsuji daemon started (PID: ${child.pid})`);
     console.log(`Logging to: ${logFile}`);
     process.exit(0);
   } 

@@ -22,7 +22,7 @@ let channelManager: ChannelManager | null = null;
 let agent: Agent | null = null;
 
 export async function startServer(): Promise<void> {
-  logger.info('Seahorse starting...');
+  logger.info('Shitsuji starting...');
   
   messageBus.publish('system.ready', { version: '0.1.0' });
   
@@ -54,7 +54,7 @@ export async function startServer(): Promise<void> {
   const sessionStore = new SessionStore(join(dataDir, 'sessions'));
   
   agent = new Agent({
-    name: 'Seahorse Assistant',
+    name: 'Shitsuji Assistant',
     llmProvider: llm!,
     model,
     sessionStore,
@@ -105,7 +105,7 @@ export async function startServer(): Promise<void> {
 
   console.log(`
 ╔════════════════════════════════════════╗
-║         Seahorse AI Agent             ║
+║         Shitsuji AI Agent             ║
 ║════════════════════════════════════════║
 ║  Type your message and press Enter    ║
 ║  Commands:                             ║
@@ -116,14 +116,14 @@ export async function startServer(): Promise<void> {
 ╚════════════════════════════════════════╝
 `);
 
-  logger.info('Seahorse ready - use CLI or POST to http://localhost:3000/webhook');
+  logger.info('Shitsuji ready - use CLI or POST to http://localhost:3000/webhook');
 }
 
 export async function stopServer(): Promise<void> {
   if (channelManager) {
     await channelManager.stopAll();
   }
-  logger.info('Seahorse stopped');
+  logger.info('Shitsuji stopped');
 }
 
 export function getAgent(): Agent | null {
