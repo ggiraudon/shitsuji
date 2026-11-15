@@ -187,6 +187,9 @@ The SOUL is **assembled and evolving**, not a single file you edit:
   F11 exists, only you can change it.
 - **A size cap,** 24 KB (as in OpenMausBot), so the header stays small.
 
+Until Shitsuji can propose changes (F11), the export is the whole shared SOUL: confirming an edit replaces
+the fragments with that text, so there is exactly one thing to review.
+
 The mood, which changes far more often, is a separate feature that lives in the tail:
 [F25](F25-mood.md).
 
