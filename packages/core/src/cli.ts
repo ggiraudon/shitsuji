@@ -44,11 +44,13 @@ async function main() {
     const { startTUI } = await import('./interfaces/tui/app.js');
     const { loadConfig } = await import('./composition/config/loadConfig.js');
     const { createCoreServices } = await import('./composition/services.js');
-    const { createAgent } = await import('./composition/createAgent.js');
+    const { createShitsuji } = await import('./composition/createShitsuji.js');
     const { config } = loadConfig();
-    // The TUI draws the screen, so it gets a logger that only reports warnings and errors.
+    // The TUI draws the screen, so it gets a logger that only reports warnings and errors, and it
+    // is its own channel: the CLI and webhook channels are not started.
     const services = createCoreServices({ ...config.logging, level: 'warn' });
-    await startTUI({ agent: createAgent(config, services).agent });
+    const shitsuji = await createShitsuji(config, { services, channels: false });
+    await startTUI({ agent: shitsuji.agent });
     return;
   }
 

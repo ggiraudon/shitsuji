@@ -96,6 +96,11 @@ export class Agent {
     this.injectables.sort((a, b) => b.priority - a.priority);
   }
 
+  /** The tools this agent can call. */
+  getTools(): Tool[] {
+    return this.toolRegistry.list();
+  }
+
   registerTool(tool: Tool): void {
     this.toolRegistry.register(tool);
     this.tools = this.toolRegistry.getToolDefinitions();
