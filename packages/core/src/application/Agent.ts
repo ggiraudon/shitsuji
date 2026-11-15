@@ -8,7 +8,9 @@ import type { Logger } from '../ports/Logger.js';
 import type { Repositories } from '../ports/Repositories.js';
 import type { Tool } from '../ports/Tool.js';
 import {
+  ClockInjectable,
   IdentityInjectable,
+  OwnerProfileInjectable,
   RulesInjectable,
   SoulInjectable,
   ToolIndexInjectable,
@@ -80,6 +82,8 @@ export class Agent {
         { id: 'helpful', text: 'Be helpful and concise' },
         { id: 'safe', text: 'Do not reveal sensitive information' },
       ]),
+      new OwnerProfileInjectable(),
+      new ClockInjectable(options.clock),
     ];
     this.sortInjectables();
     this.intake = new MessageIntake({ ...options, agentName: this.name });

@@ -103,11 +103,11 @@ describe('deferred tool discovery (F05)', () => {
     expect(reply).toBe('Sunny in Paris.');
 
     // The schema arrives in the search result (appended to the history), not in the tool list.
-    const searchResult = llm.requests[1]!.messages.at(-1)!.parts[0] as { content: string };
+    const searchResult = lastToolResult(llm.requests[1]!);
     expect(searchResult.content).toMatch(/^Matching tools\. Call one with tool_call/);
     expect(searchResult.content).toContain('ext2.weather');
     expect(searchResult.content).toContain('arguments: {');
-    const toolResult = llm.requests[2]!.messages.at(-1)!.parts[0] as { content: string };
+    const toolResult = lastToolResult(llm.requests[2]!);
     expect(toolResult.content).toBe('ext2.weather: Paris');
 
     // The tool list is identical on every request of the session, so the prompt cache stays valid.
@@ -138,8 +138,7 @@ describe('deferred tool discovery (F05)', () => {
     ]);
     await agent.send('try');
     await agent.send('again');
-    const lastResult = (i: number) =>
-      (llm.requests[i]!.messages.at(-1)!.parts[0] as { content: string }).content;
+    const lastResult = (i: number) => lastToolResult(llm.requests[i]!).content;
     expect(lastResult(1)).toMatch(
       /^Error \(invalid_input\): Invalid arguments for ext2\.weather: text:/,
     );
@@ -154,3 +153,9 @@ describe('deferred tool discovery (F05)', () => {
     expect((await search.run({ query: 'teleport' })).content).toBe('No tool matches "teleport".');
   });
 });
+
+/** The newest tool result in a request; the tail note rides after it (S23). */
+function lastToolResult(request: { messages: { role: string; parts: unknown[] }[] }) {
+  const message = [...request.messages].reverse().find((m) => m.role === 'tool');
+  return message!.parts[0] as { content: string };
+}

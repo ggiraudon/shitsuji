@@ -159,6 +159,14 @@ describe('Agent', () => {
     );
   });
 
+  it('carries the clock in the tail, never in the system prompt (S23)', async () => {
+    const { agent, llm } = await setup([{ content: "Ten o'clock." }]);
+    await agent.send('What time is it?');
+    const request = llm.requests[0]!;
+    expect(request.system).not.toContain('Current local date and time');
+    expect(JSON.stringify(request.messages.at(-1))).toContain('Current local date and time');
+  });
+
   it('applies tool_used injectables only after that tool ran (bug 8)', async () => {
     const { agent, llm } = await setup([calc('2+2'), { content: '4' }]);
     agent.registerTool(new MathEvaluateTool());

@@ -3,6 +3,8 @@ import { ManualClock } from '../../src/adapters/clock/SystemClock.js';
 import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { ContextBuilder } from '../../src/application/context/ContextBuilder.js';
+import { ClockInjectable } from '../../src/application/context/ClockInjectable.js';
+import { OwnerProfileInjectable } from '../../src/application/context/OwnerProfileInjectable.js';
 import { Session, type SessionKind } from '../../src/domain/model/Session.js';
 import { Turn } from '../../src/domain/model/Turn.js';
 import {
@@ -90,7 +92,7 @@ async function fixture(
     log,
     historyLimit: options.historyLimit,
   });
-  return { builder, repos, session, turn, append, log };
+  return { builder, repos, session, turn, append, log, clock };
 }
 
 const text = (value: string): ContentPart[] => [{ type: 'text', text: value }];
@@ -151,6 +153,25 @@ describe('ContextBuilder: placement and order (S23)', () => {
 
     expect(first.system).toBe('WELCOME');
     expect(second.system).toBeUndefined();
+  });
+
+  it('puts the owner profile in the header and the clock in the tail, never the header', async () => {
+    const injectables: ContextInjectable[] = [];
+    const { builder, session, turn, append, clock } = await fixture(injectables);
+    injectables.push(new OwnerProfileInjectable(), new ClockInjectable(clock));
+    await append('user', text('What time is it?'));
+
+    const built = await builder.build(session, turn);
+
+    expect(built.header.map((n) => n.id)).toEqual(['owner-profile']);
+    expect(built.system).toContain('Jeanne');
+    expect(built.system).toContain('Europe/Paris');
+    expect(built.system).not.toContain('Current local date and time');
+    expect(built.tail).toContain('10:00'); // 09:00 UTC in Paris
+    expect(built.messages.at(-1)!.parts).toContainEqual({
+      type: 'text',
+      text: built.tail,
+    });
   });
 
   it('selects injectables by session kind', async () => {

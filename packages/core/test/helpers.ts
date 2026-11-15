@@ -54,14 +54,26 @@ export function routerFor(provider: ModelProvider, model = 'test-model'): ModelR
   );
 }
 
+/** The tail injectables ride on the newest message (S23); the transcript itself is unchanged. */
+const isTailNote = (text: string) => text.startsWith('Current local date and time for your owner:');
+
 /** A request's messages as "role:text" lines (tool results show their content). */
 export function transcript(request: ModelRequest): string[] {
-  return request.messages.map(
-    (m) =>
-      `${m.role}:` +
-      m.parts
-        .map((p) => (p.type === 'text' ? p.text : p.type === 'tool_result' ? p.content : ''))
-        .join(''),
+  return (
+    request.messages
+      .map((m) => ({
+        role: m.role,
+        parts: m.parts.filter((p) => !(p.type === 'text' && isTailNote(p.text))),
+      }))
+      // A message that carried nothing but the tail is not part of the stored transcript.
+      .filter((m) => m.parts.length > 0)
+      .map(
+        (m) =>
+          `${m.role}:` +
+          m.parts
+            .map((p) => (p.type === 'text' ? p.text : p.type === 'tool_result' ? p.content : ''))
+            .join(''),
+      )
   );
 }
 
