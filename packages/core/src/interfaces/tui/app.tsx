@@ -204,6 +204,9 @@ const lineColor = (kind: Line['kind']) =>
 
 /** Starts the TUI; resolves when it exits. */
 export async function startTUI(client: TuiClient): Promise<void> {
+  if (!process.stdin.isTTY) {
+    throw new Error('The TUI needs an interactive terminal (stdin is not a TTY).');
+  }
   const app = render(<ShitsujiApp client={client} />);
   await app.waitUntilExit();
 }
