@@ -18,11 +18,13 @@ import type { EventBus } from '../ports/EventBus.js';
 import type { ModelMessage, ModelRequest } from '../ports/ModelProvider.js';
 import type { Logger } from '../ports/Logger.js';
 import type { Repositories, Transaction } from '../ports/Repositories.js';
-import type { Tool } from '../ports/LegacyTool.js';
+import type { Tool } from '../ports/Tool.js';
+import { TurnLock } from './TurnLock.js';
+import { type ToolCatalog } from './tools/ToolCatalog.js';
+import { outcomeText, type ToolPipeline } from './tools/ToolPipeline.js';
 import { IdentityInjectable, RulesInjectable, ToolListInjectable } from './context/index.js';
 import type { ModelResponse } from './modelCalls.js';
 import type { ModelRouter } from './models/ModelRouter.js';
-import { ToolRegistry } from './ToolRegistry.js';
 
 export interface AgentOptions {
   name: string;
@@ -33,6 +35,10 @@ export interface AgentOptions {
   clock: Clock;
   log: Logger;
   events: EventBus;
+  /** Every call goes through this pipeline (validation, trust, receipts…). */
+  pipeline: ToolPipeline;
+  /** The tools the model can call. The pipeline looks tools up in the same catalog. */
+  tools: ToolCatalog;
   /** How many recent messages are sent to the model. */
   historyLimit?: number;
   /** Model calls per turn before the turn is stopped (a runaway tool loop). */
@@ -65,16 +71,18 @@ export class StepLimitReached extends Error {
 export class Agent {
   readonly name: string;
   private readonly options: Required<AgentOptions>;
-  private readonly toolRegistry: ToolRegistry;
+  private readonly tools: ToolCatalog;
+  private readonly turnLock: TurnLock;
   private injectables: ContextInjectable[] = [];
 
   constructor(options: AgentOptions) {
     this.options = { historyLimit: 40, maxSteps: 40, ...options };
     this.name = options.name;
-    this.toolRegistry = new ToolRegistry(options.log);
+    this.tools = options.tools;
+    this.turnLock = new TurnLock(options.repos);
     this.injectables = [
       new IdentityInjectable({ name: this.name, description: 'a helpful AI assistant' }),
-      new ToolListInjectable([]),
+      new ToolListInjectable(this.tools.specs()),
       new RulesInjectable([
         { id: 'helpful', text: 'Be helpful and concise' },
         { id: 'safe', text: 'Do not reveal sensitive information' },
@@ -89,13 +97,13 @@ export class Agent {
   }
 
   getTools(): Tool[] {
-    return this.toolRegistry.list();
+    return this.tools.list();
   }
 
   registerTool(tool: Tool): void {
-    this.toolRegistry.register(tool);
+    this.tools.add(tool);
     this.injectables = this.injectables.filter((i) => i.id !== 'tool-list');
-    this.injectables.push(new ToolListInjectable(this.toolRegistry.getToolDefinitions()));
+    this.injectables.push(new ToolListInjectable(this.tools.specs()));
     this.sortInjectables();
   }
 
@@ -194,7 +202,7 @@ export class Agent {
     history: Message[],
   ): Promise<ModelResponse> {
     const { events, repos, clock } = this.options;
-    const tools = this.toolRegistry.getToolDefinitions();
+    const tools = this.tools.specs();
     const request: Omit<ModelRequest, 'model'> = {
       system: this.buildContext(session, history),
       messages: toModelMessages(trimToWholeExchanges(history)),
@@ -248,39 +256,29 @@ export class Agent {
     turn: Turn,
     call: ToolCall,
   ): Promise<{ content: string; isError: boolean }> {
-    const { events, repos, clock, log } = this.options;
+    const { events, log } = this.options;
     const meta = { sessionId: session.id, toolName: call.name, toolCallId: call.id };
     events.publish('tool.called', meta);
-    await repos.turnEvents.append({
-      turnId: turn.id,
-      kind: 'tool_start',
-      data: { tool: call.name, toolCallId: call.id },
-      at: clock.now(),
-    });
     log.info('Executing tool', { tool: call.name });
-
-    let content: string;
-    let isError: boolean;
-    try {
-      const result = await this.toolRegistry.execute(call.name, {
-        sessionId: session.id,
-        args: call.arguments,
-      });
-      events.publish('tool.result', { ...meta, success: result.success });
-      isError = !result.success;
-      content = result.success ? result.result : `Error: ${result.error}`;
-    } catch (error) {
-      events.publish('tool.error', { ...meta, error: String(error) });
-      isError = true;
-      content = `Error: ${String(error)}`;
-    }
-    await repos.turnEvents.append({
+    const outcome = await this.options.pipeline.execute(call, {
       turnId: turn.id,
-      kind: 'tool_end',
-      data: { tool: call.name, toolCallId: call.id, isError },
-      at: clock.now(),
+      sessionId: session.id,
+      signal: this.signalFor(turn),
+      log: log.child({ tool: call.name }),
+      events,
+      writeFenced: (fn) => this.turnLock.write(turn.id, fn),
     });
-    return { content, isError };
+    if (outcome.kind === 'ok') events.publish('tool.result', { ...meta, success: true });
+    else events.publish('tool.error', { ...meta, error: outcome.content });
+    if (outcome.kind === 'error' && outcome.reason === 'repeated_failure') {
+      throw new Error(outcome.content); // ends the turn instead of looping (F05)
+    }
+    return { content: outcomeText(outcome), isError: outcome.kind !== 'ok' };
+  }
+
+  /** The turn's cancellation signal. Stop (S22) will abort it; until then it never fires. */
+  private signalFor(_turn: Turn): AbortSignal {
+    return new AbortController().signal;
   }
 
   private buildContext(session: Session, messages: Message[]): string {

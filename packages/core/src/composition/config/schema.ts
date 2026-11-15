@@ -120,6 +120,22 @@ export const shitsujiConfigSchema = z
       })
       .strict()
       .default({}),
+    tools: z
+      .object({
+        /** The folder the file and exec tools may use (decision Q1). Default: <dataDir>/workspace. */
+        workspaceDir: z.string().min(1).optional(),
+        exec: z
+          .object({
+            enabled: z.boolean().default(true),
+            defaultTimeoutSeconds: z.number().int().positive().default(60),
+            maxTimeoutSeconds: z.number().int().positive().default(300),
+            maxOutputBytes: z.number().int().positive().default(200_000),
+          })
+          .strict()
+          .default({}),
+      })
+      .strict()
+      .default({}),
     plugins: z
       .object({
         directory: z.string().optional(),

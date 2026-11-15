@@ -31,7 +31,7 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 
 - [x] **S15** Tool v2 port and schemas
 - [x] **S16** The execution pipeline
-- [ ] **S17** Built-in tools on v2
+- [x] **S17** Built-in tools on v2
 - [ ] **S18** Web search and fetch
 - [ ] **S19** Deferred discovery
 - [ ] **S20** Message intake and the turn scheduler
@@ -79,7 +79,7 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 
 ### [F05 — Tool system v2](features/F05-tool-system.md)
 
-- [ ] Every built-in tool has a zod schema, an effect and a target.
+- [x] Every built-in tool has a zod schema, an effect and a target.
 - [x] A call with invalid arguments returns field-level errors and no side effect.
 - [x] A tool that never resolves is abandoned within one second of Stop.
 - [ ] With 40 deferred tools registered, the first request carries only the core set and the index.

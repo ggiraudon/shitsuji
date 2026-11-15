@@ -12,6 +12,9 @@ import {
 import { ModelCatalog } from '../application/models/ModelCatalog.js';
 import { ModelRouter, NoModelAvailable } from '../application/models/ModelRouter.js';
 import { PluginManager } from '../application/PluginManager.js';
+import { defaultMiddlewares } from '../application/tools/middlewares.js';
+import { ToolCatalog } from '../application/tools/ToolCatalog.js';
+import { ToolPipeline } from '../application/tools/ToolPipeline.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
 import { ConfigError } from '../domain/errors.js';
@@ -62,7 +65,15 @@ export async function createShitsuji(
   const { log, events } = services;
 
   const plugins = new PluginManager({ log, events, settings: config.plugins.settings });
-  await plugins.load(builtInPlugins(config, options.channels ?? true));
+  // system.status reads these at call time; they are filled in once the graph is built.
+  const startedAt = Date.now();
+  const facts: Record<string, unknown> = {};
+  const status = async () => ({
+    version: VERSION,
+    uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+    ...facts,
+  });
+  await plugins.load(builtInPlugins(config, options.channels ?? true, status));
   await plugins.load(options.plugins ?? []);
   if (config.plugins.directory) {
     await plugins.load(await loadPluginsFromDirectory(config.plugins.directory, log));
@@ -114,16 +125,28 @@ export async function createShitsuji(
   const models = new ModelRouter(providers, config.models, catalog, log);
   const chat = selectChat(models);
   log.info('Using chat model', { model: chat.ref });
+  const tools = new ToolCatalog(plugins.tools());
+  const pipeline = new ToolPipeline(
+    tools,
+    defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock }),
+  );
   const agent = new Agent({
     name: 'Shitsuji',
     models,
+    tools,
+    pipeline,
     ownerId: OWNER_ID,
     repos,
     clock: services.clock,
     log,
     events,
   });
-  for (const tool of plugins.tools()) agent.registerTool(tool);
+  Object.assign(facts, {
+    storage: config.database.url && !options.repos ? 'postgres' : 'memory',
+    chatModel: chat.ref,
+    tools: tools.list().map((t) => t.name),
+    workspaceDir: config.tools.workspaceDir,
+  });
   for (const injectable of plugins.injectables()) agent.addInjectable(injectable);
 
   return new Shitsuji({
@@ -139,7 +162,11 @@ export async function createShitsuji(
   });
 }
 
-function builtInPlugins(config: ShitsujiConfig, withChannels: boolean): ShitsujiPlugin[] {
+function builtInPlugins(
+  config: ShitsujiConfig,
+  withChannels: boolean,
+  status: () => Promise<Record<string, unknown>>,
+): ShitsujiPlugin[] {
   const endpoints = (kind: 'openai-compatible' | 'anthropic') =>
     Object.entries(config.models.providers)
       .filter(([, p]) => p.kind === kind)
@@ -154,7 +181,11 @@ function builtInPlugins(config: ShitsujiConfig, withChannels: boolean): Shitsuji
   const list: ShitsujiPlugin[] = [
     new OpenAICompatiblePlugin(endpoints('openai-compatible')),
     new AnthropicPlugin(endpoints('anthropic')),
-    new CoreToolsPlugin(),
+    new CoreToolsPlugin({
+      workspaceDir: config.tools.workspaceDir!,
+      exec: config.tools.exec,
+      status,
+    }),
   ];
   if (withChannels && config.channels.cli.enabled) list.push(new CliChannelPlugin());
   if (withChannels && config.channels.webhook.enabled) {

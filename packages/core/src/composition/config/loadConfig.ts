@@ -63,6 +63,10 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadedConfig {
   }
   const config = parsed.data;
   config.paths.dataDir = expandHome(config.paths.dataDir, homeDir);
+  config.tools.workspaceDir = expandHome(
+    config.tools.workspaceDir ?? path.join(config.paths.dataDir, 'workspace'),
+    homeDir,
+  );
   if (config.plugins.directory) {
     config.plugins.directory = expandHome(config.plugins.directory, homeDir);
   }

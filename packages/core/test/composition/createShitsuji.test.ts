@@ -105,7 +105,7 @@ describe('createShitsuji', () => {
       plugins: [plugin],
       channels: false,
     });
-    expect(shitsuji.agent.getTools().map((t) => t.name)).toContain('calculator');
+    expect(shitsuji.agent.getTools().map((t) => t.name)).toContain('math.evaluate');
     await shitsuji.start();
     await shitsuji.stop();
   });

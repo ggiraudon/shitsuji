@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PluginError, PluginManager } from '../../src/application/PluginManager.js';
-import { CalculatorTool } from '../../src/adapters/tools/CalculatorTool.js';
+import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
 import type {
   PluginCapability,
   PluginRegistrationContext,
@@ -32,11 +32,11 @@ describe('PluginManager', () => {
     await plugins.load([
       plugin('models', ['model'], (ctx) => ctx.addModelProvider(provider)),
       plugin('chan', ['channel'], (ctx) => ctx.addChannel(channel)),
-      plugin('tools', ['tools'], (ctx) => ctx.addTools([new CalculatorTool()])),
+      plugin('tools', ['tools'], (ctx) => ctx.addTools([new MathEvaluateTool()])),
     ]);
     expect(plugins.providers().get('deepseek')).toBe(provider);
     expect(plugins.channels()).toEqual([channel]);
-    expect(plugins.tools().map((t) => t.name)).toEqual(['calculator']);
+    expect(plugins.tools().map((t) => t.name)).toEqual(['math.evaluate']);
     expect(plugins.plugins().map((p) => p.manifest.id)).toEqual(['models', 'chan', 'tools']);
   });
 
@@ -65,17 +65,17 @@ describe('PluginManager', () => {
 
   it('refuses duplicate plugin ids and duplicate names across plugins', async () => {
     const { plugins } = manager();
-    await plugins.load([plugin('a', ['tools'], (ctx) => ctx.addTools([new CalculatorTool()]))]);
+    await plugins.load([plugin('a', ['tools'], (ctx) => ctx.addTools([new MathEvaluateTool()]))]);
     await expect(plugins.load([plugin('a', [], () => {})])).rejects.toThrow(/already loaded/);
     await expect(
-      plugins.load([plugin('b', ['tools'], (ctx) => ctx.addTools([new CalculatorTool()]))]),
-    ).rejects.toThrow(/tool "calculator" is already registered by a/);
+      plugins.load([plugin('b', ['tools'], (ctx) => ctx.addTools([new MathEvaluateTool()]))]),
+    ).rejects.toThrow(/tool "math.evaluate" is already registered by a/);
   });
 
   it('leaves nothing behind when register() fails', async () => {
     const { plugins } = manager();
     const failing = plugin('bad', ['tools', 'channel'], (ctx) => {
-      ctx.addTools([new CalculatorTool()]);
+      ctx.addTools([new MathEvaluateTool()]);
       throw new Error('cannot reach service');
     });
     const error = await plugins.load([failing]).catch((e: unknown) => e);
@@ -84,7 +84,9 @@ describe('PluginManager', () => {
     expect(plugins.tools()).toEqual([]);
     expect(plugins.plugins()).toEqual([]);
     // The name it tried to claim is free again.
-    await plugins.load([plugin('good', ['tools'], (ctx) => ctx.addTools([new CalculatorTool()]))]);
+    await plugins.load([
+      plugin('good', ['tools'], (ctx) => ctx.addTools([new MathEvaluateTool()])),
+    ]);
     expect(plugins.tools()).toHaveLength(1);
   });
 

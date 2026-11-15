@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
-import { CalculatorTool } from '../../src/adapters/tools/CalculatorTool.js';
+import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
+import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
+import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
+import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { Agent, StepLimitReached } from '../../src/application/Agent.js';
 import { asId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
@@ -19,11 +22,17 @@ const setup = (replies: ScriptedReply[], extra: { maxSteps?: number } = {}) => {
   const seen: string[] = [];
   services.events.subscribePattern('*', (_p, e) => void seen.push(e.type));
   const repos = new InMemoryRepositories();
+  const tools = new ToolCatalog();
   const llm = new ScriptedProvider(replies);
   const agent = new Agent({
     name: 'Test',
     ownerId: OWNER,
     models: routerFor(llm),
+    tools,
+    pipeline: new ToolPipeline(
+      tools,
+      defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock }),
+    ),
     repos,
     ...services,
     ...extra,
@@ -32,7 +41,7 @@ const setup = (replies: ScriptedReply[], extra: { maxSteps?: number } = {}) => {
 };
 
 const calc = (expression: string, id = 'c1'): ScriptedReply => ({
-  toolCalls: [{ id, name: 'calculator', arguments: { expression } }],
+  toolCalls: [{ id, name: 'math.evaluate', arguments: { expression } }],
 });
 
 describe('Agent', () => {
@@ -66,7 +75,7 @@ describe('Agent', () => {
 
   it('runs a tool call, stores call and result as content parts, and answers', async () => {
     const { agent, llm, repos, seen } = setup([calc('6 * 7'), { content: 'It is 42.' }]);
-    agent.registerTool(new CalculatorTool());
+    agent.registerTool(new MathEvaluateTool());
 
     const { reply, sessionId } = await agent.send('What is 6 times 7?');
 
@@ -87,7 +96,7 @@ describe('Agent', () => {
 
   it('records the turn as succeeded, with model and tool events', async () => {
     const { agent, repos } = setup([calc('1+1'), { content: '2' }]);
-    agent.registerTool(new CalculatorTool());
+    agent.registerTool(new MathEvaluateTool());
     const { turnId } = await agent.send('1+1?');
     const turn = await repos.turns.get(turnId);
     expect(turn!.status).toBe('succeeded');
@@ -108,7 +117,7 @@ describe('Agent', () => {
   it('stops a runaway tool loop at the step limit (bug 4)', async () => {
     const loops = Array.from({ length: 5 }, (_, i) => calc('1', `c${i}`));
     const { agent, repos } = setup(loops, { maxSteps: 3 });
-    agent.registerTool(new CalculatorTool());
+    agent.registerTool(new MathEvaluateTool());
     await expect(agent.send('loop')).rejects.toThrow(StepLimitReached);
     const [turn] = await repos.turns.listByStatus('failed');
     expect(turn!.error).toMatch(/after 3 model calls/);
@@ -143,13 +152,13 @@ describe('Agent', () => {
 
   it('applies tool_used injectables only after that tool ran (bug 8)', async () => {
     const { agent, llm } = setup([calc('2+2'), { content: '4' }]);
-    agent.registerTool(new CalculatorTool());
+    agent.registerTool(new MathEvaluateTool());
     agent.addInjectable({
       id: 'calc-hint',
       name: 'hint',
       description: '',
       priority: 1,
-      condition: { type: 'tool_used', toolNames: ['calculator'] },
+      condition: { type: 'tool_used', toolNames: ['math.evaluate'] },
       render: () => 'CALCULATOR WAS USED',
     });
     await agent.send('2+2?');

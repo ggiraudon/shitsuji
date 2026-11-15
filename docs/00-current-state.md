@@ -45,16 +45,16 @@ These are concrete problems, not style notes. Each is fixed by the feature named
 4. ~~**No loop limit.**~~ *(fixed in S8: a step limit per turn; the repeated-failure check comes with F04)* `runLoop` has no maximum number of steps and no repeated-failure check, so a model that
    keeps calling tools never stops. [F04]
 5. **Webhook replies go nowhere.** `WebhookChannel.send` only prints to the console. [F06]
-6. **The shell tool runs on the host, and its allowlist can be bypassed.** The check is
+6. ~~**The shell tool runs on the host, and its allowlist can be bypassed.**~~ *(contained in S17: no shell, confined to the workspace folder; fixed by F08)* The check is
    `cmd.startsWith('ls')`, so `ls; rm -rf ~` passes, and `node` / `npm` / `git` are allowed outright. [F05, F08]
-7. **File tools can read and write anywhere** the process can (`resolve(path)` with no root). [F05, F08]
+7. ~~**File tools can read and write anywhere**~~ *(contained in S17: confined to the workspace folder; F08 moves them into the sandbox)* the process can (`resolve(path)` with no root). [F05, F08]
 8. **Dead conditions.** The `once` condition is never true. `tool_used` checks `message.toolName`, which no
    assistant message sets. [F04]
 9. ~~**Unused pieces.**~~ *(mostly fixed in S4–S8: PluginManager is now the loader; Memory, Session.memory and ConfigManager are gone)* `PluginManager`, `Memory`, `Session.memory`, `renderForContext()` and most of
    `ConfigManager` have no callers. [F01, F13]
 10. ~~**Hidden global state.**~~ *(fixed in S4/S5: logger, event bus and config are injected)* `messageBus`, `configManager` and `logger` are module singletons, which makes
     testing and running several agents hard. [F01]
-11. **Web search depends on an unofficial third-party proxy** (`ddg-api.vercel.app`). [F05, F09]
+11. ~~**Web search depends on an unofficial third-party proxy**~~ *(removed in S17; SearXNG replaces it in S18)* (`ddg-api.vercel.app`). [F05, F09]
 12. **Out-of-date model names** (`claude-3-5-sonnet-20241022`, `gpt-4o`) are hard-coded as defaults. [F03]
 13. ~~**Duplicate bootstrap.**~~ *(fixed in S6: both start from `createShitsuji()`)* `index.ts` and `tui/app.tsx` each build the agent and register tools. [F01]
 14. ~~**The calculator tool always fails**~~ (found and fixed in S1). The function it generated started with

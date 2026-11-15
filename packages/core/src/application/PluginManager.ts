@@ -9,7 +9,7 @@ import type {
   PluginRegistrationContext,
   ShitsujiPlugin,
 } from '../ports/Plugin.js';
-import type { Tool } from '../ports/LegacyTool.js';
+import type { Tool } from '../ports/Tool.js';
 
 export class PluginError extends ShitsujiError {
   override readonly name = 'PluginError';

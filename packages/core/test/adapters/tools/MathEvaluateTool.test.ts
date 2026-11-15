@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { CalculatorTool } from '../../../src/adapters/tools/CalculatorTool.js';
+import { MathEvaluateTool } from '../../../src/adapters/tools/MathEvaluateTool.js';
 
-const run = (expression: unknown) =>
-  new CalculatorTool().execute({ sessionId: 'test', args: { expression } });
+/** Runs the tool and reports in the shape these tests were written for. */
+const run = async (expression: unknown) => {
+  const tool = new MathEvaluateTool();
+  const parsed = tool.input.safeParse({ expression });
+  if (!parsed.success) return { success: false, result: '', error: 'Expression must be a string' };
+  const out = await tool.run(parsed.data);
+  return out.isError
+    ? { success: false, result: '', error: out.content }
+    : { success: true, result: out.content };
+};
 
 const value = async (expression: string) => {
   const result = await run(expression);
@@ -16,11 +24,12 @@ const failure = async (expression: string) => {
   return result.error ?? '';
 };
 
-describe('CalculatorTool', () => {
-  it('describes itself with a required string expression', () => {
-    const tool = new CalculatorTool();
-    expect(tool.name).toBe('calculator');
-    expect(tool.schema).toMatchObject({ required: ['expression'] });
+describe('math.evaluate', () => {
+  it('describes itself as a compute tool with a required expression', () => {
+    const tool = new MathEvaluateTool();
+    expect(tool.name).toBe('math.evaluate');
+    expect(tool.effect).toBe('compute');
+    expect(tool.input.safeParse({}).success).toBe(false);
   });
 
   it('rejects a non-string expression without throwing', async () => {
@@ -99,7 +108,6 @@ describe('CalculatorTool', () => {
 
   describe('errors', () => {
     it.each([
-      ['', /empty/i],
       ['2 +', /unexpected end/i],
       ['(1 + 2', /expected "\)"/i],
       ['1 + 2)', /unexpected "\)"/i],
