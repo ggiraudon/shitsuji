@@ -205,6 +205,7 @@ export async function createShitsuji(
                 clock: services.clock,
                 log,
                 ownerId: OWNER_ID,
+                soul,
                 verifyKey: (k) => keys.verify(k),
               },
               config.api,

@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { Hono, type Context } from 'hono';
 import type { UpgradeWebSocket } from 'hono/ws';
 import type { Agent } from '../../application/Agent.js';
+import type { SoulService } from '../../application/soul/SoulService.js';
+import { SoulNoPendingEdit } from '../../domain/model/Soul.js';
 import { asId, type OwnerId, type SessionId, type TurnId } from '../../domain/model/ids.js';
 import { textOf, toolCallsOf, type Message } from '../../domain/model/Message.js';
 import type { Clock } from '../../ports/Clock.js';
@@ -11,9 +13,11 @@ import type { Repositories } from '../../ports/Repositories.js';
 import {
   LIVE_EVENT_TYPES,
   postMessageBody,
+  type ConfirmSoulResponse,
   type LiveEvent,
   type MessageDto,
   type PostMessageResponse,
+  type SoulDto,
   type TurnDto,
 } from './contract.js';
 
@@ -24,6 +28,8 @@ export interface ApiDeps {
   clock: Clock;
   log: Logger;
   ownerId: OwnerId;
+  /** The assembled SOUL: reading it and confirming an edit of its export (S23). */
+  soul: SoulService;
   /** Checks the owner key (decision Q3). */
   verifyKey: (key: string | undefined) => boolean;
   /** Builds the WebSocket upgrade for this app (@hono/node-ws); omitted in tests that only use REST. */
@@ -105,6 +111,28 @@ export function createApi(deps: ApiDeps): Hono {
   app.post('/api/turns/:id/stop', async (c) =>
     c.json({ stopped: await deps.agent.stop(asId<TurnId>(c.req.param('id'))) }),
   );
+
+  app.get('/api/soul', async (c) => {
+    const view = await deps.soul.view();
+    const dto: SoulDto = {
+      revision: view.revision.revision,
+      body: view.revision.body,
+      updatedAt: view.revision.createdAt.toISOString(),
+      ...(view.pending && { pending: view.pending }),
+    };
+    return c.json(dto);
+  });
+
+  app.post('/api/soul/confirm', async (c) => {
+    try {
+      const revision = await deps.soul.confirmEdit();
+      return c.json({ revision: revision.revision } satisfies ConfirmSoulResponse);
+    } catch (error) {
+      // Nothing to apply is a conflict with the current state, not a server fault.
+      if (error instanceof SoulNoPendingEdit) return c.json({ error: error.message }, 409);
+      throw error;
+    }
+  });
 
   app.get('/api/usage', async (c) => {
     const since = new Date(c.req.query('since') ?? Date.now() - 30 * 24 * 3600_000);

@@ -1,7 +1,11 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { Agent } from '../../src/application/Agent.js';
+import { SoulService } from '../../src/application/soul/SoulService.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
@@ -9,12 +13,27 @@ import { asId, type OwnerId } from '../../src/domain/model/ids.js';
 import { createApi } from '../../src/interfaces/http/createApi.js';
 import { routerFor, ScriptedProvider, testServices } from '../helpers.js';
 
-async function setup() {
+async function setup(options: { dataDir?: string } = {}) {
   const services = testServices();
   const repos = new InMemoryRepositories();
   const jobs = new InMemoryJobQueue(services.log, services.clock);
   const tools = new ToolCatalog();
   const ownerId = asId<OwnerId>('owner');
+  await repos.owners.upsert({
+    id: ownerId,
+    displayName: 'Jeanne',
+    timezone: 'UTC',
+    locale: 'en',
+  });
+  const soul = new SoulService({
+    store: repos.soul,
+    uow: repos.uow,
+    ownerId,
+    clock: services.clock,
+    log: services.log,
+    ...(options.dataDir && { dataDir: options.dataDir }),
+  });
+  await soul.start();
   const agent = new Agent({
     name: 'Test',
     ownerId,
@@ -26,12 +45,20 @@ async function setup() {
     ),
     repos,
     jobs,
+    soul,
     ...services,
   });
   await jobs.start();
   await agent.start();
-  const app = createApi({ agent, repos, ...services, ownerId, verifyKey: (k) => k === 'secret' });
-  return { app, agent };
+  const app = createApi({
+    agent,
+    repos,
+    ...services,
+    ownerId,
+    soul,
+    verifyKey: (k) => k === 'secret',
+  });
+  return { app, agent, soul };
 }
 const auth = { authorization: 'Bearer secret', 'content-type': 'application/json' };
 
@@ -83,5 +110,39 @@ describe('HTTP API', () => {
       body: JSON.stringify({ content: '' }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it('shows the SOUL and turns an edit of SOUL.md into a revision once confirmed', async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'shitsuji-api-soul-'));
+    try {
+      const { app } = await setup({ dataDir });
+      const initial = (await (await app.request('/api/soul', { headers: auth })).json()) as {
+        revision: number;
+        body: string;
+        pending?: unknown;
+      };
+      expect(initial.revision).toBe(1);
+      expect(initial.body).toContain('Shitsuji');
+      expect(initial.pending).toBeUndefined();
+
+      await fs.writeFile(path.join(dataDir, 'SOUL.md'), 'New standing instructions.\n', 'utf8');
+      const edited = (await (await app.request('/api/soul', { headers: auth })).json()) as {
+        pending?: { proposed: string };
+      };
+      expect(edited.pending?.proposed).toBe('New standing instructions.');
+
+      const confirmed = await app.request('/api/soul/confirm', {
+        method: 'POST',
+        headers: auth,
+      });
+      expect(confirmed.status).toBe(200);
+      expect(await confirmed.json()).toEqual({ revision: 2 });
+
+      // Nothing left to apply: a conflict, not a server error.
+      const again = await app.request('/api/soul/confirm', { method: 'POST', headers: auth });
+      expect(again.status).toBe(409);
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
   });
 });

@@ -18,6 +18,18 @@ export interface PostMessageResponse {
   steered: boolean;
 }
 
+/** The SOUL a turn runs with, plus any unconfirmed edit of the SOUL.md export (S23). */
+export interface SoulDto {
+  revision: number;
+  body: string;
+  updatedAt: string;
+  pending?: { path: string; current: string; proposed: string };
+}
+
+export interface ConfirmSoulResponse {
+  revision: number;
+}
+
 export interface MessageDto {
   id: string;
   role: 'system' | 'user' | 'assistant' | 'tool';

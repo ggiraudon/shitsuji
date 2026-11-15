@@ -7,6 +7,7 @@ import { OwnerKeyFile } from '../../src/adapters/auth/OwnerKeyFile.js';
 import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { Agent } from '../../src/application/Agent.js';
+import { SoulService } from '../../src/application/soul/SoulService.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
@@ -46,6 +47,16 @@ async function serve(replies: ConstructorParameters<typeof ScriptedProvider>[0])
   const hang = new HangTool();
   const tools = new ToolCatalog([hang]);
   const ownerId = asId<OwnerId>('owner');
+  await repos.owners.upsert({ id: ownerId, displayName: 'Sam', timezone: 'UTC', locale: 'en' });
+  const soul = new SoulService({
+    store: repos.soul,
+    uow: repos.uow,
+    ownerId,
+    clock: services.clock,
+    log: services.log,
+    dataDir: dir,
+  });
+  await soul.start();
   const agent = new Agent({
     name: 'Test',
     ownerId,
@@ -57,12 +68,13 @@ async function serve(replies: ConstructorParameters<typeof ScriptedProvider>[0])
     ),
     repos,
     jobs,
+    soul,
     ...services,
   });
   await jobs.start();
   await agent.start();
   running = await startApiServer(
-    { agent, repos, ...services, ownerId, verifyKey: (k) => keys.verify(k) },
+    { agent, repos, ...services, ownerId, soul, verifyKey: (k) => keys.verify(k) },
     { host: '127.0.0.1', port: 0 },
   );
   return { client: new ApiClient(running.url, created!), url: running.url, keys, hang, dir };

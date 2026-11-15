@@ -19,7 +19,12 @@ const msg = (over: Partial<MessageDto>): MessageDto => ({
 /** A fake API: records calls; the test pushes live events with emit(). */
 function fakeClient(history: MessageDto[] = []) {
   let listener: ((e: LiveEvent) => void) | undefined;
-  const calls = { sent: [] as string[], stopped: [] as string[], newSessions: 0 };
+  const calls = {
+    sent: [] as string[],
+    stopped: [] as string[],
+    newSessions: 0,
+    soulApplied: 0,
+  };
   const client: TuiClient = {
     history: async () => ({ sessionId: 's1', messages: history }),
     send: async (content: string) => {
@@ -33,6 +38,20 @@ function fakeClient(history: MessageDto[] = []) {
     newSession: async () => {
       calls.newSessions++;
       return 's2';
+    },
+    soul: async () => ({
+      revision: 3,
+      body: 'Be kind.',
+      updatedAt: new Date(0).toISOString(),
+      pending: {
+        path: '/data/SOUL.md',
+        current: 'Be kind.',
+        proposed: 'Be very kind.\nSecond line of the edit.',
+      },
+    }),
+    applySoul: async () => {
+      calls.soulApplied++;
+      return 4;
     },
     events: async (onEvent: (e: LiveEvent) => void) => {
       listener = onEvent;
@@ -148,6 +167,29 @@ describe('TUI', () => {
     });
     await tick();
     expect(ui.lastFrame()).not.toContain('from the old session');
+    ui.unmount();
+  });
+
+  it('shows the SOUL and confirms an edit with /soul apply', async () => {
+    const { client, calls } = fakeClient();
+    const ui = render(<ShitsujiApp client={client} />);
+    await tick();
+
+    await type(ui.stdin, '/soul');
+    ui.stdin.write('\r');
+    await tick();
+    let frame = ui.lastFrame()!;
+    expect(frame).toContain('SOUL revision 3');
+    expect(frame).toContain('has an edit waiting');
+    expect(frame).toContain('Be very kind.');
+
+    await type(ui.stdin, '/soul apply');
+    ui.stdin.write('\r');
+    await tick();
+    frame = ui.lastFrame()!;
+    expect(calls.soulApplied).toBe(1);
+    expect(frame).toContain('SOUL revision 4 takes effect at the next turn.');
+    expect(calls.sent).toEqual([]); // the command never reaches the model
     ui.unmount();
   });
 

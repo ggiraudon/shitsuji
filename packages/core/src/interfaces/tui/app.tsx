@@ -20,7 +20,10 @@ export interface Line {
 }
 
 /** The parts of ApiClient the TUI uses (a fake one is enough for tests). */
-export type TuiClient = Pick<ApiClient, 'history' | 'send' | 'stop' | 'newSession' | 'events'>;
+export type TuiClient = Pick<
+  ApiClient,
+  'history' | 'send' | 'stop' | 'newSession' | 'events' | 'soul' | 'applySoul'
+>;
 
 let counter = 0;
 const lineId = () => `l${++counter}`;
@@ -128,8 +131,32 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
       if (text === '/help') {
         return add(
           'note',
-          'Enter: send (also while working). Esc: stop. /new: new conversation. /exit: quit.',
+          'Enter: send (also while working). Esc: stop. /new: new conversation. /soul: the standing instructions. /exit: quit.',
         );
+      }
+      if (text === '/soul') {
+        try {
+          const soul = await client.soul();
+          add('note', `SOUL revision ${soul.revision}.`);
+          if (soul.pending) {
+            add('note', `${soul.pending.path} has an edit waiting. /soul apply keeps it.`);
+            add('note', preview(soul.pending.proposed));
+          } else {
+            add('note', 'Edit SOUL.md in the data folder, then /soul to review and /soul apply.');
+          }
+        } catch (error) {
+          add('error', (error as Error).message);
+        }
+        return;
+      }
+      if (text === '/soul apply') {
+        try {
+          const revision = await client.applySoul();
+          add('note', `SOUL revision ${revision} takes effect at the next turn.`);
+        } catch (error) {
+          add('error', (error as Error).message);
+        }
+        return;
       }
       if (text === '/new') {
         session.current = await client.newSession();
@@ -191,6 +218,9 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
 
 const prefix = (kind: Line['kind']) =>
   kind === 'owner' ? 'You: ' : kind === 'assistant' ? 'Shitsuji: ' : '  ';
+
+/** The first lines of a proposed SOUL, so the TUI shows the gist rather than the whole file. */
+const preview = (text: string) => text.split('\n').slice(0, 8).join('\n').slice(0, 600);
 const lineColor = (kind: Line['kind']) =>
   kind === 'owner'
     ? colors.accent

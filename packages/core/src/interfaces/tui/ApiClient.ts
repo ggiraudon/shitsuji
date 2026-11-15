@@ -1,4 +1,10 @@
-import type { LiveEvent, MessageDto, PostMessageResponse, TurnDto } from '../http/contract.js';
+import type {
+  LiveEvent,
+  MessageDto,
+  PostMessageResponse,
+  SoulDto,
+  TurnDto,
+} from '../http/contract.js';
 
 export class ApiError extends Error {
   override readonly name = 'ApiError';
@@ -59,6 +65,16 @@ export class ApiClient {
         `/api/turns/${encodeURIComponent(turnId)}/stop`,
       )
     ).stopped;
+  }
+
+  /** The current SOUL and any edit of SOUL.md waiting to be confirmed (S23). */
+  soul(): Promise<SoulDto> {
+    return this.request('GET', '/api/soul');
+  }
+
+  /** Confirms the edit of SOUL.md; it takes effect at the next turn. Returns the new revision. */
+  async applySoul(): Promise<number> {
+    return (await this.request<{ revision: number }>('POST', '/api/soul/confirm')).revision;
   }
 
   /**
