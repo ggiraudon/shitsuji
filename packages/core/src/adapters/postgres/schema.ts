@@ -30,6 +30,7 @@ export interface SessionsTable {
   thread_id: string;
   kind: 'chat' | 'task' | 'helper' | 'schedule' | 'observer';
   summary: string | null;
+  summary_count: Generated<number>;
   created_at: Timestamp;
 }
 

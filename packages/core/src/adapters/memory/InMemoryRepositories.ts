@@ -42,6 +42,7 @@ interface SessionRow {
   kind: SessionKind;
   createdAt: Date;
   summary?: string;
+  summaryCount: number;
 }
 
 /** Plain records only, so a transaction can snapshot and restore the whole state. */
@@ -73,7 +74,7 @@ const emptyState = (): State => ({
 const copy = <T>(value: T): T => structuredClone(value);
 const toThread = (r: ThreadRow) => new Thread(r.id, r.ownerId, new Date(r.createdAt), r.status);
 const toSession = (r: SessionRow) =>
-  new Session(r.id, r.threadId, r.kind, new Date(r.createdAt), r.summary);
+  new Session(r.id, r.threadId, r.kind, new Date(r.createdAt), r.summary, r.summaryCount);
 
 /**
  * Repositories kept in memory, for unit tests and for running without a database. Reads return copies,
@@ -135,6 +136,7 @@ export class InMemoryRepositories implements Repositories {
         kind: s.kind,
         createdAt: new Date(s.createdAt),
         summary: s.summary,
+        summaryCount: s.summaryCount,
       });
     },
     get: async (id) => {
@@ -146,6 +148,12 @@ export class InMemoryRepositories implements Repositories {
       return r && toSession(r);
     },
     listByThread: async (threadId) => this.sessionsOf(threadId).map(toSession),
+    setSummary: async (id, summary, summaryCount) => {
+      const row = this.state.sessions.get(id);
+      if (!row) throw new Error(`Session ${id} not found`);
+      row.summary = summary;
+      row.summaryCount = summaryCount;
+    },
   };
 
   readonly turns: TurnRepository = {

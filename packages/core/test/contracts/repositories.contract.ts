@@ -273,6 +273,17 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       expect(await repos.usage.listSince(owner, at(72))).toHaveLength(1);
     });
 
+    it('stores a compaction summary and how much of the transcript it covers', async () => {
+      const repos = await create();
+      const { session } = await seed(repos);
+      expect((await repos.sessions.get(session.id))!.summaryCount).toBe(0);
+      await repos.sessions.setSummary(session.id, 'They discussed the budget.', 12);
+      const loaded = (await repos.sessions.get(session.id))!;
+      expect(loaded.summary).toBe('They discussed the budget.');
+      expect(loaded.summaryCount).toBe(12);
+      await expect(repos.sessions.setSummary(asId('missing'), 'x', 1)).rejects.toThrow();
+    });
+
     it('stores SOUL fragments and numbered revisions', async () => {
       const repos = await create();
       await seed(repos);

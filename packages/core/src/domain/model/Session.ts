@@ -23,5 +23,7 @@ export class Session {
     readonly createdAt: Date,
     /** A rolling summary of older messages, once the transcript is compacted (F04). */
     public summary?: string,
+    /** How many of the session's oldest messages that summary covers. */
+    public summaryCount = 0,
   ) {}
 }

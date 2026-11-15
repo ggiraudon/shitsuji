@@ -44,6 +44,11 @@ export interface SessionRepository {
   /** The thread's oldest `chat` session: where owner messages go unless another session is named. */
   findMainChat(threadId: ThreadId, tx?: Transaction): Promise<Session | undefined>;
   listByThread(threadId: ThreadId, tx?: Transaction): Promise<Session[]>;
+  /**
+   * Replaces the compaction summary and how many of the oldest messages it covers. The transcript
+   * itself is never deleted (F04).
+   */
+  setSummary(id: SessionId, summary: string, summaryCount: number, tx?: Transaction): Promise<void>;
 }
 
 export interface TurnRepository {

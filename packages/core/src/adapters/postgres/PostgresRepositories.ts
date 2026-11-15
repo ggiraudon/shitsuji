@@ -52,6 +52,7 @@ const toSession = (r: Selectable<SessionsTable>) =>
     r.kind,
     r.created_at,
     optional(r.summary),
+    r.summary_count,
   );
 
 const toTurn = (r: Selectable<TurnsTable>) =>
@@ -239,6 +240,14 @@ export class PostgresRepositories implements Repositories {
           .orderBy('id')
           .execute()
       ).map(toSession),
+    setSummary: async (id, summary, summaryCount, tx) => {
+      const r = await this.ex(tx)
+        .updateTable('sessions')
+        .set({ summary, summary_count: summaryCount })
+        .where('id', '=', id)
+        .executeTakeFirst();
+      if (Number(r.numUpdatedRows) === 0) throw new Error(`Session ${id} not found`);
+    },
   };
 
   readonly turns: TurnRepository = {

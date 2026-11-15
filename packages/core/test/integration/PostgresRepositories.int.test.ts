@@ -139,7 +139,7 @@ describe('Postgres-only guarantees', () => {
     const expected: Record<keyof Database, string[]> = {
       owners: ['id', 'display_name', 'timezone', 'locale', 'settings', 'created_at'],
       threads: ['id', 'owner_id', 'status', 'created_at'],
-      sessions: ['id', 'owner_id', 'thread_id', 'kind', 'summary', 'created_at'],
+      sessions: ['id', 'owner_id', 'thread_id', 'kind', 'summary', 'summary_count', 'created_at'],
       turns: [
         'id',
         'owner_id',
