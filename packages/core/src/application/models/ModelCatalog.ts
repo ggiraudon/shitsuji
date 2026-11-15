@@ -1,4 +1,4 @@
-import { Money } from '../../domain/model/Money.js';
+import type { Money } from '../../domain/model/Money.js';
 import type { TokenUsage } from '../../ports/ModelProvider.js';
 
 export const MODEL_PURPOSES = [
