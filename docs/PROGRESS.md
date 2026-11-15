@@ -18,8 +18,8 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 - [x] **S8** Persistence ports and in-memory adapters
 - [x] **S9** Postgres adapters
 - [x] **S10** Job queue and startup recovery
-- [ ] **S11** Model provider port and the OpenAI-compatible adapter
-- [ ] **S12** Anthropic adapter
+- [x] **S11** Model provider port and the OpenAI-compatible adapter
+- [x] **S12** Anthropic adapter
 - [ ] **S13** Catalogue, router and decorators
 - [ ] **S14** Container and end-to-end
 
@@ -43,7 +43,9 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 
 - [ ] The same conversation with tool calls works on DeepSeek, an Ollama model and Claude, checked by a recorded
       contract test per adapter (HTTP fixtures, no live calls in CI).
-- [ ] Streaming tool calls with fragmented arguments assemble correctly.
+      *(Contract tests exist for both adapters, but the fixtures are hand-written from the API docs;
+      tick once they are re-recorded from real DeepSeek, Ollama and Claude responses.)*
+- [x] Streaming tool calls with fragmented arguments assemble correctly.
 - [ ] Switching a purpose to another model is a configuration change only.
 - [ ] Every model request writes a usage row with tokens and, where known, cost.
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NullLogger } from '../../../src/adapters/logging/loggers.js';
-import { AnthropicProvider } from '../../../src/adapters/models/AnthropicMessagesProvider.js';
+import { AnthropicProvider } from '../../../src/adapters/models/AnthropicProvider.js';
 import { complete } from '../../../src/application/modelCalls.js';
 import { ProviderError } from '../../../src/domain/errors.js';
 import { asId, type ToolCallId } from '../../../src/domain/model/ids.js';

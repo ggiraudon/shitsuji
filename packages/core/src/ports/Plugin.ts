@@ -1,8 +1,8 @@
 import type { Channel } from './Channel.js';
 import type { ContextInjectable } from './ContextInjectable.js';
 import type { EventBus } from './EventBus.js';
-import type { LLMProvider } from './LLMProvider.js';
 import type { Logger } from './Logger.js';
+import type { ModelProvider } from './ModelProvider.js';
 import type { Tool } from './Tool.js';
 
 export type PluginCapability = 'model' | 'channel' | 'tools' | 'context';
@@ -26,8 +26,8 @@ export interface PluginRegistrationContext {
   readonly config: Readonly<Record<string, unknown>>;
   readonly log: Logger;
   readonly events: EventBus;
-  /** Registers a model provider under an id that model refs use, e.g. "deepseek" in "deepseek/…". */
-  addModelProvider(id: string, provider: LLMProvider): void;
+  /** Registers a model provider under its id, which model refs use ("deepseek" in "deepseek/…"). */
+  addModelProvider(provider: ModelProvider): void;
   addChannel(channel: Channel): void;
   addTools(tools: readonly Tool[]): void;
   addContextInjectable(injectable: ContextInjectable): void;

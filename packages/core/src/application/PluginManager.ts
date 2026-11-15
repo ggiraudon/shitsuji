@@ -2,7 +2,7 @@ import { ShitsujiError, serializeError } from '../domain/errors.js';
 import type { Channel } from '../ports/Channel.js';
 import type { ContextInjectable } from '../ports/ContextInjectable.js';
 import type { EventBus } from '../ports/EventBus.js';
-import type { LLMProvider } from '../ports/LLMProvider.js';
+import type { ModelProvider } from '../ports/ModelProvider.js';
 import type { Logger } from '../ports/Logger.js';
 import type {
   PluginCapability,
@@ -31,7 +31,7 @@ export interface PluginManagerOptions {
  */
 export class PluginManager {
   private readonly loaded: ShitsujiPlugin[] = [];
-  private readonly modelProviders = new Map<string, LLMProvider>();
+  private readonly modelProviders = new Map<string, ModelProvider>();
   private readonly channelList: Channel[] = [];
   private readonly toolList: Tool[] = [];
   private readonly injectableList: ContextInjectable[] = [];
@@ -43,7 +43,7 @@ export class PluginManager {
     for (const plugin of plugins) await this.loadOne(plugin);
   }
 
-  providers(): ReadonlyMap<string, LLMProvider> {
+  providers(): ReadonlyMap<string, ModelProvider> {
     return this.modelProviders;
   }
 
@@ -102,7 +102,7 @@ export class PluginManager {
 
     // Collect first and commit only if register() succeeds, so a failing plugin leaves nothing behind.
     const pending = {
-      providers: [] as [string, LLMProvider][],
+      providers: [] as [string, ModelProvider][],
       channels: [] as Channel[],
       tools: [] as Tool[],
       injectables: [] as ContextInjectable[],
@@ -116,7 +116,8 @@ export class PluginManager {
       config: this.options.settings?.[id] ?? {},
       log,
       events: this.options.events,
-      addModelProvider: (providerId, provider) => {
+      addModelProvider: (provider) => {
+        const providerId = provider.id;
         require('model', `model provider "${providerId}"`);
         track('model provider', providerId);
         pending.providers.push([providerId, provider]);

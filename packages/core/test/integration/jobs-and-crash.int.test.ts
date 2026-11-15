@@ -5,13 +5,9 @@ import { PostgresRepositories } from '../../src/adapters/postgres/PostgresReposi
 import { shitsujiConfigSchema } from '../../src/composition/config/schema.js';
 import { createShitsuji } from '../../src/composition/createShitsuji.js';
 import { asId, type OwnerId } from '../../src/domain/model/ids.js';
-import type {
-  LLMCompletionOptions,
-  LLMProvider,
-  LLMResponse,
-} from '../../src/ports/LLMProvider.js';
+import type { ModelProvider, ModelStreamEvent } from '../../src/ports/ModelProvider.js';
 import type { ShitsujiPlugin } from '../../src/ports/Plugin.js';
-import { ScriptedProvider, testServices, until } from '../helpers.js';
+import { ScriptedProvider, testServices, transcript, until } from '../helpers.js';
 import { closeAll, freshDatabase } from './postgres.js';
 
 afterAll(closeAll);
@@ -59,16 +55,17 @@ describe('PgBossJobQueue', () => {
 });
 
 /** A model whose first call never answers until released: the turn stays "running". */
-class HangingProvider implements LLMProvider {
-  readonly name = 'hanging';
+class HangingProvider implements ModelProvider {
+  readonly id = 'fake';
   calls = 0;
   private release?: () => void;
-  async complete(_options: LLMCompletionOptions): Promise<LLMResponse> {
+  async *stream(): AsyncIterable<ModelStreamEvent> {
     this.calls++;
     await new Promise<void>((resolve) => (this.release = resolve));
-    return { id: 'r', model: 'm', content: 'too late', finishReason: 'stop' };
+    yield { type: 'text_delta', text: 'too late' };
+    yield { type: 'done', finishReason: 'stop' };
   }
-  getModels() {
+  async listModels() {
     return ['m'];
   }
   unblock() {
@@ -76,9 +73,9 @@ class HangingProvider implements LLMProvider {
   }
 }
 
-const modelPlugin = (provider: LLMProvider): ShitsujiPlugin => ({
+const modelPlugin = (provider: ModelProvider): ShitsujiPlugin => ({
   manifest: { id: 'test.model', name: 'model', version: '1', provides: ['model'] },
-  register: (ctx) => ctx.addModelProvider('fake', provider),
+  register: (ctx) => ctx.addModelProvider(provider),
 });
 
 describe('crash in the middle of a turn (F02)', () => {
@@ -105,7 +102,10 @@ describe('crash in the middle of a turn (F02)', () => {
     expect(await repos.turns.listByStatus('running')).toHaveLength(1);
 
     // Restart: a new process on the same database.
-    const fresh = new ScriptedProvider([{ content: 'Sorry about that. Shall I try again?' }]);
+    const fresh = new ScriptedProvider(
+      [{ content: 'Sorry about that. Shall I try again?' }],
+      'fake',
+    );
     const restarted = await createShitsuji(config, {
       services: testServices(),
       plugins: [modelPlugin(fresh)],
@@ -116,8 +116,8 @@ describe('crash in the middle of a turn (F02)', () => {
     expect(interrupted!.error).toBe('interrupted');
     const reply = await restarted.agent.send('Did it work?');
     expect(reply.reply).toBe('Sorry about that. Shall I try again?');
-    const sent = fresh.requests[0]!.messages.map((m) => m.role + ':' + m.content.slice(0, 40));
-    expect(sent.slice(1)).toEqual([
+    const sent = transcript(fresh.requests[0]!).map((line) => line.slice(0, 47));
+    expect(sent).toEqual([
       'user:Book the table',
       'system:Note: your previous turn was interrupted',
       'user:Did it work?',

@@ -23,12 +23,15 @@ const config = (extra: Record<string, unknown> = {}) =>
   });
 
 const fakes = (replies: string[]) => {
-  const provider = new ScriptedProvider(replies.map((content) => ({ content })));
+  const provider = new ScriptedProvider(
+    replies.map((content) => ({ content })),
+    'fake',
+  );
   const channel = new TestChannel();
   const plugin: ShitsujiPlugin = {
     manifest: { id: 'test.fakes', name: 'fakes', version: '1', provides: ['model', 'channel'] },
     register(ctx) {
-      ctx.addModelProvider('fake', provider);
+      ctx.addModelProvider(provider);
       ctx.addChannel(channel);
     },
   };

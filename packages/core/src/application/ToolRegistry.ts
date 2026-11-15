@@ -1,5 +1,5 @@
 import { type Tool, type ToolResult, type ToolExecuteParams } from '../ports/Tool.js';
-import { type ToolDefinition } from '../ports/LLMProvider.js';
+import type { ToolSpec as ToolDefinition } from '../ports/ModelProvider.js';
 import type { Logger } from '../ports/Logger.js';
 
 export class ToolRegistry {

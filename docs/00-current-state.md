@@ -37,10 +37,10 @@ These are concrete problems, not style notes. Each is fixed by the feature named
 1. ~~**No conversation continuity.**~~ *(fixed in S8: messages go to the owner's main chat session)* `index.ts` calls `agent.send(message.content)` without a session ID, and
    `Agent.send` creates a new session whenever no ID is given. Every CLI or webhook message starts a fresh
    conversation. [F04]
-2. **Tool calls break on Anthropic.** `AnthropicProvider` sends tool results as plain user text and never
+2. ~~**Tool calls break on Anthropic.**~~ *(fixed in S12: real tool_use / tool_result blocks, no history cut)* `AnthropicProvider` sends tool results as plain user text and never
    sends `tool_use` blocks back, so the model loses the link between a call and its result. It also cuts the
    history to the last 20 messages, which can split a call from its result. [F03]
-3. **OpenAI streaming tool calls fail.** `stream()` runs `JSON.parse` on each argument fragment, but the API
+3. ~~**OpenAI streaming tool calls fail.**~~ *(fixed in S11: ToolCallAccumulator assembles fragments)* `stream()` runs `JSON.parse` on each argument fragment, but the API
    sends arguments in pieces. Streaming also drops the tool-call mapping that `complete()` has. [F03]
 4. ~~**No loop limit.**~~ *(fixed in S8: a step limit per turn; the repeated-failure check comes with F04)* `runLoop` has no maximum number of steps and no repeated-failure check, so a model that
    keeps calling tools never stops. [F04]

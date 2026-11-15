@@ -27,10 +27,10 @@ const manager = (settings = {}) => {
 describe('PluginManager', () => {
   it('collects what plugins register', async () => {
     const { plugins } = manager();
-    const provider = new ScriptedProvider();
+    const provider = new ScriptedProvider([], 'deepseek');
     const channel = new TestChannel('tg');
     await plugins.load([
-      plugin('models', ['model'], (ctx) => ctx.addModelProvider('deepseek', provider)),
+      plugin('models', ['model'], (ctx) => ctx.addModelProvider(provider)),
       plugin('chan', ['channel'], (ctx) => ctx.addChannel(channel)),
       plugin('tools', ['tools'], (ctx) => ctx.addTools([new CalculatorTool()])),
     ]);

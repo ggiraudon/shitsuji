@@ -3,7 +3,8 @@ import { InProcessEventBus } from '../src/adapters/events/InProcessEventBus.js';
 import { MemoryLogger } from '../src/adapters/logging/loggers.js';
 import type { CoreServices } from '../src/composition/services.js';
 import { BaseChannel } from '../src/ports/Channel.js';
-import type { LLMCompletionOptions, LLMProvider, LLMResponse } from '../src/ports/LLMProvider.js';
+import type { ToolCallId } from '../src/domain/model/ids.js';
+import type { ModelProvider, ModelRequest, ModelStreamEvent } from '../src/ports/ModelProvider.js';
 
 export function testServices(): CoreServices & { log: MemoryLogger; clock: ManualClock } {
   const log = new MemoryLogger();
@@ -11,20 +12,45 @@ export function testServices(): CoreServices & { log: MemoryLogger; clock: Manua
   return { log, clock, events: new InProcessEventBus(log, clock) };
 }
 
-/** A model that replies with the scripted responses in order. */
-export class ScriptedProvider implements LLMProvider {
-  readonly name = 'scripted';
-  readonly requests: LLMCompletionOptions[] = [];
-  constructor(private readonly replies: Partial<LLMResponse>[] = []) {}
-  async complete(options: LLMCompletionOptions): Promise<LLMResponse> {
-    this.requests.push(structuredClone(options));
+export interface ScriptedReply {
+  content?: string;
+  reasoning?: string;
+  toolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[];
+}
+
+/** A model that replies with the scripted responses in order, recording every request. */
+export class ScriptedProvider implements ModelProvider {
+  readonly requests: ModelRequest[] = [];
+  constructor(
+    private readonly replies: ScriptedReply[] = [],
+    readonly id = 'scripted',
+  ) {}
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    this.requests.push(structuredClone(request));
     const reply = this.replies.shift();
     if (!reply) throw new Error('No scripted reply left');
-    return { id: 'r', model: options.model ?? 'm', content: '', finishReason: 'stop', ...reply };
+    if (reply.reasoning) yield { type: 'reasoning_delta', text: reply.reasoning };
+    if (reply.content) yield { type: 'text_delta', text: reply.content };
+    for (const c of reply.toolCalls ?? []) {
+      yield { type: 'tool_call', call: { ...c, id: c.id as ToolCallId } };
+    }
+    yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } };
+    yield { type: 'done', finishReason: reply.toolCalls?.length ? 'tool_calls' : 'stop' };
   }
-  getModels() {
+  async listModels() {
     return ['m'];
   }
+}
+
+/** A request's messages as "role:text" lines (tool results show their content). */
+export function transcript(request: ModelRequest): string[] {
+  return request.messages.map(
+    (m) =>
+      `${m.role}:` +
+      m.parts
+        .map((p) => (p.type === 'text' ? p.text : p.type === 'tool_result' ? p.content : ''))
+        .join(''),
+  );
 }
 
 /** A channel driven by the test: `receive()` simulates an incoming message. */

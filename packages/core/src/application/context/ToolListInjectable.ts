@@ -1,6 +1,6 @@
 import { BaseContextInjectable } from '../../ports/ContextInjectable.js';
 import { type AgentRenderContext } from '../../ports/ContextInjectable.js';
-import { type ToolDefinition } from '../../ports/LLMProvider.js';
+import type { ToolSpec as ToolDefinition } from '../../ports/ModelProvider.js';
 
 export class ToolListInjectable extends BaseContextInjectable {
   readonly id = 'tool-list';

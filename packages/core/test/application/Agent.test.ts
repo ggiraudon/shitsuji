@@ -4,12 +4,11 @@ import { CalculatorTool } from '../../src/adapters/tools/CalculatorTool.js';
 import { Agent, StepLimitReached } from '../../src/application/Agent.js';
 import { asId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
-import type { LLMResponse } from '../../src/ports/LLMProvider.js';
-import { ScriptedProvider, testServices } from '../helpers.js';
+import { ScriptedProvider, testServices, transcript, type ScriptedReply } from '../helpers.js';
 
 const OWNER = asId<OwnerId>('owner');
 
-const setup = (replies: Partial<LLMResponse>[], extra: { maxSteps?: number } = {}) => {
+const setup = (replies: ScriptedReply[], extra: { maxSteps?: number } = {}) => {
   const services = testServices();
   const seen: string[] = [];
   services.events.subscribePattern('*', (_p, e) => void seen.push(e.type));
@@ -27,7 +26,7 @@ const setup = (replies: Partial<LLMResponse>[], extra: { maxSteps?: number } = {
   return { agent, llm, seen, repos, services };
 };
 
-const calc = (expression: string, id = 'c1'): Partial<LLMResponse> => ({
+const calc = (expression: string, id = 'c1'): ScriptedReply => ({
   toolCalls: [{ id, name: 'calculator', arguments: { expression } }],
 });
 
@@ -53,8 +52,7 @@ describe('Agent', () => {
     const first = await agent.send('My name is Sam');
     const second = await agent.send('What is my name?');
     expect(second.sessionId).toBe(first.sessionId);
-    const roles = llm.requests[1]!.messages.map((m) => `${m.role}:${m.content}`);
-    expect(roles.slice(1)).toEqual([
+    expect(transcript(llm.requests[1]!)).toEqual([
       'user:My name is Sam',
       'assistant:Nice to meet you, Sam.',
       'user:What is my name?',
@@ -69,7 +67,9 @@ describe('Agent', () => {
 
     expect(reply).toBe('It is 42.');
     const toolMessage = llm.requests[1]!.messages.find((m) => m.role === 'tool');
-    expect(toolMessage).toMatchObject({ toolCallId: 'c1', content: '42' });
+    expect(toolMessage!.parts).toEqual([
+      { type: 'tool_result', toolCallId: 'c1', content: '42', isError: false },
+    ]);
     const stored = await repos.messages.listBySession(sessionId);
     expect(stored.map((m) => [m.role, m.author, m.parts.map((p) => p.type).join('+')])).toEqual([
       ['user', 'owner', 'text'],
@@ -109,6 +109,17 @@ describe('Agent', () => {
     expect(turn!.error).toMatch(/after 3 model calls/);
   });
 
+  it('keeps reasoning in the transcript but never in the reply (F03)', async () => {
+    const { agent, repos } = setup([{ reasoning: 'They want brevity.', content: 'Done.' }]);
+    const { reply, sessionId } = await agent.send('Be brief');
+    expect(reply).toBe('Done.');
+    const [, assistant] = await repos.messages.listBySession(sessionId);
+    expect(assistant!.parts).toEqual([
+      { type: 'reasoning', text: 'They want brevity.' },
+      { type: 'text', text: 'Done.' },
+    ]);
+  });
+
   it('starts separate sessions on request', async () => {
     const { agent, llm } = setup([{ content: 'a' }, { content: 'b' }]);
     const main = await agent.send('first');
@@ -137,7 +148,7 @@ describe('Agent', () => {
       render: () => 'CALCULATOR WAS USED',
     });
     await agent.send('2+2?');
-    expect(llm.requests[0]!.messages[0]!.content).not.toContain('CALCULATOR WAS USED');
-    expect(llm.requests[1]!.messages[0]!.content).toContain('CALCULATOR WAS USED');
+    expect(llm.requests[0]!.system).not.toContain('CALCULATOR WAS USED');
+    expect(llm.requests[1]!.system).toContain('CALCULATOR WAS USED');
   });
 });

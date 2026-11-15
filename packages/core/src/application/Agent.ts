@@ -1,11 +1,5 @@
 import { serializeError } from '../domain/errors.js';
-import {
-  newId,
-  type OwnerId,
-  type SessionId,
-  type ToolCallId,
-  type TurnId,
-} from '../domain/model/ids.js';
+import { newId, type OwnerId, type SessionId, type TurnId } from '../domain/model/ids.js';
 import {
   textOf,
   toolCallsOf,
@@ -21,24 +15,20 @@ import { Turn, type TurnSource } from '../domain/model/Turn.js';
 import type { Clock } from '../ports/Clock.js';
 import type { AgentRenderContext, ContextInjectable } from '../ports/ContextInjectable.js';
 import type { EventBus } from '../ports/EventBus.js';
-import type {
-  LLMCompletionOptions,
-  LLMProvider,
-  LLMResponse,
-  Message as LLMMessage,
-  ToolDefinition,
-} from '../ports/LLMProvider.js';
+import type { ModelMessage, ModelProvider, ModelRequest } from '../ports/ModelProvider.js';
 import type { Logger } from '../ports/Logger.js';
 import type { Repositories, Transaction } from '../ports/Repositories.js';
 import type { Tool } from '../ports/Tool.js';
 import { IdentityInjectable, RulesInjectable, ToolListInjectable } from './context/index.js';
+import { complete, type ModelResponse } from './modelCalls.js';
 import { ToolRegistry } from './ToolRegistry.js';
 
 export interface AgentOptions {
   name: string;
   ownerId: OwnerId;
-  llmProvider: LLMProvider;
-  model?: string;
+  llmProvider: ModelProvider;
+  /** The provider's model name, e.g. "deepseek-v4.1-flash". */
+  model: string;
   repos: Repositories;
   clock: Clock;
   log: Logger;
@@ -74,7 +64,7 @@ export class StepLimitReached extends Error {
  */
 export class Agent {
   readonly name: string;
-  private readonly options: Required<Omit<AgentOptions, 'model'>> & { model?: string };
+  private readonly options: Required<AgentOptions>;
   private readonly toolRegistry: ToolRegistry;
   private injectables: ContextInjectable[] = [];
 
@@ -170,13 +160,11 @@ export class Agent {
         limit: this.options.historyLimit,
       });
       const response = await this.callModel(session, turn, history);
-      const calls: ToolCall[] = (response.toolCalls ?? []).map((c) => ({
-        id: c.id as ToolCallId,
-        name: c.name,
-        arguments: c.arguments,
-      }));
+      const calls: ToolCall[] = response.toolCalls;
       const parts: ContentPart[] = [];
-      if (response.content) parts.push({ type: 'text', text: response.content });
+      // Reasoning is kept in the transcript but never shown as the reply or sent back (F03).
+      if (response.reasoning) parts.push({ type: 'reasoning', text: response.reasoning });
+      if (response.text) parts.push({ type: 'text', text: response.text });
       for (const call of calls) parts.push({ type: 'tool_call', call });
       await this.store(session, turn.id, 'assistant', 'assistant', parts);
 
@@ -184,9 +172,9 @@ export class Agent {
         this.options.events.publish('message.sent', {
           sessionId: session.id,
           role: 'assistant',
-          content: response.content,
+          content: response.text,
         });
-        return response.content;
+        return response.text;
       }
       for (const call of calls) {
         const { content, isError } = await this.executeTool(session, turn, call);
@@ -200,21 +188,20 @@ export class Agent {
     );
   }
 
-  private async callModel(session: Session, turn: Turn, history: Message[]): Promise<LLMResponse> {
+  private async callModel(
+    session: Session,
+    turn: Turn,
+    history: Message[],
+  ): Promise<ModelResponse> {
     const { events, repos, clock } = this.options;
-    const system: LLMMessage = {
-      id: newId(),
-      role: 'system',
-      content: this.buildContext(session, history),
-      timestamp: clock.now().getTime(),
-    };
-    const tools: ToolDefinition[] = this.toolRegistry.getToolDefinitions();
-    const request: LLMCompletionOptions = {
+    const tools = this.toolRegistry.getToolDefinitions();
+    const request: ModelRequest = {
       model: this.options.model,
-      messages: [system, ...toModelMessages(trimToWholeExchanges(history))],
+      system: this.buildContext(session, history),
+      messages: toModelMessages(trimToWholeExchanges(history)),
       tools: tools.length ? tools : undefined,
       temperature: 0.7,
-      maxTokens: 4096,
+      maxOutputTokens: 4096,
     };
     events.publish('llm.request', {
       agentId: this.name,
@@ -222,17 +209,22 @@ export class Agent {
       model: request.model,
     });
     try {
-      const response = await this.options.llmProvider.complete(request);
+      const response = await complete(this.options.llmProvider, request);
       events.publish('llm.response', {
         agentId: this.name,
         sessionId: session.id,
-        contentLength: response.content.length,
-        hasToolCalls: !!response.toolCalls?.length,
+        contentLength: response.text.length,
+        hasToolCalls: response.toolCalls.length > 0,
       });
       await repos.turnEvents.append({
         turnId: turn.id,
         kind: 'model_call',
-        data: { model: response.model, usage: response.usage, finishReason: response.finishReason },
+        data: {
+          provider: this.options.llmProvider.id,
+          model: request.model,
+          usage: response.usage,
+          finishReason: response.finishReason,
+        },
         at: clock.now(),
       });
       return response;
@@ -401,34 +393,7 @@ function trimToWholeExchanges(messages: Message[]): Message[] {
   return first === -1 ? messages : messages.slice(first);
 }
 
-/** Domain messages → today's provider message shape (replaced by content parts in S11). */
-function toModelMessages(messages: Message[]): LLMMessage[] {
-  const out: LLMMessage[] = [];
-  for (const m of messages) {
-    if (m.withdrawn) continue;
-    const at = m.createdAt.getTime();
-    if (m.role === 'tool') {
-      for (const p of m.parts) {
-        if (p.type === 'tool_result') {
-          out.push({
-            id: m.id,
-            role: 'tool',
-            content: p.content,
-            toolCallId: p.toolCallId,
-            timestamp: at,
-          });
-        }
-      }
-      continue;
-    }
-    const calls = toolCallsOf(m);
-    out.push({
-      id: m.id,
-      role: m.role,
-      content: textOf(m),
-      toolCalls: calls.length ? calls : undefined,
-      timestamp: at,
-    });
-  }
-  return out;
+/** Stored messages → model messages: content parts pass through; withdrawn messages are left out. */
+function toModelMessages(messages: Message[]): ModelMessage[] {
+  return messages.filter((m) => !m.withdrawn).map((m) => ({ role: m.role, parts: m.parts }));
 }

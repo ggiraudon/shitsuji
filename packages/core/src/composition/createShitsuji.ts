@@ -121,7 +121,13 @@ function builtInPlugins(config: ShitsujiConfig, withChannels: boolean): Shitsuji
   const endpoints = (kind: 'openai-compatible' | 'anthropic') =>
     Object.entries(config.models.providers)
       .filter(([, p]) => p.kind === kind)
-      .map(([id, p]) => ({ id, baseUrl: p.baseUrl, apiKey: p.apiKey }));
+      .map(([id, p]) => ({
+        id,
+        baseUrl: p.baseUrl,
+        apiKey: p.apiKey,
+        headers: p.headers,
+        quirks: p.quirks,
+      }));
 
   const list: ShitsujiPlugin[] = [
     new OpenAICompatiblePlugin(endpoints('openai-compatible')),

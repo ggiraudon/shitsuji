@@ -2,14 +2,14 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { shitsujiConfigSchema } from '../../src/composition/config/schema.js';
 import { createShitsuji } from '../../src/composition/createShitsuji.js';
 import type { ShitsujiPlugin } from '../../src/ports/Plugin.js';
-import { ScriptedProvider, testServices } from '../helpers.js';
+import { ScriptedProvider, testServices, transcript } from '../helpers.js';
 import { closeAll, freshDatabase } from './postgres.js';
 
 afterAll(closeAll);
 
 const fakeModel = (provider: ScriptedProvider): ShitsujiPlugin => ({
   manifest: { id: 'test.model', name: 'model', version: '1', provides: ['model'] },
-  register: (ctx) => ctx.addModelProvider('fake', provider),
+  register: (ctx) => ctx.addModelProvider(provider),
 });
 
 describe('restarting core (F02)', () => {
@@ -21,7 +21,7 @@ describe('restarting core (F02)', () => {
       models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/m' } },
     });
 
-    const before = new ScriptedProvider([{ content: 'Noted: your name is Sam.' }]);
+    const before = new ScriptedProvider([{ content: 'Noted: your name is Sam.' }], 'fake');
     const first = await createShitsuji(config, {
       services: testServices(),
       plugins: [fakeModel(before)],
@@ -29,7 +29,7 @@ describe('restarting core (F02)', () => {
     const one = await first.agent.send('My name is Sam');
     await first.stop();
 
-    const after = new ScriptedProvider([{ content: 'You are Sam.' }]);
+    const after = new ScriptedProvider([{ content: 'You are Sam.' }], 'fake');
     const second = await createShitsuji(config, {
       services: testServices(),
       plugins: [fakeModel(after)],
@@ -38,7 +38,7 @@ describe('restarting core (F02)', () => {
     await second.stop();
 
     expect(two.sessionId).toBe(one.sessionId);
-    const sent = after.requests[0]!.messages.slice(1).map((m) => `${m.role}:${m.content}`);
+    const sent = transcript(after.requests[0]!);
     expect(sent).toEqual([
       'user:My name is Sam',
       'assistant:Noted: your name is Sam.',
