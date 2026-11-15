@@ -45,7 +45,7 @@ export interface AgentOptions {
   events: EventBus;
   /** The assembled standing instructions, fixed per turn (Q6). */
   soul?: SoulSource;
-  /** How many recent messages are sent to the model. */
+  /** How many recent messages are sent to the model (default 40). */
   historyLimit?: number;
   /** Model calls per turn by session kind (decision Q5). */
   limits?: Partial<StepLimits>;
@@ -96,7 +96,7 @@ export class Agent {
       repos: options.repos,
       ownerId: options.ownerId,
       log: options.log,
-      historyLimit: options.historyLimit,
+      historyLimit: options.historyLimit ?? 40,
       stabilityCheck: options.stabilityCheck ?? true,
       compactor: new Compactor({
         models: options.models,

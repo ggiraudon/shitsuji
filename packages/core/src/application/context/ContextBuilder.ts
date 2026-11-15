@@ -72,14 +72,16 @@ export class ContextBuilder {
     soul?: { revision: number; body: string },
   ): Promise<BuiltContext> {
     const stored = await this.deps.repos.messages.listBySession(session.id);
+    // Re-read: a compaction earlier in this turn changed the summary and its watermark.
+    const sessionNow = (await this.deps.repos.sessions.get(session.id)) ?? session;
     const owner = await this.deps.repos.owners.get(this.deps.ownerId);
 
     // Compaction may cover more of the transcript before this call is built; the open request stays.
-    let summary = session.summary;
-    let summaryCount = session.summaryCount ?? 0;
+    let summary = sessionNow.summary;
+    let summaryCount = sessionNow.summaryCount ?? 0;
     if (this.deps.compactor && this.deps.contextWindow) {
       const compacted = await this.deps.compactor.compactIfNeeded(
-        session,
+        sessionNow,
         turn,
         stored,
         this.deps.contextWindow,
@@ -95,7 +97,7 @@ export class ContextBuilder {
     const lastUser = latestWithRole(sources, 'user');
 
     const ctx: AgentRenderContext = {
-      session,
+      session: sessionNow,
       messages: sources,
       toolCalls: lastAssistant ? toolCallsOf(lastAssistant) : [],
       ...(lastUser && { lastUserMessage: textOf(lastUser) }),

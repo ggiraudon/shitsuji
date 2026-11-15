@@ -106,6 +106,48 @@ describe('Compactor (S23)', () => {
     expect(await repos.messages.listBySession(session.id)).toHaveLength(3);
   });
 
+  it('only summarises messages the existing summary does not already cover', async () => {
+    const { repos, session } = await seed();
+    const oldTurn = newId<TurnId>();
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'Already covered.', oldTurn);
+    await append(repos, session, 'assistant', 'Also covered.', oldTurn);
+    await append(repos, session, 'user', 'Newly old message. '.repeat(20), oldTurn);
+    await append(repos, session, 'assistant', 'Newly old answer.', oldTurn);
+    await append(repos, session, 'user', 'The open request.', openTurn);
+    await repos.sessions.setSummary(session.id, 'The earlier summary.', 2);
+
+    const model = new ScriptedProvider([{ content: 'UPDATED SUMMARY' }]);
+    const compactor = new Compactor({
+      models: new ModelRouter(
+        new Map([[model.id, model]]),
+        { purposes: { chat: 'scripted/m' }, fallbacks: {} },
+        new ModelCatalog(),
+        LOG,
+      ),
+      sessions: repos.sessions,
+      clock,
+      log: LOG,
+    });
+    const transcript = await repos.messages.listBySession(session.id);
+    const stored = (await repos.sessions.get(session.id))!;
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+
+    const result = await compactor.compactIfNeeded(stored, turn, transcript, 30);
+
+    expect(result).toEqual({ summary: 'UPDATED SUMMARY', count: 4 });
+    const prompt = (model.requests[0]!.messages[0]!.parts[0] as { text: string }).text;
+    expect(prompt).toContain('The earlier summary.');
+    expect(prompt).toContain('Newly old message.');
+    expect(prompt).not.toContain('Already covered.');
+    expect(prompt).not.toContain('The open request.');
+  });
+
   it('does nothing while the transcript fits the window', async () => {
     const { repos, session } = await seed();
     const turn = Turn.create({
