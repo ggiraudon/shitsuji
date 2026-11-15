@@ -1,4 +1,4 @@
-export type Topic = 
+export type Topic =
   | 'agent.start'
   | 'agent.stop'
   | 'agent.reset'
@@ -72,8 +72,10 @@ export class MessageBus {
   }
 
   subscribeMany(topics: Topic[], handler: (topic: Topic, payload: unknown) => void): () => void {
-    const unsubscribers = topics.map(topic => this.subscribe(topic, (payload) => handler(topic, payload)));
-    return () => unsubscribers.forEach(unsub => unsub());
+    const unsubscribers = topics.map((topic) =>
+      this.subscribe(topic, (payload) => handler(topic, payload)),
+    );
+    return () => unsubscribers.forEach((unsub) => unsub());
   }
 
   getSubscribers(topic: Topic): number {
@@ -82,7 +84,7 @@ export class MessageBus {
 
   getHistory(topic?: Topic): Message[] {
     if (topic) {
-      return this.messageHistory.filter(m => m.topic === topic);
+      return this.messageHistory.filter((m) => m.topic === topic);
     }
     return [...this.messageHistory];
   }

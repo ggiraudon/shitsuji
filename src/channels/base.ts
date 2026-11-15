@@ -12,12 +12,12 @@ export interface ChannelOptions {
 
 export interface Channel {
   readonly name: string;
-  
+
   start(): Promise<void>;
   stop(): Promise<void>;
-  
+
   send(destination: string, message: string): Promise<void>;
-  
+
   onMessage(handler: (message: ChannelMessage, destination: string) => void): void;
   onError(handler: (error: Error) => void): void;
 }

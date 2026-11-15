@@ -23,7 +23,18 @@ export class ExecuteCommandTool extends BaseTool {
   };
 
   private readonly defaultTimeout = 30000;
-  private readonly allowedCommands = ['ls', 'cat', 'pwd', 'echo', 'grep', 'find', 'git', 'node', 'npm', 'pnpm'];
+  private readonly allowedCommands = [
+    'ls',
+    'cat',
+    'pwd',
+    'echo',
+    'grep',
+    'find',
+    'git',
+    'node',
+    'npm',
+    'pnpm',
+  ];
 
   async execute(params: ToolExecuteParams): Promise<ToolResult> {
     const { command, timeout } = params.args as { command?: string; timeout?: number };
@@ -37,8 +48,8 @@ export class ExecuteCommandTool extends BaseTool {
     }
 
     const cmd = command.trim();
-    const isAllowed = this.allowedCommands.some(allowed => cmd.startsWith(allowed));
-    
+    const isAllowed = this.allowedCommands.some((allowed) => cmd.startsWith(allowed));
+
     if (!isAllowed) {
       return {
         success: false,
@@ -48,7 +59,7 @@ export class ExecuteCommandTool extends BaseTool {
     }
 
     try {
-      const { stdout, stderr } = await execAsync(cmd, { 
+      const { stdout, stderr } = await execAsync(cmd, {
         timeout: timeout ?? this.defaultTimeout,
         maxBuffer: 1024 * 1024,
       });

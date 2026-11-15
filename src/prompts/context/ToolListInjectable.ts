@@ -17,9 +17,7 @@ export class ToolListInjectable extends BaseContextInjectable {
       return 'You have no tools available.';
     }
 
-    const toolList = this.tools
-      .map(t => `- ${t.name}: ${t.description}`)
-      .join('\n');
+    const toolList = this.tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
 
     return `Available tools:\n${toolList}\n\nWhen you need to use a tool, respond with a tool call.`;
   }
@@ -41,7 +39,7 @@ export class ToolContextInjectable extends BaseContextInjectable {
       return null;
     }
 
-    const toolNames = context.toolCalls.map(tc => tc.name).join(', ');
+    const toolNames = context.toolCalls.map((tc) => tc.name).join(', ');
     return `You are now using tool(s): ${toolNames}. Provide the appropriate response.`;
   }
 

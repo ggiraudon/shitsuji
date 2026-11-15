@@ -1,6 +1,6 @@
 import { type Session } from '../../core/Session.js';
 
-export type InjectionConditionType = 
+export type InjectionConditionType =
   | 'always'
   | 'tool_used'
   | 'pattern_detected'
@@ -30,7 +30,7 @@ export interface InjectionConditionOnce {
   type: 'once';
 }
 
-export type InjectionCondition = 
+export type InjectionCondition =
   | InjectionConditionAlways
   | InjectionConditionToolUsed
   | InjectionConditionPatternDetected
@@ -49,7 +49,7 @@ export interface ContextInjectable {
   readonly description: string;
   readonly priority: number;
   readonly condition: InjectionCondition;
-  
+
   render(context: AgentRenderContext): string | null;
 }
 
@@ -59,6 +59,6 @@ export abstract class BaseContextInjectable implements ContextInjectable {
   abstract readonly description: string;
   priority = 50;
   condition: InjectionCondition = { type: 'always' };
-  
+
   abstract render(context: AgentRenderContext): string | null;
 }

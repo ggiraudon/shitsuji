@@ -6,11 +6,11 @@ import { messageBus } from './core/MessageBus.js';
 import { Agent } from './core/Agent.js';
 import { OpenAIProvider } from './llm/OpenAIProvider.js';
 import { AnthropicProvider } from './llm/AnthropicProvider.js';
-import { 
-  CalculatorTool, 
-  WebSearchTool, 
-  FileReadTool, 
-  FileWriteTool, 
+import {
+  CalculatorTool,
+  WebSearchTool,
+  FileReadTool,
+  FileWriteTool,
   FileListTool,
   ExecuteCommandTool,
   SystemInfoTool,
@@ -23,17 +23,17 @@ let agent: Agent | null = null;
 
 export async function startServer(): Promise<void> {
   logger.info('Shitsuji starting...');
-  
+
   messageBus.publish('system.ready', { version: '0.1.0' });
-  
+
   const configDir = configManager.getConfigDir();
   const dataDir = join(configDir, 'data');
-  
+
   logger.info('Configuration loaded', { configDir, dataDir });
 
   const openaiKey = process.env.OPENAI_API_KEY;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
-  
+
   if (!openaiKey && !anthropicKey) {
     logger.error('No API key set (OPENAI_API_KEY or ANTHROPIC_API_KEY)');
     process.exit(1);
@@ -41,7 +41,7 @@ export async function startServer(): Promise<void> {
 
   let llm;
   let model = 'gpt-4o-mini';
-  
+
   if (anthropicKey) {
     llm = new AnthropicProvider(anthropicKey);
     model = 'claude-3-5-sonnet-20241022';
@@ -50,9 +50,9 @@ export async function startServer(): Promise<void> {
     llm = new OpenAIProvider(openaiKey);
     logger.info('Using Openai provider');
   }
-  
+
   const sessionStore = new SessionStore(join(dataDir, 'sessions'));
-  
+
   agent = new Agent({
     name: 'Shitsuji Assistant',
     llmProvider: llm!,
@@ -69,13 +69,13 @@ export async function startServer(): Promise<void> {
   agent.registerTool(new SystemInfoTool());
 
   channelManager = new ChannelManager();
-  
+
   const cliChannel = await channelManager.createChannel('cli');
   const webhookChannel = await channelManager.createChannel('webhook', { port: 3000 });
 
   cliChannel.onMessage(async (message, _destination) => {
     logger.info(`Received message: ${message.content.substring(0, 50)}...`);
-    
+
     try {
       const response = await agent!.send(message.content);
       await cliChannel.send('cli', response);
@@ -87,7 +87,7 @@ export async function startServer(): Promise<void> {
 
   webhookChannel.onMessage(async (message, destination) => {
     logger.info(`[Webhook] Received message: ${message.content.substring(0, 50)}...`);
-    
+
     try {
       const response = await agent!.send(message.content);
       await webhookChannel.send(destination, response);

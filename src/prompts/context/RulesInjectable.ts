@@ -21,9 +21,7 @@ export class RulesInjectable extends BaseContextInjectable {
       return '';
     }
 
-    const ruleList = this.rules
-      .map(r => `- ${r.text}`)
-      .join('\n');
+    const ruleList = this.rules.map((r) => `- ${r.text}`).join('\n');
 
     return `Guidelines:\n${ruleList}`;
   }
@@ -33,6 +31,6 @@ export class RulesInjectable extends BaseContextInjectable {
   }
 
   removeRule(id: string): void {
-    this.rules = this.rules.filter(r => r.id !== id);
+    this.rules = this.rules.filter((r) => r.id !== id);
   }
 }

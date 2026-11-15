@@ -4,13 +4,17 @@ import { join } from 'path';
 import { homedir } from 'os';
 
 const globalConfigSchema = z.object({
-  llm: z.object({
-    defaultProvider: z.enum(['openai', 'anthropic', 'ollama']).default('openai'),
-    apiKeys: z.record(z.string()).optional(),
-  }).default({}),
-  logging: z.object({
-    level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  }).default({}),
+  llm: z
+    .object({
+      defaultProvider: z.enum(['openai', 'anthropic', 'ollama']).default('openai'),
+      apiKeys: z.record(z.string()).optional(),
+    })
+    .default({}),
+  logging: z
+    .object({
+      level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    })
+    .default({}),
   dataDir: z.string().default('~/.shitsuji/data'),
 });
 
@@ -40,7 +44,7 @@ export class ConfigManager {
 
   private loadGlobalConfig(): GlobalConfig {
     const configPath = join(this.configDir, 'config.json');
-    
+
     if (existsSync(configPath)) {
       try {
         const data = JSON.parse(readFileSync(configPath, 'utf-8'));
@@ -49,7 +53,7 @@ export class ConfigManager {
         console.warn('Failed to load config, using defaults:', error);
       }
     }
-    
+
     const defaults = globalConfigSchema.parse({});
     this.saveGlobalConfig(defaults);
     return defaults;

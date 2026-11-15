@@ -25,16 +25,15 @@ export class AnthropicProvider extends BaseLLMProvider {
     this.logRequest(options);
 
     const messages: AnthropicMessage[] = options.messages
-      .filter(m => m.role !== 'system')
+      .filter((m) => m.role !== 'system')
       .slice(-20)
-      .map(msg => ({
+      .map((msg) => ({
         role: (msg.role === 'tool' ? 'user' : msg.role) as 'user' | 'assistant',
-        content: msg.role === 'tool' 
-          ? `[Tool result: ${msg.toolCallId}] ${msg.content}`
-          : msg.content,
+        content:
+          msg.role === 'tool' ? `[Tool result: ${msg.toolCallId}] ${msg.content}` : msg.content,
       }));
 
-    const systemMessage = options.messages.find(m => m.role === 'system');
+    const systemMessage = options.messages.find((m) => m.role === 'system');
 
     const body: Record<string, unknown> = {
       model,
@@ -48,7 +47,7 @@ export class AnthropicProvider extends BaseLLMProvider {
     }
 
     if (options.tools?.length) {
-      body.tools = options.tools.map(t => ({
+      body.tools = options.tools.map((t) => ({
         name: t.name,
         description: t.description,
         input_schema: t.parameters,
@@ -70,16 +69,23 @@ export class AnthropicProvider extends BaseLLMProvider {
       throw new Error(`Anthropic API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       id: string;
       model: string;
-      content: Array<{ type: string; text?: string; name?: string; input?: Record<string, unknown> }>;
+      content: Array<{
+        type: string;
+        text?: string;
+        name?: string;
+        input?: Record<string, unknown>;
+      }>;
       usage: { input_tokens: number; output_tokens: number };
       stop_reason: string | null;
     };
 
-    const textContent = data.content.find(c => c.type === 'text');
-    const toolUseContents = data.content.filter(c => c.type === 'tool_use' && 'id' in c && 'name' in c && 'input' in c);
+    const textContent = data.content.find((c) => c.type === 'text');
+    const toolUseContents = data.content.filter(
+      (c) => c.type === 'tool_use' && 'id' in c && 'name' in c && 'input' in c,
+    );
 
     const llmResponse: LLMResponse = {
       id: data.id,
@@ -94,7 +100,7 @@ export class AnthropicProvider extends BaseLLMProvider {
     };
 
     if (toolUseContents.length > 0) {
-      llmResponse.toolCalls = toolUseContents.map(tu => {
+      llmResponse.toolCalls = toolUseContents.map((tu) => {
         const t = tu as unknown as { id: string; name: string; input: Record<string, unknown> };
         return {
           id: t.id,

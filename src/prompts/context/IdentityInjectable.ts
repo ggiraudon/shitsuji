@@ -18,10 +18,10 @@ export class IdentityInjectable extends BaseContextInjectable {
   }
 
   render(_context: AgentRenderContext): string {
-    const capabilities = this.config.capabilities?.length 
-      ? `\nCapabilities:\n${this.config.capabilities.map(c => `- ${c}`).join('\n')}`
+    const capabilities = this.config.capabilities?.length
+      ? `\nCapabilities:\n${this.config.capabilities.map((c) => `- ${c}`).join('\n')}`
       : '';
-    
+
     return `You are ${this.config.name}, ${this.config.description}.${capabilities}`;
   }
 }

@@ -3,13 +3,18 @@ import { Session } from './Session.js';
 import { type SessionStore } from '../memory/SessionStore.js';
 import { messageBus } from './MessageBus.js';
 import { logger } from '../utils/logger.js';
-import { type LLMProvider, type LLMCompletionOptions, type Message, type ToolDefinition } from '../llm/types.js';
+import {
+  type LLMProvider,
+  type LLMCompletionOptions,
+  type Message,
+  type ToolDefinition,
+} from '../llm/types.js';
 import { ToolRegistry, type Tool } from '../tools/index.js';
-import { 
-  type ContextInjectable, 
+import {
+  type ContextInjectable,
   IdentityInjectable,
   ToolListInjectable,
-  RulesInjectable 
+  RulesInjectable,
 } from '../prompts/context/index.js';
 
 export interface AgentOptions {
@@ -55,17 +60,21 @@ export class Agent {
   }
 
   private setupDefaultInjectables(): void {
-    this.injectables.push(new IdentityInjectable({
-      name: this.name,
-      description: 'a helpful AI assistant',
-    }));
+    this.injectables.push(
+      new IdentityInjectable({
+        name: this.name,
+        description: 'a helpful AI assistant',
+      }),
+    );
 
     this.injectables.push(new ToolListInjectable([]));
 
-    this.injectables.push(new RulesInjectable([
-      { id: 'helpful', text: 'Be helpful and concise' },
-      { id: 'safe', text: 'Do not reveal sensitive information' },
-    ]));
+    this.injectables.push(
+      new RulesInjectable([
+        { id: 'helpful', text: 'Be helpful and concise' },
+        { id: 'safe', text: 'Do not reveal sensitive information' },
+      ]),
+    );
 
     this.injectables.sort((a, b) => b.priority - a.priority);
   }
@@ -87,7 +96,7 @@ export class Agent {
   }
 
   private updateToolListInjectable(): void {
-    this.injectables = this.injectables.filter(i => i.id !== 'tool-list');
+    this.injectables = this.injectables.filter((i) => i.id !== 'tool-list');
     this.injectables.push(new ToolListInjectable(this.tools));
     this.injectables.sort((a, b) => b.priority - a.priority);
   }
@@ -97,8 +106,8 @@ export class Agent {
   }
 
   createSession(sessionId?: string): Session {
-    const session = new Session({ 
-      id: sessionId, 
+    const session = new Session({
+      id: sessionId,
       agentId: this.id,
       maxTokens: this.maxTokens,
       store: this.sessionStore,
@@ -111,7 +120,7 @@ export class Agent {
 
   async send(message: string, sessionId?: string): Promise<string> {
     let session: Session;
-    
+
     if (sessionId && this.sessions.has(sessionId)) {
       session = this.sessions.get(sessionId)!;
     } else {
@@ -130,7 +139,7 @@ export class Agent {
 
     while (continueLoop) {
       const response = await this.callLLM(session);
-      
+
       session.addAssistantMessage(response.content, response.toolCalls);
 
       if (response.toolCalls && response.toolCalls.length > 0) {
@@ -165,17 +174,17 @@ export class Agent {
       maxTokens: 4096,
     };
 
-    messageBus.publish('llm.request', { 
-      agentId: this.id, 
+    messageBus.publish('llm.request', {
+      agentId: this.id,
       sessionId: session.id,
       model: options.model,
     });
 
     try {
       const response = await this.llmProvider.complete(options);
-      
-      messageBus.publish('llm.response', { 
-        agentId: this.id, 
+
+      messageBus.publish('llm.response', {
+        agentId: this.id,
         sessionId: session.id,
         contentLength: response.content.length,
         hasToolCalls: !!response.toolCalls?.length,
@@ -183,8 +192,8 @@ export class Agent {
 
       return response;
     } catch (error) {
-      messageBus.publish('llm.error', { 
-        agentId: this.id, 
+      messageBus.publish('llm.error', {
+        agentId: this.id,
         sessionId: session.id,
         error: String(error),
       });
@@ -194,8 +203,8 @@ export class Agent {
 
   private buildContext(session: Session): string {
     return this.injectables
-      .filter(injectable => this.checkCondition(injectable, session))
-      .map(injectable => injectable.render({ session }))
+      .filter((injectable) => this.checkCondition(injectable, session))
+      .map((injectable) => injectable.render({ session }))
       .filter((s): s is string => s !== null)
       .join('\n\n');
   }
@@ -210,18 +219,17 @@ export class Agent {
     if (condition.type === 'tool_used') {
       const lastMessage = session.messages[session.messages.length - 1];
       if (lastMessage?.role === 'assistant' && lastMessage.toolName) {
-        return condition.toolNames.length === 0 || 
-               condition.toolNames.includes(lastMessage.toolName);
+        return (
+          condition.toolNames.length === 0 || condition.toolNames.includes(lastMessage.toolName)
+        );
       }
       return false;
     }
 
     if (condition.type === 'pattern_detected') {
-      const lastUserMsg = session.messages
-        .filter(m => m.role === 'user')
-        .pop();
+      const lastUserMsg = session.messages.filter((m) => m.role === 'user').pop();
       if (lastUserMsg) {
-        return condition.patterns.some(p => p.test(lastUserMsg.content));
+        return condition.patterns.some((p) => p.test(lastUserMsg.content));
       }
       return false;
     }
@@ -233,9 +241,12 @@ export class Agent {
     return false;
   }
 
-  private async executeTool(session: Session, toolCall: { id: string; name: string; arguments: Record<string, unknown> }): Promise<string> {
-    messageBus.publish('tool.called', { 
-      sessionId: session.id, 
+  private async executeTool(
+    session: Session,
+    toolCall: { id: string; name: string; arguments: Record<string, unknown> },
+  ): Promise<string> {
+    messageBus.publish('tool.called', {
+      sessionId: session.id,
       toolName: toolCall.name,
       toolCallId: toolCall.id,
     });
@@ -247,9 +258,9 @@ export class Agent {
         sessionId: session.id,
         args: toolCall.arguments,
       });
-      
-      messageBus.publish('tool.result', { 
-        sessionId: session.id, 
+
+      messageBus.publish('tool.result', {
+        sessionId: session.id,
         toolName: toolCall.name,
         toolCallId: toolCall.id,
         success: result.success,
@@ -258,9 +269,9 @@ export class Agent {
       return result.success ? result.result : `Error: ${result.error}`;
     } catch (error) {
       const errorMsg = String(error);
-      
-      messageBus.publish('tool.error', { 
-        sessionId: session.id, 
+
+      messageBus.publish('tool.error', {
+        sessionId: session.id,
         toolName: toolCall.name,
         toolCallId: toolCall.id,
         error: errorMsg,

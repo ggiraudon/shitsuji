@@ -22,11 +22,11 @@ export interface Plugin {
 
 export abstract class BasePlugin implements Plugin {
   abstract readonly manifest: PluginManifest;
-  
+
   async init(_ctx: PluginContext): Promise<void> {
     logger.info(`Initializing plugin: ${this.manifest.name}`);
   }
-  
+
   async destroy(): Promise<void> {
     logger.info(`Destroying plugin: ${this.manifest.name}`);
   }
@@ -79,7 +79,7 @@ export class PluginManager {
   }
 
   listByType(type: PluginManifest['type']): Plugin[] {
-    return this.list().filter(p => p.manifest.type === type);
+    return this.list().filter((p) => p.manifest.type === type);
   }
 
   has(id: string): boolean {

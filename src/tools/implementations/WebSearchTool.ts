@@ -2,7 +2,8 @@ import { BaseTool, type ToolResult, type ToolExecuteParams } from '../base.js';
 
 export class WebSearchTool extends BaseTool {
   readonly name = 'web_search';
-  readonly description = 'Search the web for information. Use this when you need current info or don\'t know something.';
+  readonly description =
+    "Search the web for information. Use this when you need current info or don't know something.";
   readonly schema = {
     type: 'object',
     properties: {
@@ -43,7 +44,7 @@ export class WebSearchTool extends BaseTool {
   private async search(query: string): Promise<string> {
     const encodedQuery = encodeURIComponent(query);
     const response = await fetch(
-      `https://ddg-api.vercel.app/search?q=${encodedQuery}&max_results=5`
+      `https://ddg-api.vercel.app/search?q=${encodedQuery}&max_results=5`,
     );
 
     if (!response.ok) {
@@ -56,14 +57,12 @@ export class WebSearchTool extends BaseTool {
       snippet: string;
     }
 
-    const data = await response.json() as DuckDuckGoResult[];
-    
+    const data = (await response.json()) as DuckDuckGoResult[];
+
     if (data.length === 0) {
       return 'No results found.';
     }
 
-    return data
-      .map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`)
-      .join('\n\n');
+    return data.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join('\n\n');
   }
 }

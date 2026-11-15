@@ -31,7 +31,7 @@ export class ToolRegistry {
   }
 
   getToolDefinitions(): ToolDefinition[] {
-    return Array.from(this.tools.values()).map(tool => ({
+    return Array.from(this.tools.values()).map((tool) => ({
       name: tool.name,
       description: tool.description,
       parameters: tool.schema,

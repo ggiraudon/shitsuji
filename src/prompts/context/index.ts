@@ -1,5 +1,5 @@
-export { 
-  ContextInjectable, 
+export {
+  ContextInjectable,
   AgentRenderContext,
   InjectionCondition,
   InjectionConditionAlways,
@@ -7,7 +7,7 @@ export {
   InjectionConditionPatternDetected,
   InjectionConditionCustom,
   InjectionConditionOnce,
-  BaseContextInjectable 
+  BaseContextInjectable,
 } from './ContextInjectable.js';
 
 export { IdentityInjectable, IdentityConfig } from './IdentityInjectable.js';

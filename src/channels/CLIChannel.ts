@@ -15,7 +15,7 @@ export class CLIChannel extends BaseChannel {
       input: process.stdin,
       output: process.stdout,
     });
-    
+
     logger.info('CLI Channel started');
     this.startInputLoop();
   }

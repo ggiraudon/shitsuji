@@ -22,20 +22,22 @@ export class WebhookChannel extends BaseChannel {
 
   async start(): Promise<void> {
     await super.start();
-    
+
     this.server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = req.url ?? '/';
-      
+
       if (url === '/' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          service: 'Shitsuji Webhook Channel',
-          status: 'running',
-          endpoints: {
-            webhook: this.path,
-            health: '/health',
-          },
-        }));
+        res.end(
+          JSON.stringify({
+            service: 'Shitsuji Webhook Channel',
+            status: 'running',
+            endpoints: {
+              webhook: this.path,
+              health: '/health',
+            },
+          }),
+        );
         return;
       }
 
@@ -47,11 +49,11 @@ export class WebhookChannel extends BaseChannel {
 
       if (url === this.path && req.method === 'POST') {
         let body = '';
-        req.on('data', chunk => body += chunk);
+        req.on('data', (chunk) => (body += chunk));
         req.on('end', () => {
           try {
             const data = JSON.parse(body);
-            
+
             const message: ChannelMessage = {
               id: data.id ?? randomUUID(),
               role: data.role ?? 'user',

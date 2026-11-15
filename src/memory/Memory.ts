@@ -60,9 +60,7 @@ export class Memory {
 
   search(query: string): MemoryEntry[] {
     const lower = query.toLowerCase();
-    return this.entries.filter(e => 
-      e.content.toLowerCase().includes(lower)
-    );
+    return this.entries.filter((e) => e.content.toLowerCase().includes(lower));
   }
 
   clear(): void {
@@ -86,8 +84,8 @@ export class Memory {
 
   private summarize(entries: MemoryEntry[]): string {
     if (entries.length === 0) return '';
-    const messageCount = entries.filter(e => e.type === 'message').length;
-    const factCount = entries.filter(e => e.type === 'fact').length;
+    const messageCount = entries.filter((e) => e.type === 'message').length;
+    const factCount = entries.filter((e) => e.type === 'fact').length;
     return `${messageCount} messages, ${factCount} facts`;
   }
 

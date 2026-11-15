@@ -41,7 +41,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     const model = options.model ?? this.defaultModel;
     this.logRequest(options);
 
-    const messages: OpenAIMessage[] = options.messages.map(msg => {
+    const messages: OpenAIMessage[] = options.messages.map((msg) => {
       if (msg.role === 'tool') {
         return {
           role: 'tool' as const,
@@ -49,12 +49,12 @@ export class OpenAIProvider extends BaseLLMProvider {
           tool_call_id: msg.toolCallId,
         };
       }
-      
+
       if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
         return {
           role: 'assistant' as const,
           content: msg.content || null,
-          tool_calls: msg.toolCalls.map(tc => ({
+          tool_calls: msg.toolCalls.map((tc) => ({
             id: tc.id,
             type: 'function' as const,
             function: {
@@ -64,7 +64,7 @@ export class OpenAIProvider extends BaseLLMProvider {
           })),
         };
       }
-      
+
       if (msg.role === 'assistant' && msg.toolName && msg.toolCallId) {
         return {
           role: 'assistant' as const,
@@ -79,7 +79,7 @@ export class OpenAIProvider extends BaseLLMProvider {
           },
         };
       }
-      
+
       return {
         role: msg.role as 'system' | 'user' | 'assistant',
         content: msg.content,
@@ -95,7 +95,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     };
 
     if (options.tools?.length) {
-      body.tools = options.tools.map(t => ({
+      body.tools = options.tools.map((t) => ({
         type: 'function',
         function: {
           name: t.name,
@@ -109,7 +109,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
     });
@@ -119,7 +119,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       throw new Error(`OpenAI API error: ${response.status} - ${error}`);
     }
 
-    const data = await response.json() as {
+    const data = (await response.json()) as {
       id: string;
       model: string;
       choices: Array<{
@@ -158,7 +158,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     };
 
     if (choice.message.tool_calls?.length) {
-      llmResponse.toolCalls = choice.message.tool_calls.map(tc => ({
+      llmResponse.toolCalls = choice.message.tool_calls.map((tc) => ({
         id: tc.id,
         name: tc.function.name,
         arguments: JSON.parse(tc.function.arguments),
@@ -173,7 +173,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     const model = options.model ?? this.defaultModel;
     this.logRequest(options);
 
-    const messages: OpenAIMessage[] = options.messages.map(msg => ({
+    const messages: OpenAIMessage[] = options.messages.map((msg) => ({
       role: msg.role === 'tool' ? 'tool' : msg.role,
       content: msg.content,
       name: msg.name,
@@ -189,7 +189,7 @@ export class OpenAIProvider extends BaseLLMProvider {
     };
 
     if (options.tools?.length) {
-      body.tools = options.tools.map(t => ({
+      body.tools = options.tools.map((t) => ({
         type: 'function',
         function: {
           name: t.name,
@@ -203,7 +203,7 @@ export class OpenAIProvider extends BaseLLMProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
     });
@@ -254,7 +254,7 @@ export class OpenAIProvider extends BaseLLMProvider {
           yield {
             id: data.id,
             delta: choice.delta.content ?? '',
-            toolCalls: choice.delta.tool_calls?.map(tc => ({
+            toolCalls: choice.delta.tool_calls?.map((tc) => ({
               id: tc.id,
               name: tc.function.name,
               arguments: JSON.parse(tc.function.arguments),
@@ -268,12 +268,6 @@ export class OpenAIProvider extends BaseLLMProvider {
   }
 
   getModels(): string[] {
-    return [
-      'gpt-4o',
-      'gpt-4o-mini',
-      'gpt-4-turbo',
-      'gpt-4',
-      'gpt-3.5-turbo',
-    ];
+    return ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'];
   }
 }

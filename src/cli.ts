@@ -11,7 +11,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   if (command === 'daemon') {
-    const logFile = args.find(a => a.startsWith('--log='))?.split('=')[1] || './shitsuji.log';
+    const logFile = args.find((a) => a.startsWith('--log='))?.split('=')[1] || './shitsuji.log';
     const indexPath = join(__dirname, 'index.js');
 
     const child: ChildProcess = fork(indexPath, ['--daemon'], {
@@ -38,14 +38,14 @@ async function main() {
     console.log(`Shitsuji daemon started (PID: ${child.pid})`);
     console.log(`Logging to: ${logFile}`);
     process.exit(0);
-  } 
-  
+  }
+
   if (command === 'tui') {
     const { startTUI } = await import('./tui/app.js');
     await startTUI();
     return;
   }
-  
+
   // Default: server mode
   const { startServer } = await import('./index.js');
   await startServer();

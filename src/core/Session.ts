@@ -16,11 +16,11 @@ export class Session {
   readonly agentId: string;
   readonly createdAt: Date;
   updatedAt: Date;
-  
+
   messages: Message[] = [];
   memory: Map<string, string> = new Map();
   maxTokens: number;
-  
+
   private tokenCount = 0;
   private store?: SessionStore;
 
@@ -76,23 +76,23 @@ export class Session {
   private addMessage(message: Message): Message {
     this.messages.push(message);
     this.updatedAt = new Date();
-    
+
     const topic: Topic = message.role === 'user' ? 'message.received' : 'message.sent';
-    messageBus.publish(topic, { 
-      sessionId: this.id, 
+    messageBus.publish(topic, {
+      sessionId: this.id,
       role: message.role,
       content: message.content,
     });
-    
+
     return message;
   }
 
   remember(key: string, value: string): void {
     this.memory.set(key, value);
-    messageBus.publish('session.updated', { 
-      sessionId: this.id, 
+    messageBus.publish('session.updated', {
+      sessionId: this.id,
       action: 'remember',
-      key, 
+      key,
       value,
     });
     logger.debug(`Session ${this.id} remembered: ${key}`);
@@ -119,7 +119,10 @@ export class Session {
     const recentMsgs = this.getRecentMessages(10);
     if (recentMsgs.length > 0) {
       const msgStr = recentMsgs
-        .map(m => `${m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'Tool'}: ${m.content}`)
+        .map(
+          (m) =>
+            `${m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'Tool'}: ${m.content}`,
+        )
         .join('\n');
       parts.push(`Recent conversation:\n${msgStr}`);
     }
@@ -141,7 +144,7 @@ export class Session {
 
   private load(): void {
     if (!this.store) return;
-    
+
     const data = this.store.load(this.id);
     if (data) {
       this.messages = data.messages;

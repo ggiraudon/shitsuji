@@ -74,7 +74,7 @@ export class SessionStore {
   }
 
   list(): SessionData[] {
-    const files = readdirSync(this.storeDir).filter(f => f.endsWith('.json'));
+    const files = readdirSync(this.storeDir).filter((f) => f.endsWith('.json'));
     const sessions: SessionData[] = [];
 
     for (const file of files) {

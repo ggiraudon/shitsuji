@@ -29,7 +29,7 @@ export class FileReadTool extends BaseTool {
 
     try {
       const resolvedPath = resolve(path);
-      
+
       if (!existsSync(resolvedPath)) {
         return {
           success: false,
@@ -48,7 +48,7 @@ export class FileReadTool extends BaseTool {
       }
 
       const content = readFileSync(resolvedPath, 'utf-8');
-      
+
       if (content.length > 10000) {
         return {
           success: true,
@@ -72,7 +72,8 @@ export class FileReadTool extends BaseTool {
 
 export class FileWriteTool extends BaseTool {
   readonly name = 'file_write';
-  readonly description = 'Write content to a file. Creates the file if it doesn\'t exist, overwrites if it does.';
+  readonly description =
+    "Write content to a file. Creates the file if it doesn't exist, overwrites if it does.";
   readonly schema = {
     type: 'object',
     properties: {
@@ -110,7 +111,7 @@ export class FileWriteTool extends BaseTool {
     try {
       const resolvedPath = resolve(path);
       const dir = dirname(resolvedPath);
-      
+
       const dirExists = existsSync(dir);
       if (!dirExists) {
         return {
@@ -121,7 +122,7 @@ export class FileWriteTool extends BaseTool {
       }
 
       writeFileSync(resolvedPath, content, 'utf-8');
-      
+
       return {
         success: true,
         result: `Written ${content.length} bytes to ${path}`,
@@ -163,7 +164,7 @@ export class FileListTool extends BaseTool {
 
     try {
       const resolvedPath = resolve(path);
-      
+
       if (!existsSync(resolvedPath)) {
         return {
           success: false,
@@ -182,7 +183,7 @@ export class FileListTool extends BaseTool {
       }
 
       const files = readdirSync(resolvedPath);
-      const items = files.map(f => {
+      const items = files.map((f) => {
         const fullPath = join(resolvedPath, f);
         const isDir = statSync(fullPath).isDirectory();
         return isDir ? `${f}/` : f;

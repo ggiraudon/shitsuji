@@ -8,7 +8,8 @@ export class CalculatorTool extends BaseTool {
     properties: {
       expression: {
         type: 'string',
-        description: 'The mathematical expression to evaluate (e.g., "2 + 2", "sqrt(16)", "10 * 5")',
+        description:
+          'The mathematical expression to evaluate (e.g., "2 + 2", "sqrt(16)", "10 * 5")',
       },
     },
     required: ['expression'],
@@ -28,7 +29,7 @@ export class CalculatorTool extends BaseTool {
     try {
       const safeEval = this.createSafeEvaluator();
       const result = safeEval(expression);
-      
+
       return {
         success: true,
         result: String(result),
