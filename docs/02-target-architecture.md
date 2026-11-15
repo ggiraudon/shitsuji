@@ -86,7 +86,7 @@ src/
 | `Session` | Split into `Thread` (one per owner), `Session` (one per line of work) and `Turn` (one run) |
 | `SessionStore` (JSON files) | Postgres repositories |
 | zod config | One validated `ShitsujiConfig`, read only by the composition root |
-| Ink TUI | Optional client of the HTTP API |
+| Ink TUI | A client of the HTTP API, built early (start of pass 2) as the first interface for troubleshooting before the web UI is ready |
 
 ## Containers
 

@@ -128,7 +128,7 @@ went wrong", and are redacted before they are stored or shown.
 ## Risks and open questions
 
 - The refactor touches every file. Do it in one focused pass before features land, or the two will conflict.
-- Monorepo or single package? A single package with folders is enough until the web UI ([F07](F07-web-ui.md))
-  and the container daemons ([F08](F08-workspace-sandbox.md), [F10](F10-desktop.md)) arrive; then a pnpm
-  workspace (`packages/core`, `packages/web`, `packages/workspace-daemon`, `packages/desktop-daemon`,
-  `packages/shared`) is cleaner. See [05-open-questions.md](../05-open-questions.md).
+- **Decided (A1):** a pnpm monorepo from the start, beginning with `packages/core` and
+  `packages/shared`. `packages/web`, `packages/workspace-daemon` and `packages/desktop-daemon` are added when
+  [F07](F07-web-ui.md), [F08](F08-workspace-sandbox.md) and [F10](F10-desktop.md) start. The layers above
+  live in `packages/core/src`. See [07-first-pass-plan.md](../07-first-pass-plan.md).
