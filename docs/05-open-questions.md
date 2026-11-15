@@ -18,6 +18,16 @@ Decisions to make together before implementation starts. Each has a proposal so 
 | R2 | Commit the docs and the rename in the existing `seahorse` repo, then clone it into WSL, keeping its history |
 | R3 | A checklist in the repo (`docs/PROGRESS.md`), ticked in the commit that meets each criterion. Commit very often; the rule goes in `AGENTS.md` |
 
+### Second pass (decided 2026-11-15)
+
+| # | Decision |
+|---|----------|
+| Q1 | Until F08, the file tools work only inside `<dataDir>/workspace` (no `../` or symlink escapes). The shell tool is **on by default**, runs one program without a shell interpreter, inside that folder, with a timeout and an output cap, and can be turned off in the config |
+| Q2 | Web search through a self-hosted **SearXNG** container behind a `SearchProvider` port, plus `web.fetch`; the unofficial proxy is removed |
+| Q3 | Owner key: random, created at first start, stored hashed, shown once and saved to a file only the owner can read; the TUI sends it as a Bearer token, the web UI will exchange it for a cookie |
+| Q4 | Remove the stdin CLI channel once the TUI works |
+| Q5 | Step limits per session kind: chat 40, task 200, helper 30, schedule 40, observer 20, configurable in `runtime.limits` |
+
 Still open: D2–D5, M2–M4, P2–P6. None of them blocks the first pass.
 
 ## Architecture

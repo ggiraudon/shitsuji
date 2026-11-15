@@ -31,12 +31,13 @@ The same conversation also continues through the webhook and survives a restart 
 
 ## Decisions needed before starting
 
-Each has a proposal. They'll be asked one at a time, and the answers recorded in
-[05-open-questions.md](05-open-questions.md).
+All five were decided on 2026-11-15 and are recorded in
+[05-open-questions.md](05-open-questions.md#second-pass-decided-2026-11-15). Q1 differs from the proposal: the
+shell tool is on by default.
 
 | # | Question | Proposal |
 |---|----------|----------|
-| Q1 | Until the sandbox exists (F08), what may the file and shell tools do on the machine running `core`? Today they can read and write anywhere, and the shell allowlist can be bypassed (bugs 6 and 7). | File tools work only inside `<dataDir>/workspace`. The shell tool is **off by default**, can be turned on in the config, and runs inside that folder without a shell interpreter |
+| Q1 | Until the sandbox exists (F08), what may the file and shell tools do on the machine running `core`? Today they can read and write anywhere, and the shell allowlist can be bypassed (bugs 6 and 7). | **Decided:** file tools only inside `<dataDir>/workspace`; the shell tool **on by default**, inside that folder, without a shell interpreter, and can be turned off in the config |
 | Q2 | Web search uses an unofficial third-party proxy (bug 11). | A `SearchProvider` port with a **SearXNG** container in Compose as the default, plus `web.fetch` for readable page text. The proxy is removed |
 | Q3 | How does the TUI prove it's you? | An owner key, created at first start and stored hashed. The TUI sends it as a Bearer token; the web UI will swap it for a cookie later (F07) |
 | Q4 | Keep the CLI channel (stdin/stdout) once the TUI works? | Remove it. The TUI replaces it, and the server no longer reads stdin |
@@ -90,8 +91,8 @@ packages/
 - `system.status` reports Shitsuji's own health (database, job queue, model) instead of the host's.
 - `workspace.read`, `workspace.write` and `workspace.list` are confined to `<dataDir>/workspace`, with path
   traversal and symlink escapes refused (Q1).
-- `workspace.exec` is off unless enabled in config. It runs one program with arguments (no shell), with its
-  working folder inside the workspace, a timeout and an output cap (Q1).
+- `workspace.exec` is on by default and can be turned off in config. It runs one program with arguments
+  (no shell), with its working folder inside the workspace, a timeout and an output cap (Q1).
 - Remove the old `Tool` interface and `ToolRegistry`.
 - *Check:* tests for the confinement, including `../` and symlinks. F05 criterion 1. Bugs 6 and 7 are
   contained, not fixed: F08 fixes them.
@@ -189,6 +190,5 @@ packages/
 
 | When | What |
 |------|------|
-| Before S15 | Answers to Q1–Q5 |
 | S18 | Nothing: SearXNG runs locally with no key |
 | S26 | About ten minutes to try the TUI yourself |

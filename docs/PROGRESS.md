@@ -27,7 +27,7 @@ See [07-first-pass-plan.md](07-first-pass-plan.md) for what each step covers.
 
 ## Second pass steps
 
-See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 come first.
+See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made.
 
 - [ ] **S15** Tool v2 port and schemas
 - [ ] **S16** The execution pipeline
