@@ -41,7 +41,7 @@ async function main() {
   }
 
   if (command === 'tui') {
-    const { startTUI } = await import('./tui/app.js');
+    const { startTUI } = await import('./interfaces/tui/app.js');
     await startTUI();
     return;
   }

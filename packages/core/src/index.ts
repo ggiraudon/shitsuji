@@ -1,22 +1,18 @@
 import 'dotenv/config';
 import { join } from 'path';
-import { logger } from './utils/logger.js';
-import { configManager } from './utils/config.js';
-import { messageBus } from './core/MessageBus.js';
-import { Agent } from './core/Agent.js';
-import { OpenAIProvider } from './llm/OpenAIProvider.js';
-import { AnthropicProvider } from './llm/AnthropicProvider.js';
-import {
-  CalculatorTool,
-  WebSearchTool,
-  FileReadTool,
-  FileWriteTool,
-  FileListTool,
-  ExecuteCommandTool,
-  SystemInfoTool,
-} from './tools/index.js';
-import { ChannelManager } from './channels/index.js';
-import { SessionStore } from './memory/SessionStore.js';
+import { logger } from './adapters/logging/logger.js';
+import { configManager } from './composition/config.js';
+import { messageBus } from './adapters/events/MessageBus.js';
+import { Agent } from './application/Agent.js';
+import { OpenAIProvider } from './adapters/models/OpenAIProvider.js';
+import { AnthropicProvider } from './adapters/models/AnthropicProvider.js';
+import { CalculatorTool } from './adapters/tools/CalculatorTool.js';
+import { WebSearchTool } from './adapters/tools/WebSearchTool.js';
+import { FileReadTool, FileWriteTool, FileListTool } from './adapters/tools/FileSystemTool.js';
+import { ExecuteCommandTool } from './adapters/tools/ExecuteCommandTool.js';
+import { SystemInfoTool } from './adapters/tools/SystemInfoTool.js';
+import { ChannelManager } from './composition/ChannelManager.js';
+import { SessionStore } from './adapters/storage/SessionStore.js';
 
 let channelManager: ChannelManager | null = null;
 let agent: Agent | null = null;
