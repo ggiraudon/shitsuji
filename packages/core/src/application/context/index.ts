@@ -18,6 +18,8 @@ export { RulesInjectable, type Rule } from './RulesInjectable.js';
 export { ToolIndexInjectable } from './ToolIndexInjectable.js';
 export { OwnerProfileInjectable } from './OwnerProfileInjectable.js';
 export { ClockInjectable } from './ClockInjectable.js';
+export { CompactionSummaryInjectable } from './CompactionSummaryInjectable.js';
+export { Compactor, type Compaction, type CompactorDeps } from './Compactor.js';
 export {
   ContextBuilder,
   type BuiltContext,

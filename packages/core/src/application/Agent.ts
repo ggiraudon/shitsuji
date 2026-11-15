@@ -9,6 +9,8 @@ import type { Repositories } from '../ports/Repositories.js';
 import type { Tool } from '../ports/Tool.js';
 import {
   ClockInjectable,
+  CompactionSummaryInjectable,
+  Compactor,
   IdentityInjectable,
   OwnerProfileInjectable,
   RulesInjectable,
@@ -84,9 +86,11 @@ export class Agent {
       ]),
       new OwnerProfileInjectable(),
       new ClockInjectable(options.clock),
+      new CompactionSummaryInjectable(),
     ];
     this.sortInjectables();
     this.intake = new MessageIntake({ ...options, agentName: this.name });
+    const contextWindow = contextWindowOf(options.models);
     const context = new ContextBuilder({
       injectables: () => this.injectables,
       repos: options.repos,
@@ -94,6 +98,13 @@ export class Agent {
       log: options.log,
       historyLimit: options.historyLimit,
       stabilityCheck: options.stabilityCheck ?? true,
+      compactor: new Compactor({
+        models: options.models,
+        sessions: options.repos.sessions,
+        clock: options.clock,
+        log: options.log,
+      }),
+      ...(contextWindow !== undefined && { contextWindow }),
     });
     const runner = new TurnRunner({
       agentName: this.name,
@@ -204,5 +215,14 @@ export class Agent {
       (a, b) =>
         rank[a.placement] - rank[b.placement] || a.order - b.order || a.id.localeCompare(b.id),
     );
+  }
+}
+
+/** The chat model's context window, when the catalogue knows it; without one, no compaction. */
+function contextWindowOf(models: ModelRouter): number | undefined {
+  try {
+    return models.select('chat').info?.contextWindow;
+  } catch {
+    return undefined;
   }
 }

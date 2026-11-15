@@ -11,6 +11,7 @@ import type {
 import type { ModelMessage } from '../../ports/ModelProvider.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { Repositories } from '../../ports/Repositories.js';
+import type { Compactor } from './Compactor.js';
 
 /** One injectable's text, with the id that produced it (for tests and the stability check). */
 export interface RenderedNote {
@@ -43,6 +44,10 @@ export interface ContextBuilderDeps {
    * A clock or a mood that slipped into the header would break the provider's prompt cache.
    */
   stabilityCheck?: boolean;
+  /** Summarises older messages when the transcript nears the window (F04). */
+  compactor?: Compactor;
+  /** The chat model's context window, when the catalogue knows it. */
+  contextWindow?: number;
 }
 
 const PLACEMENT_RANK: Record<InjectionPlacement, number> = { header: 0, context: 1, tail: 2 };
@@ -68,7 +73,24 @@ export class ContextBuilder {
   ): Promise<BuiltContext> {
     const stored = await this.deps.repos.messages.listBySession(session.id);
     const owner = await this.deps.repos.owners.get(this.deps.ownerId);
-    const sources = windowMessages(stored, this.deps.historyLimit, turn.id);
+
+    // Compaction may cover more of the transcript before this call is built; the open request stays.
+    let summary = session.summary;
+    let summaryCount = session.summaryCount ?? 0;
+    if (this.deps.compactor && this.deps.contextWindow) {
+      const compacted = await this.deps.compactor.compactIfNeeded(
+        session,
+        turn,
+        stored,
+        this.deps.contextWindow,
+      );
+      if (compacted) {
+        summary = compacted.summary;
+        summaryCount = compacted.count;
+      }
+    }
+    const covered = Math.min(summaryCount, stored.length);
+    const sources = windowMessages(stored.slice(covered), this.deps.historyLimit, turn.id);
     const lastAssistant = latestWithRole(sources, 'assistant');
     const lastUser = latestWithRole(sources, 'user');
 
@@ -79,6 +101,7 @@ export class ContextBuilder {
       ...(lastUser && { lastUserMessage: textOf(lastUser) }),
       ...(owner && { owner }),
       ...(soul && { soul }),
+      ...(summary && covered > 0 && { summary, summaryCount: covered }),
     };
 
     const injectables = [...this.deps.injectables()].sort(
