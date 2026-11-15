@@ -81,11 +81,32 @@ The pipeline is built in the composition root, so tests can run a tool with only
 
 ### Deferred discovery
 
-The prompt always lists a small **core set** (reply, ask, tool search, workspace exec, browser, memory, skills,
-task). Other tools are `deferred`: the prompt lists their names in a short index, and the model calls:
+A request carries **one** tools array, and providers put it at the very start of the cached prefix:
+Anthropic's documented cache order is tools, then system prompt, then messages, and OpenAI-compatible
+servers usually render tools at the start of the prompt too. Changing that array invalidates the cache
+for the system prompt and the whole history. Models also limit how many tools they accept (128 for
+OpenAI), and small local models degrade well before that.
 
-- `tool_search({ query })` → up to 5 matches; the top 3 strong matches include their full schema;
-- the found tool directly by name on the next step (the runtime adds its schema to the request).
+So **the tools array is fixed for the life of a session**, however many tools exist:
+
+| Part | Where it lives | Changes |
+|------|----------------|---------|
+| The **core set** (math, files, web, `tool_search`, `tool_call`, …) | The tools array, at the start of the cached prefix | Never during a session |
+| Names of the deferred tools | Header: `ToolIndexInjectable` ([F04](F04-agent-runtime.md#placement-and-order)) | When tools are installed or removed |
+| A found tool's full schema | The **result** of `tool_search`: new history at the end, which keeps the cache | Per search |
+| Calling a found tool | `tool_call({ name, arguments })` | — |
+
+- `tool_search({ query })` returns up to 5 matches; the top 3 strong matches include their full schema.
+- `tool_call({ name, arguments })` is a gateway. The pipeline unwraps it before anything else, so
+  validation (with field-level errors), trust, receipts and the repeated-failure check all apply to the
+  real tool. It cannot call itself.
+- **Trade-off:** a tool reached through the gateway does not get the provider's native schema
+  enforcement; the model writes the arguments from the schema text. Validation catches mistakes and names
+  the wrong field, which the model then fixes.
+- **Promotion (later):** a deferred tool used often in a session could join the core set, but only when
+  a new session starts or the history is compacted, the moments the cache is rebuilt anyway.
+- **Core-set size per model:** small local models get a smaller core set (the `maxToolsPerRequest` quirk
+  in [F03](F03-model-providers.md)).
 
 This matters for local models with small context windows and for MCP servers with dozens of tools
 ([F18](F18-integrations-mcp.md)).

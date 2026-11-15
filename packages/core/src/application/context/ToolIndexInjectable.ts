@@ -20,7 +20,7 @@ export class ToolIndexInjectable extends BaseContextInjectable {
     if (!deferred.length) return null;
     const lines = deferred.map((t) => `- ${t.name}: ${firstSentence(t.description)}`);
     return [
-      'More tools exist than are listed with this request. Find one with tool_search, then call it:',
+      'More tools exist than are listed with this request. Find one with tool_search, then call it with tool_call:',
       ...lines,
     ].join('\n');
   }

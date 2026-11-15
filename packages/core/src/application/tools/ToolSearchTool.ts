@@ -12,7 +12,7 @@ const input = z.object({
 export class ToolSearchTool extends BaseTool<typeof input> {
   readonly name = 'tool_search';
   readonly description =
-    'Find a tool that is not listed in this request. Returns up to 5 matches; call one by name next.';
+    'Find a tool that is not listed in this request. Returns up to 5 matches; call one with tool_call.';
   readonly input = input;
   readonly effect = 'read' as const;
 
@@ -37,8 +37,9 @@ export class ToolSearchTool extends BaseTool<typeof input> {
         : `- ${tool.name}: ${tool.description}`,
     );
     return {
-      content: `Matching tools (call one by name):\n${lines.join('\n')}`,
-      // The runtime adds these tools' schemas to the following requests.
+      content:
+        `Matching tools. Call one with tool_call, e.g. ` +
+        `{"name": "${scored[0]!.tool.name}", "arguments": {…}}:\n${lines.join('\n')}`,
       data: { names: scored.map((s) => s.tool.name) },
     };
   }

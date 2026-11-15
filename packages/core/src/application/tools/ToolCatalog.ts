@@ -28,11 +28,14 @@ export class ToolCatalog implements ToolLookup {
     return [...this.tools.values()];
   }
 
-  /** Specs of the tools sent with every request (non-deferred), plus any extra names asked for. */
-  specs(extra: Iterable<string> = []): ToolSpec[] {
-    const names = new Set(extra);
+  /**
+   * The tools sent with every request: the non-deferred ones only. This list stays the same for a whole
+   * session, whatever the model discovers, so the provider's prompt cache is never invalidated by it;
+   * deferred tools are reached through tool_call.
+   */
+  specs(): ToolSpec[] {
     return this.list()
-      .filter((t) => !t.deferred || names.has(t.name))
+      .filter((t) => !t.deferred)
       .map(toolSpec);
   }
 }

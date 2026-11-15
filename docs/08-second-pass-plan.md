@@ -106,9 +106,11 @@ packages/
 #### S19. Deferred discovery
 - Add `ToolCatalog` with a core set plus deferred tools, a `tool_search` tool (the top 3 strong matches
   return their schemas), and `ToolIndexInjectable` listing the deferred names.
-- When the model calls a tool it has discovered, the runtime adds that tool's schema to the next request.
+- Found tools are called through the `tool_call` gateway, which the pipeline unwraps, so the tools array
+  stays the same for the whole session and the prompt cache stays valid. (Changed after S19 shipped:
+  the first version added each found tool to the array, costing a cache miss per discovery.)
 - *Check:* with 40 deferred test tools, the first request carries only the core set and the index (F05
-  criterion 4).
+  criterion 4), and the tools array is identical on every request of a session.
 
 ### Runtime (F04)
 

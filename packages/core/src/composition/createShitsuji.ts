@@ -16,6 +16,7 @@ import { PluginManager } from '../application/PluginManager.js';
 import { defaultMiddlewares } from '../application/tools/middlewares.js';
 import { ToolCatalog } from '../application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../application/tools/ToolPipeline.js';
+import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
@@ -133,6 +134,7 @@ export async function createShitsuji(
   log.info('Using chat model', { model: chat.ref });
   const tools = new ToolCatalog(plugins.tools());
   tools.add(new ToolSearchTool(() => tools.list()));
+  tools.add(new ToolCallGateway());
   const pipeline = new ToolPipeline(
     tools,
     defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock }),

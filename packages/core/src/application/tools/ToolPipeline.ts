@@ -1,5 +1,6 @@
 import type { ToolCall } from '../../domain/model/Message.js';
 import type { Tool, ToolContext, ToolEffect, ToolOutcome } from '../../ports/Tool.js';
+import { TOOL_CALL, toolCallInput } from './ToolCallGateway.js';
 
 /** One call travelling through the pipeline. Middlewares fill in `args` and `effect` as they learn them. */
 export interface ToolInvocation {
@@ -33,7 +34,26 @@ export class ToolPipeline {
     private readonly middlewares: readonly ToolMiddleware[],
   ) {}
 
-  async execute(call: ToolCall, ctx: ToolContext): Promise<ToolOutcome> {
+  async execute(original: ToolCall, ctx: ToolContext): Promise<ToolOutcome> {
+    // tool_call is a gateway: run the tool it names, so everything below applies to the real tool.
+    let call = original;
+    if (call.name === TOOL_CALL) {
+      const parsed = toolCallInput.safeParse(call.arguments);
+      if (!parsed.success) {
+        const problems = parsed.error.issues.map(
+          (i) => `${i.path.join('.') || '(arguments)'}: ${i.message}`,
+        );
+        return {
+          kind: 'error',
+          reason: 'invalid_input',
+          content: `Invalid arguments for tool_call: ${problems.join('; ')}`,
+        };
+      }
+      if (parsed.data.name === TOOL_CALL) {
+        return { kind: 'error', reason: 'invalid_input', content: 'tool_call cannot call itself' };
+      }
+      call = { id: call.id, name: parsed.data.name, arguments: parsed.data.arguments };
+    }
     const tool = this.tools.get(call.name);
     if (!tool) {
       return {

@@ -56,8 +56,6 @@ class TurnEnded extends Error {}
 export class TurnRunner {
   private readonly turnLock: TurnLock;
   private readonly limits: StepLimits;
-  /** Deferred tools discovered per session (kept in memory; a restart forgets them, harmlessly). */
-  private readonly discovered = new Map<string, Set<string>>();
 
   constructor(private readonly deps: TurnRunnerDeps) {
     this.turnLock = new TurnLock(deps.repos);
@@ -189,7 +187,7 @@ export class TurnRunner {
     const request: Omit<ModelRequest, 'model'> = {
       system: this.buildContext(session, history),
       messages: toModelMessages(trimToWholeExchanges(history)),
-      tools: this.tools(session.id),
+      tools: this.deps.tools.specs(),
       temperature: 0.7,
       maxOutputTokens: 4096,
       metadata: { turnId: turn.id },
@@ -243,10 +241,6 @@ export class TurnRunner {
     }
   }
 
-  private tools(sessionId: string) {
-    return this.deps.tools.specs(this.discoveredIn(sessionId));
-  }
-
   private async executeTool(
     session: Session,
     turn: Turn,
@@ -271,11 +265,6 @@ export class TurnRunner {
       writeFenced: (fn) => this.turnLock.write(turn.id, fn),
     });
     signal.throwIfAborted();
-    const found = this.discoveredIn(session.id);
-    found.add(call.name);
-    if (outcome.kind === 'ok' && Array.isArray(outcome.data?.names)) {
-      for (const n of outcome.data.names) if (typeof n === 'string') found.add(n);
-    }
     const ok = outcome.kind === 'ok';
     events.publish('tool.finished', { ...meta, ok, ...(!ok && { error: outcome.content }) });
     if (ok) events.publish('tool.result', { ...meta, success: true });
@@ -284,12 +273,6 @@ export class TurnRunner {
       throw new TurnEnded(outcome.content); // ends the turn instead of looping (F05)
     }
     return { content: outcomeText(outcome), isError: !ok };
-  }
-
-  private discoveredIn(sessionId: string): Set<string> {
-    let set = this.discovered.get(sessionId);
-    if (!set) this.discovered.set(sessionId, (set = new Set()));
-    return set;
   }
 
   private buildContext(session: Session, messages: Message[]): string {
