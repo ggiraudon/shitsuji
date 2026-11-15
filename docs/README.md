@@ -1,7 +1,7 @@
 # Shitsuji research docs
 
 This folder holds the research and design notes for taking Shitsuji from an early prototype to a capable,
-proactive personal assistant. It is documentation only. No code has changed yet.
+proactive personal assistant. Implementation follows [07-first-pass-plan.md](07-first-pass-plan.md).
 
 ## Read in this order
 
@@ -15,6 +15,10 @@ proactive personal assistant. It is documentation only. No code has changed yet.
 | 6 | [04-self-evolution.md](04-self-evolution.md) | What "self-evolving" can mean, what the other projects do, and the safeguards it needs |
 | 7 | [05-open-questions.md](05-open-questions.md) | Decisions to make together before implementation |
 | 8 | [06-class-map.md](06-class-map.md) | Mermaid class diagrams of the target code structure, one per area |
+| 9 | [07-first-pass-plan.md](07-first-pass-plan.md) | **The current plan**: F01 + F02 + F03 as ordered steps S1–S14 |
+| 10 | [PROGRESS.md](PROGRESS.md) | The checklist: first-pass steps and every feature's acceptance criteria |
+
+Rules for working on the code (commits, layers, tests) are in [AGENTS.md](../AGENTS.md).
 
 ## Ground rules from the brief
 
