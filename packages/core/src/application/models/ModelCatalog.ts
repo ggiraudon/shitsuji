@@ -1,0 +1,71 @@
+import { Money } from '../../domain/model/Money.js';
+import type { TokenUsage } from '../../ports/ModelProvider.js';
+
+export const MODEL_PURPOSES = [
+  'chat',
+  'task',
+  'helper',
+  'classify',
+  'summarize',
+  'vision',
+  'embed',
+  'trust',
+] as const;
+/** What a model call is for; callers ask for a purpose, never a model (F03). */
+export type ModelPurpose = (typeof MODEL_PURPOSES)[number];
+
+export const CAPABILITIES = [
+  'tools',
+  'vision',
+  'reasoning',
+  'json_mode',
+  'embeddings',
+  'audio',
+] as const;
+export type Capability = (typeof CAPABILITIES)[number];
+
+export interface ModelPrice {
+  inputPerMTok: Money;
+  outputPerMTok: Money;
+  /** Price for input served from the prompt cache; defaults to the input price. */
+  cachedInputPerMTok?: Money;
+}
+
+/** What we know about one model. Anything missing is unknown, not assumed. */
+export interface ModelInfo {
+  /** "provider/model". */
+  ref: string;
+  contextWindow?: number;
+  maxOutput?: number;
+  /** Undefined when nobody has said; then capability checks are skipped (with a warning). */
+  capabilities?: ReadonlySet<Capability>;
+  price?: ModelPrice;
+}
+
+/** Models known from the configuration (models.catalog). */
+export class ModelCatalog {
+  private readonly byRef: ReadonlyMap<string, ModelInfo>;
+
+  constructor(models: readonly ModelInfo[] = []) {
+    this.byRef = new Map(models.map((m) => [m.ref, m]));
+  }
+
+  get(ref: string): ModelInfo | undefined {
+    return this.byRef.get(ref);
+  }
+
+  /**
+   * The cost of one call, or undefined if the model has no price. Cached input is charged at the
+   * cached price; the rest of the input at the normal price.
+   */
+  cost(ref: string, usage: TokenUsage): Money | undefined {
+    const price = this.byRef.get(ref)?.price;
+    if (!price) return undefined;
+    const cached = Math.min(usage.cachedInputTokens ?? 0, usage.inputTokens);
+    const fresh = usage.inputTokens - cached;
+    return price.inputPerMTok
+      .times(fresh / 1_000_000)
+      .plus((price.cachedInputPerMTok ?? price.inputPerMTok).times(cached / 1_000_000))
+      .plus(price.outputPerMTok.times(usage.outputTokens / 1_000_000));
+  }
+}

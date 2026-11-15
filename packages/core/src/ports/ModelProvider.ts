@@ -21,6 +21,8 @@ export interface ModelRequest {
   tools?: ToolSpec[];
   temperature?: number;
   maxOutputTokens?: number;
+  /** Who is asking, for metering and logs. Adapters ignore it. */
+  metadata?: { purpose?: string; turnId?: string };
 }
 
 export interface TokenUsage {
