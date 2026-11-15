@@ -222,7 +222,7 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
         turnId: t.id,
         purpose: 'chat',
         provider: 'deepseek',
-        model: 'deepseek-v4.1-flash',
+        model: 'deepseek-flash',
         inputTokens: 1200,
         outputTokens: 80,
         cachedInputTokens: 1000,

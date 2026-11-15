@@ -14,7 +14,7 @@ export interface ModelMessage {
 }
 
 export interface ModelRequest {
-  /** The provider's model name, e.g. "deepseek-v4.1-flash". */
+  /** The provider's model name, e.g. "deepseek-flash". */
   model: string;
   system?: string;
   messages: ModelMessage[];
@@ -50,7 +50,7 @@ export type ModelStreamEvent =
  * complete() from application/modelCalls.ts to collect a whole response.
  */
 export interface ModelProvider {
-  /** The id model refs use, e.g. "deepseek" in "deepseek/deepseek-v4.1-flash". */
+  /** The id model refs use, e.g. "deepseek" in "deepseek/deepseek-flash". */
   readonly id: string;
   stream(request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent>;
   /** Model names the endpoint offers, when it can list them; otherwise []. */

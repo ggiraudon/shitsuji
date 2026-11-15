@@ -100,7 +100,7 @@ something is clearly broken (for example, every browser call failing for an hour
 - Every model request appears once in the ledger with tokens; cost appears when the price is known.
 - A task that passes its check-in pauses and asks on the channel it came from.
 - The Usage screen shows each action with what allowed it.
-- `pnpm eval --model deepseek/deepseek-v4.1-flash` runs at least five scenarios and prints a report.
+- `pnpm eval --model deepseek/deepseek-flash` runs at least five scenarios and prints a report.
 
 ## Risks and open questions
 

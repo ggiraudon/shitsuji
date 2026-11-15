@@ -151,7 +151,7 @@ function modelsFromEnv(env: Env): Record<string, unknown> {
     'deepseek',
     env.DEEPSEEK_API_KEY,
     { kind: 'openai-compatible', baseUrl: env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com/v1' },
-    'deepseek-v4.1-flash',
+    'deepseek-flash',
   );
   add(
     'openai',

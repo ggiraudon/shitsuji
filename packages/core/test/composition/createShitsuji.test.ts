@@ -121,7 +121,7 @@ describe('createShitsuji', () => {
       config({
         models: {
           providers: { deepseek: { kind: 'openai-compatible', apiKey: 'k' } },
-          purposes: { chat: 'deepseek/deepseek-v4.1-flash' },
+          purposes: { chat: 'deepseek/deepseek-flash' },
         },
       }),
       { services: testServices() },

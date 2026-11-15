@@ -48,7 +48,7 @@ describe('loadConfig defaults', () => {
       baseUrl: 'https://api.deepseek.com/v1',
     });
     expect(config.models.providers.deepseek!.apiKey!.reveal()).toBe('ds-key');
-    expect(config.models.purposes.chat).toBe('deepseek/deepseek-v4.1-flash');
+    expect(config.models.purposes.chat).toBe('deepseek/deepseek-flash');
   });
 
   it('keeps the old OpenAI fallback when it is the only key', () => {
@@ -66,7 +66,7 @@ models:
     deepseek: { kind: openai-compatible, baseUrl: "\${DS_URL:-https://api.deepseek.com/v1}", apiKey: "\${DEEPSEEK_API_KEY}" }
     local: { kind: openai-compatible, baseUrl: "http://\${OLLAMA_HOST:-ollama}:11434/v1", apiKey: "\${OLLAMA_KEY}" }
   purposes:
-    chat: deepseek/deepseek-v4.1-flash
+    chat: deepseek/deepseek-flash
     classify: local/qwen3:4b
 `);
     const { config, source } = load({ DEEPSEEK_API_KEY: 'k1' });

@@ -83,7 +83,7 @@ This fixes bug 3 for every OpenAI-compatible endpoint.
 
 ```ts
 interface ModelInfo {
-  ref: ModelRef;                     // "deepseek/deepseek-v4.1-flash"
+  ref: ModelRef;                     // "deepseek/deepseek-flash"
   contextWindow: number;
   maxOutput: number;
   capabilities: Set<'tools' | 'vision' | 'reasoning' | 'json_mode' | 'embeddings' | 'audio'>;
@@ -117,13 +117,13 @@ models:
     local:      { kind: openai-compatible, baseUrl: http://ollama:11434/v1, quirks: { toolCalls: json-in-text } }
   purposes:
     # decided: DeepSeek V4.1 Flash for every purpose except classify and embed (05-open-questions M1)
-    chat:      deepseek/deepseek-v4.1-flash
-    task:      deepseek/deepseek-v4.1-flash
+    chat:      deepseek/deepseek-flash
+    task:      deepseek/deepseek-flash
     classify:  local/qwen3:4b        # cheap yes/no decisions, falls back to chat model if down
-    summarize: deepseek/deepseek-v4.1-flash
-    vision:    deepseek/deepseek-v4.1-flash  # V4.1 Flash accepts images; same model as chat
+    summarize: deepseek/deepseek-flash
+    vision:    deepseek/deepseek-flash  # V4.1 Flash accepts images; same model as chat
     embed:     local/nomic-embed-text
-    trust:     deepseek/deepseek-v4.1-flash
+    trust:     deepseek/deepseek-flash
   fallbacks:
     chat: [openrouter/<another model>]
 ```

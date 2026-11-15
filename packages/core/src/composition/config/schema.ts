@@ -11,7 +11,7 @@ const secret = z
   .min(1)
   .transform((raw) => new Secret(raw));
 
-/** "provider/model", e.g. "deepseek/deepseek-v4.1-flash". The model part may itself contain slashes. */
+/** "provider/model", e.g. "deepseek/deepseek-flash". The model part may itself contain slashes. */
 const modelRef = z
   .string()
   .regex(/^[A-Za-z0-9_.-]+\/.+$/, 'must look like "provider/model", e.g. "deepseek/deepseek-chat"');

@@ -27,7 +27,7 @@ const calculator: ToolSpec = {
 };
 
 const request = (extra: Partial<ModelRequest> = {}): ModelRequest => ({
-  model: 'deepseek-v4.1-flash',
+  model: 'deepseek-flash',
   system: 'You are Shitsuji.',
   messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
   ...extra,
@@ -61,7 +61,7 @@ describe('OpenAICompatibleProvider: DeepSeek', () => {
       method: 'POST',
       headers: { authorization: 'Bearer sk-test', 'content-type': 'application/json' },
       body: {
-        model: 'deepseek-v4.1-flash',
+        model: 'deepseek-flash',
         stream: true,
         stream_options: { include_usage: true },
         messages: [
@@ -201,10 +201,10 @@ describe('OpenAICompatibleProvider: DeepSeek', () => {
   it('lists models', async () => {
     const { p, requests } = provider([
       {
-        body: '{"object":"list","data":[{"id":"deepseek-v4.1-flash"},{"id":"deepseek-reasoner"}]}',
+        body: '{"object":"list","data":[{"id":"deepseek-flash"},{"id":"deepseek-reasoner"}]}',
       },
     ]);
-    expect(await p.listModels()).toEqual(['deepseek-v4.1-flash', 'deepseek-reasoner']);
+    expect(await p.listModels()).toEqual(['deepseek-flash', 'deepseek-reasoner']);
     expect(requests[0]).toMatchObject({ method: 'GET', url: 'https://api.deepseek.com/v1/models' });
   });
 });

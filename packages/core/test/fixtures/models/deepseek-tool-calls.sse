@@ -1,20 +1,20 @@
 : hand-written from the documented stream format of this provider; replace with a real recording once an API key is available
 
-data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"role": "assistant", "content": null, "tool_calls": [{"index": 0, "id": "call_a1", "type": "function", "function": {"name": "calculator", "arguments": ""}}]}, "finish_reason": null}]}
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-flash", "choices": [{"index": 0, "delta": {"role": "assistant", "content": null, "tool_calls": [{"index": 0, "id": "call_a1", "type": "function", "function": {"name": "calculator", "arguments": ""}}]}, "finish_reason": null}]}
 
-data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\"expr"}}]}, "finish_reason": null}]}
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\"expr"}}]}, "finish_reason": null}]}
 
-data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "ession\": \"6 *"}}]}, "finish_reason": null}]}
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "ession\": \"6 *"}}]}, "finish_reason": null}]}
 
-data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 1, "id": "call_b2", "type": "function", "function": {"name": "web_search", "arguments": "{\"query\""}}]}, "finish_reason": null}]}
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 1, "id": "call_b2", "type": "function", "function": {"name": "web_search", "arguments": "{\"query\""}}]}, "finish_reason": null}]}
 
-data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": " 7\"}"}}]}, "finish_reason": null}]}
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": " 7\"}"}}]}, "finish_reason": null}]}
 
-data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 1, "function": {"arguments": ": \"weather Paris\"}"}}]}, "finish_reason": null}]}
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-flash", "choices": [{"index": 0, "delta": {"tool_calls": [{"index": 1, "function": {"arguments": ": \"weather Paris\"}"}}]}, "finish_reason": null}]}
 
-data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-flash", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
 
-data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-v4.1-flash", "choices": [], "usage": {"prompt_tokens": 300, "completion_tokens": 40, "total_tokens": 340}}
+data: {"id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 1763000000, "model": "deepseek-flash", "choices": [], "usage": {"prompt_tokens": 300, "completion_tokens": 40, "total_tokens": 340}}
 
 data: [DONE]
 

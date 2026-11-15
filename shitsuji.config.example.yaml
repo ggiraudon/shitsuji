@@ -33,16 +33,16 @@ models:
     #   kind: anthropic
     #   apiKey: ${ANTHROPIC_API_KEY}
   purposes:
-    chat: deepseek/deepseek-v4.1-flash
-    task: deepseek/deepseek-v4.1-flash
-    summarize: deepseek/deepseek-v4.1-flash
-    vision: deepseek/deepseek-v4.1-flash
-    trust: deepseek/deepseek-v4.1-flash
+    chat: deepseek/deepseek-flash
+    task: deepseek/deepseek-flash
+    summarize: deepseek/deepseek-flash
+    vision: deepseek/deepseek-flash
+    trust: deepseek/deepseek-flash
   fallbacks: {}
   # What is known about each model. Prices are never guessed: without one, usage is recorded with
   # an unknown cost. Fill them in from the provider's price list (per million tokens).
   catalog:
-    deepseek/deepseek-v4.1-flash:
+    deepseek/deepseek-flash:
       capabilities: [tools, vision, reasoning]
       # price: { currency: USD, inputPerMTok: 0, cachedInputPerMTok: 0, outputPerMTok: 0 }
   retry:
