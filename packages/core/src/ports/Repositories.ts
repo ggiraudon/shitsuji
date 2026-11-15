@@ -47,6 +47,8 @@ export interface SessionRepository {
 export interface TurnRepository {
   insert(turn: Turn, tx?: Transaction): Promise<void>;
   get(id: TurnId, tx?: Transaction): Promise<Turn | undefined>;
+  /** Like get, but locks the row until the transaction ends (SELECT … FOR UPDATE). Needs a tx. */
+  getForUpdate(id: TurnId, tx: Transaction): Promise<Turn | undefined>;
   /**
    * Saves the turn only if its stored status is still `expected` (compare-and-set), so two workers can
    * never both move the same turn. Returns false, and writes nothing, if someone else got there first.

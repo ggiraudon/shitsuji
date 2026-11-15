@@ -14,7 +14,8 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "check": "pnpm typecheck && pnpm lint && pnpm check:imports && pnpm test",
-    "check:imports": "tsx scripts/check-imports.ts"
+    "check:imports": "tsx scripts/check-imports.ts",
+    "test:integration": "pnpm -r --if-present test:integration"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

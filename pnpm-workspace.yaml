@@ -4,3 +4,8 @@ packages:
 # Packages allowed to run install scripts (pnpm blocks them by default).
 allowBuilds:
   esbuild: true
+  # Pulled in by testcontainers: optional native SSH speed-ups and a protobufjs post-install
+  # step. Not needed to reach Docker over the local socket/pipe, so they stay blocked.
+  cpu-features: false
+  protobufjs: false
+  ssh2: false

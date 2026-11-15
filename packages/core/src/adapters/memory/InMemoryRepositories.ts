@@ -145,6 +145,11 @@ export class InMemoryRepositories implements Repositories {
       const p = this.state.turns.get(id);
       return p && Turn.restore(copy(p));
     },
+    // Transactions already run one at a time here, so reading is enough to "lock".
+    getForUpdate: async (id) => {
+      const p = this.state.turns.get(id);
+      return p && Turn.restore(copy(p));
+    },
     update: async (turn, expected: TurnStatus) => {
       const stored = this.state.turns.get(turn.id);
       if (!stored || stored.status !== expected) return false;
