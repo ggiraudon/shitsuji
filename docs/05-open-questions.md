@@ -11,7 +11,7 @@ Decisions to make together before implementation starts. Each has a proposal so 
 | A3 | Postgres only (with pgvector). Unit tests use in-memory repository fakes; integration tests use a real Postgres container. None of the reference projects uses an ORM: nod and openfuse use raw SQL on Postgres, openbot and OpenMausBot use `node:sqlite` |
 | A4 | Kysely, with plain migration files |
 | A5 | The TUI becomes a client of the core HTTP API, built **early**: it is the first working interface, used for troubleshooting before the web UI is ready |
-| D1 | Develop inside the Debian WSL2 distro, with the repo at `~/shitsuji` on the Linux filesystem. Docker comes from **Docker Desktop** on Windows, with WSL integration turned on for Debian (no systemd in WSL). Compose files must still work on a plain Linux host, so nothing may depend on Docker Desktop-only features such as `host.docker.internal` |
+| D1 | Develop on **Windows**, in the existing repo folder, with **Docker Desktop** (WSL2 backend; WSL integration also on for Debian). Mounting Windows folders into containers is slow and file watching is unreliable, so dev containers mount as little source as possible, keep `node_modules` and database data in named volumes, and run watchers inside the container. Compose files must still work on a plain Linux host: no Docker Desktop-only features such as `host.docker.internal`, and no Windows paths |
 | M1 | `deepseek/deepseek-v4.1-flash` for chat, task, summarize, trust and vision |
 | P1 | One owner; every table still has `owner_id` |
 | R1 | **F01 + F02 + F03 in one first pass** (structure, database, model providers), not F01 alone |
