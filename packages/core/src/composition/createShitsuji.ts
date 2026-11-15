@@ -150,6 +150,7 @@ export async function createShitsuji(
     clock: services.clock,
     log,
     events,
+    stabilityCheck: process.env.NODE_ENV !== 'production',
   });
   Object.assign(facts, {
     storage: config.database.url && !options.repos ? 'postgres' : 'memory',

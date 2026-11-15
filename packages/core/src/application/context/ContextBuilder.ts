@@ -9,6 +9,7 @@ import type {
   InjectionPlacement,
 } from '../../ports/ContextInjectable.js';
 import type { ModelMessage } from '../../ports/ModelProvider.js';
+import type { Logger } from '../../ports/Logger.js';
 import type { Repositories } from '../../ports/Repositories.js';
 
 /** One injectable's text, with the id that produced it (for tests and the stability check). */
@@ -34,8 +35,14 @@ export interface ContextBuilderDeps {
   injectables: () => readonly ContextInjectable[];
   repos: Repositories;
   ownerId: OwnerId;
+  log: Logger;
   /** The most recent messages sent to the model; the open request is always kept. */
   historyLimit?: number;
+  /**
+   * Warn when a header injectable changes on every call (development and tests; off elsewhere).
+   * A clock or a mood that slipped into the header would break the provider's prompt cache.
+   */
+  stabilityCheck?: boolean;
 }
 
 const PLACEMENT_RANK: Record<InjectionPlacement, number> = { header: 0, context: 1, tail: 2 };
@@ -49,6 +56,8 @@ const PLACEMENT_RANK: Record<InjectionPlacement, number> = { header: 0, context:
 export class ContextBuilder {
   /** Injectable ids that already rendered once in a session (`once` condition). */
   private readonly renderedOnce = new Map<SessionId, Set<string>>();
+  /** The previous header text per session and injectable, for the stability check. */
+  private readonly headerSeen = new Map<SessionId, Map<string, HeaderState>>();
 
   constructor(private readonly deps: ContextBuilderDeps) {}
 
@@ -92,6 +101,7 @@ export class ContextBuilder {
       parts: [{ type: 'text', text: note.text }],
     }));
     const tail = rendered.tail.length ? rendered.tail.map((n) => n.text).join('\n\n') : undefined;
+    this.checkHeaderStability(session.id, rendered.header);
 
     return {
       ...(rendered.header.length && { system: rendered.header.map((n) => n.text).join('\n\n') }),
@@ -133,6 +143,46 @@ export class ContextBuilder {
     seen.add(injectableId);
     this.renderedOnce.set(sessionId, seen);
   }
+
+  /**
+   * Compares each header injectable with its text in the previous call of the same session and warns
+   * once when one keeps changing: it belongs in the tail, or it costs a cache miss per call.
+   */
+  private checkHeaderStability(sessionId: SessionId, header: RenderedNote[]): void {
+    if (this.deps.stabilityCheck === false) return;
+    const state = this.headerSeen.get(sessionId) ?? new Map<string, HeaderState>();
+    const rendered = new Set(header.map((n) => n.id));
+    for (const note of header) {
+      const previous = state.get(note.id);
+      if (!previous) {
+        state.set(note.id, { text: note.text, changes: 0, warned: false });
+        continue;
+      }
+      if (previous.text === note.text) {
+        previous.changes = 0;
+        previous.warned = false;
+        continue;
+      }
+      previous.text = note.text;
+      previous.changes++;
+      if (previous.changes >= 2 && !previous.warned) {
+        previous.warned = true;
+        this.deps.log.warn(
+          'A header injectable changes on every call; put it in the tail so the prompt cache lasts',
+          { injectable: note.id, sessionId },
+        );
+      }
+    }
+    for (const id of state.keys()) if (!rendered.has(id)) state.delete(id);
+    this.headerSeen.set(sessionId, state);
+  }
+}
+
+interface HeaderState {
+  text: string;
+  /** Consecutive calls in which this injectable rendered different text. */
+  changes: number;
+  warned: boolean;
 }
 
 /**

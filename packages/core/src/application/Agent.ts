@@ -37,6 +37,8 @@ export interface AgentOptions {
   historyLimit?: number;
   /** Model calls per turn by session kind (decision Q5). */
   limits?: Partial<StepLimits>;
+  /** Warn when a header injectable changes on every call (default on: tests and development). */
+  stabilityCheck?: boolean;
 }
 
 export type SendOptions = SubmitOptions;
@@ -76,7 +78,9 @@ export class Agent {
       injectables: () => this.injectables,
       repos: options.repos,
       ownerId: options.ownerId,
+      log: options.log,
       historyLimit: options.historyLimit,
+      stabilityCheck: options.stabilityCheck ?? true,
     });
     const runner = new TurnRunner({
       agentName: this.name,

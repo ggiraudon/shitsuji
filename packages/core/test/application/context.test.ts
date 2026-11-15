@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ManualClock } from '../../src/adapters/clock/SystemClock.js';
+import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { ContextBuilder } from '../../src/application/context/ContextBuilder.js';
 import { Session, type SessionKind } from '../../src/domain/model/Session.js';
@@ -48,6 +49,7 @@ async function fixture(
   options: { kind?: SessionKind; historyLimit?: number } = {},
 ) {
   const repos = new InMemoryRepositories();
+  const log = new MemoryLogger();
   const clock = new ManualClock('2026-11-15T09:00:00.000Z');
   await repos.owners.upsert({
     id: OWNER,
@@ -85,9 +87,10 @@ async function fixture(
     injectables: () => injectables,
     repos,
     ownerId: OWNER,
+    log,
     historyLimit: options.historyLimit,
   });
-  return { builder, repos, session, turn, append };
+  return { builder, repos, session, turn, append, log };
 }
 
 const text = (value: string): ContentPart[] => [{ type: 'text', text: value }];
@@ -179,5 +182,69 @@ describe('ContextBuilder: placement and order (S23)', () => {
 
     expect(built.sources[0]!.parts).toEqual([{ type: 'text', text: 'the open request' }]);
     expect(built.messages.at(-1)!.parts).toEqual([{ type: 'text', text: 'working 3' }]);
+  });
+});
+
+/** A note whose text changes on every render, like a clock that ended up in the header. */
+class VolatileNote extends BaseContextInjectable {
+  readonly id = 'volatile';
+  readonly name = 'Volatile';
+  readonly description = '';
+  constructor(placement: InjectionPlacement) {
+    super();
+    this.placement = placement;
+  }
+  private count = 0;
+  render(): string {
+    return `CHANGED ${++this.count}`;
+  }
+}
+
+describe('ContextBuilder: header stability check (S23)', () => {
+  it('warns once when a header injectable changes on every call', async () => {
+    const { builder, session, turn, append, log } = await fixture([new VolatileNote('header')]);
+    await append('user', text('hello'));
+
+    await builder.build(session, turn);
+    await builder.build(session, turn);
+    await builder.build(session, turn);
+    await builder.build(session, turn);
+
+    const warnings = log.records.filter((r) => r.level === 'warn');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.message).toMatch(/header injectable changes/);
+    expect(warnings[0]!.context.injectable).toBe('volatile');
+  });
+
+  it('stays quiet for a stable header and a volatile tail', async () => {
+    const { builder, session, turn, append, log } = await fixture([
+      new Note('identity', 'header', -1, 'You are Shitsuji.'),
+      new VolatileNote('tail'),
+    ]);
+    await append('user', text('hello'));
+
+    for (let i = 0; i < 4; i++) await builder.build(session, turn);
+
+    expect(log.records.filter((r) => r.level === 'warn')).toEqual([]);
+  });
+
+  it('accepts a header that changes once', async () => {
+    class ChangesOnce extends BaseContextInjectable {
+      readonly id = 'once-only';
+      readonly name = 'Once';
+      readonly description = '';
+      private calls = 0;
+      render(): string {
+        return ++this.calls === 1 ? 'FIRST' : 'SECOND';
+      }
+    }
+    const { builder, session, turn, append, log } = await fixture([new ChangesOnce()]);
+    await append('user', text('hello'));
+
+    await builder.build(session, turn);
+    await builder.build(session, turn);
+    await builder.build(session, turn);
+
+    expect(log.records.filter((r) => r.level === 'warn')).toEqual([]);
   });
 });
