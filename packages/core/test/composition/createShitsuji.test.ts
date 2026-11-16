@@ -112,6 +112,14 @@ describe('createShitsuji', () => {
     await shitsuji.stop();
   });
 
+  it('refuses Telegram enabled without a token (S32)', async () => {
+    await expect(
+      createShitsuji(config({ channels: { telegram: { enabled: true } } }), {
+        services: testServices(),
+      }),
+    ).rejects.toThrow(/channels\.telegram\.token/);
+  });
+
   it('fails clearly when no plugin registers the chat provider', async () => {
     await expect(createShitsuji(config(), { services: testServices() })).rejects.toThrow(
       /models\.purposes\.chat: .*uses provider "fake", which is not registered/,

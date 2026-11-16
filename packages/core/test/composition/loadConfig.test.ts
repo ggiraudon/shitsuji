@@ -42,6 +42,8 @@ describe('loadConfig defaults', () => {
       port: 3000,
       path: '/webhook',
     });
+    expect(config.channels.telegram.enabled).toBe(false);
+    expect(config.channels.telegram.token).toBeUndefined();
     expect(config.models.providers).toEqual({});
     expect(config.budget).toEqual({
       currency: 'USD',
@@ -145,6 +147,16 @@ describe('environment overrides', () => {
     expect(load({ SHITSUJI_API_ENABLED: 'false' }).config.api.enabled).toBe(false);
     expect(load({ SHITSUJI_API_ENABLED: 'yes' }).config.api.enabled).toBe(true);
     expect(() => load({ SHITSUJI_API_ENABLED: 'maybe' })).toThrow(/api\.enabled/);
+  });
+
+  it('reads Telegram from the environment, keeping the token secret (S32)', () => {
+    const { config } = load({
+      SHITSUJI_TELEGRAM_ENABLED: 'true',
+      SHITSUJI_TELEGRAM_TOKEN: '123456:abc',
+    });
+    expect(config.channels.telegram.enabled).toBe(true);
+    expect(String(config.channels.telegram.token)).toBe('[secret]');
+    expect(config.channels.telegram.token!.reveal()).toBe('123456:abc');
   });
 
   it('turns the header stability check off in production unless told otherwise', () => {
