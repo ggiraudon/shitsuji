@@ -359,10 +359,30 @@ export class InMemoryRepositories implements Repositories {
       this.heldTotal(ownerId, since, currency, background),
     spentSince: async (ownerId, since, currency, background) =>
       this.spentTotal(ownerId, since, currency, background),
-    sessionSpentSince: async (ownerId, sessionId, since, currency) =>
-      this.spentTotal(ownerId, since, currency, undefined, sessionId).plus(
-        this.heldTotal(ownerId, since, currency, undefined, sessionId),
-      ),
+    sessionSpentSince: async (ownerId, sessionId, since, currency) => {
+      const at = since.getTime();
+      const usage = this.state.usage
+        .filter(
+          (u) =>
+            u.ownerId === ownerId &&
+            u.sessionId === sessionId &&
+            u.currency === currency &&
+            u.costMicros !== undefined &&
+            u.at.getTime() > at,
+        )
+        .reduce((sum, u) => sum + (u.costMicros ?? 0), 0);
+      const held = this.state.budgetHolds
+        .filter(
+          (h) =>
+            h.ownerId === ownerId &&
+            h.sessionId === sessionId &&
+            h.state === 'held' &&
+            h.currency === currency &&
+            h.createdAt.getTime() > at,
+        )
+        .reduce((sum, h) => sum + h.amountMicros, 0);
+      return Money.fromMicros(usage + held, currency);
+    },
     releaseAllHeld: async (at) => {
       let released = 0;
       for (const row of this.state.budgetHolds) {

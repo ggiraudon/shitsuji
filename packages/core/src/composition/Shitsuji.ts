@@ -59,8 +59,14 @@ export class Shitsuji {
     await this.recovery.run();
     await this.jobs.start();
     this.offReplies = this.events.subscribe('turn.status', (e) => {
-      if (!e.replyChannel || !['succeeded', 'failed', 'cancelled'].includes(e.status)) return;
-      const text = e.status === 'succeeded' ? (e.reply ?? '') : `Error: ${e.error ?? e.status}`;
+      if (!e.replyChannel || !['succeeded', 'waiting', 'failed', 'cancelled'].includes(e.status))
+        return;
+      const text =
+        e.status === 'succeeded'
+          ? (e.reply ?? '')
+          : e.status === 'waiting'
+            ? (e.question ?? '')
+            : `Error: ${e.error ?? e.status}`;
       void this.deliver(e.replyChannel, text);
     });
     await this.agent.start();

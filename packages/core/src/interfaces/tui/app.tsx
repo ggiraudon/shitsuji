@@ -68,6 +68,12 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
             turn.current = e.turnId;
             setTurnId(e.turnId);
             setStatus('Working… (Esc to stop)');
+          } else if (e.status === 'waiting') {
+            setStreaming('');
+            add('assistant', e.question ?? '');
+            turn.current = null;
+            setTurnId(null);
+            setStatus('Waiting for your answer');
           } else if (
             e.status === 'succeeded' ||
             e.status === 'failed' ||

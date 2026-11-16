@@ -152,6 +152,26 @@ describe('TUI', () => {
     ui.unmount();
   });
 
+  it('shows the question of a waiting turn and waits for the answer', async () => {
+    const { client, emit } = fakeClient();
+    const ui = render(<ShitsujiApp client={client} />);
+    await tick();
+
+    emit({
+      type: 'turn.status',
+      turnId: 't1',
+      sessionId: 's1',
+      status: 'waiting',
+      question: 'This has cost 1.20 USD so far. Keep going?',
+    });
+    await tick();
+
+    const frame = ui.lastFrame()!;
+    expect(frame).toContain('Shitsuji: This has cost 1.20 USD so far. Keep going?');
+    expect(frame).toContain('Waiting for your answer');
+    ui.unmount();
+  });
+
   it('starts a new conversation with /new and ignores events from other sessions', async () => {
     const { client, calls, emit } = fakeClient([msg({ text: 'old' })]);
     const ui = render(<ShitsujiApp client={client} />);

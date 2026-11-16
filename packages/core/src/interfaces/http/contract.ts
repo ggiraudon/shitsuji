@@ -65,6 +65,7 @@ export type LiveEvent =
       sessionId: string;
       status: string;
       reply?: string;
+      question?: string;
       error?: string;
     }
   | { type: 'turn.text_delta'; turnId: string; sessionId: string; text: string }

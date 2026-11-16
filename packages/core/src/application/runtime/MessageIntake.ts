@@ -50,13 +50,16 @@ export class MessageIntake {
       const turns = await repos.turns.listBySession(session.id, tx);
       const running = turns.find((t) => t.status === 'running');
       const queued = turns.find((t) => t.status === 'queued');
+      // A waiting turn asked a question or paused at the check-in; the owner's next message
+      // continues that session as a resume turn (F04, S28).
+      const waiting = turns.at(-1)?.status === 'waiting';
       const turn =
         running ??
         queued ??
         Turn.create({
           id: newId(),
           sessionId: session.id,
-          source: opts.source ?? 'user',
+          source: opts.source ?? (waiting ? 'resume' : 'user'),
           createdAt: clock.now(),
           replyChannel: opts.replyChannel,
         });

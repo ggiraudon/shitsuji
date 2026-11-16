@@ -596,8 +596,8 @@ export class PostgresRepositories implements Repositories {
     spentSince: (ownerId, since, currency, background, tx) =>
       usageTotal(this.ex(tx), ownerId, since, currency, background),
     sessionSpentSince: async (ownerId, sessionId, since, currency, tx) =>
-      (await usageTotal(this.ex(tx), ownerId, since, currency, undefined, sessionId)).plus(
-        await heldTotal(this.ex(tx), ownerId, since, currency, undefined, sessionId),
+      (await usageTotal(this.ex(tx), ownerId, since, currency, undefined, sessionId, true)).plus(
+        await heldTotal(this.ex(tx), ownerId, since, currency, undefined, sessionId, true),
       ),
     releaseAllHeld: async (at) => {
       const result = await this.ex()
@@ -683,12 +683,14 @@ async function usageTotal(
   currency: string,
   background?: boolean,
   sessionId?: SessionId,
+  strict = false,
 ): Promise<Money> {
+  const op: '>' | '>=' = strict ? '>' : '>=';
   const row = await ex
     .selectFrom('usage')
     .select(sql<string>`COALESCE(SUM(cost_micros), 0)`.as('total'))
     .where('owner_id', '=', ownerId)
-    .where('at', '>=', since)
+    .where('at', op, since)
     .where('currency', '=', currency)
     .where('cost_micros', 'is not', null)
     .$if(background !== undefined, (qb) => qb.where('background', '=', background!))
@@ -705,13 +707,15 @@ async function heldTotal(
   currency: string,
   background?: boolean,
   sessionId?: SessionId,
+  strict = false,
 ): Promise<Money> {
+  const op: '>' | '>=' = strict ? '>' : '>=';
   const row = await ex
     .selectFrom('budget_reservations')
     .select(sql<string>`COALESCE(SUM(amount_micros), 0)`.as('total'))
     .where('owner_id', '=', ownerId)
     .where('state', '=', 'held')
-    .where('created_at', '>=', since)
+    .where('created_at', op, since)
     .where('currency', '=', currency)
     .$if(background !== undefined, (qb) => qb.where('background', '=', background!))
     .$if(sessionId !== undefined, (qb) => qb.where('session_id', '=', sessionId!))

@@ -481,7 +481,7 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       await usage(other.id, 0.9, at(11));
       await usage(session.id, 0.4, at(9)); // before the window
 
-      expect((await repos.budget.sessionSpentSince(owner, session.id, at(10), 'USD')).micros).toBe(
+      expect((await repos.budget.sessionSpentSince(owner, session.id, at(9), 'USD')).micros).toBe(
         500_000,
       );
 
@@ -497,7 +497,7 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
         now: at(12),
         sessionId: session.id,
       });
-      expect((await repos.budget.sessionSpentSince(owner, session.id, at(10), 'USD')).micros).toBe(
+      expect((await repos.budget.sessionSpentSince(owner, session.id, at(9), 'USD')).micros).toBe(
         750_000,
       );
     });

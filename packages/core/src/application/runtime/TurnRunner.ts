@@ -17,6 +17,7 @@ import type { Repositories, Transaction } from '../../ports/Repositories.js';
 import type { BuiltContext, ContextBuilder } from '../context/ContextBuilder.js';
 import type { ModelResponse } from '../modelCalls.js';
 import type { ModelRouter } from '../models/ModelRouter.js';
+import type { BudgetService } from '../budget/BudgetService.js';
 import type { SoulSource } from '../soul/SoulService.js';
 import type { ToolCatalog } from '../tools/ToolCatalog.js';
 import { outcomeText, type ToolPipeline } from '../tools/ToolPipeline.js';
@@ -38,12 +39,19 @@ export interface TurnRunnerDeps {
   context: ContextBuilder;
   /** The SOUL this turn runs with; absent in tests that do not care. */
   soul?: SoulSource;
+  /** Checks the check-in limit; absent when the run has no budget (unit tests). */
+  budget?: BudgetService;
   limits?: Partial<StepLimits>;
 }
 
 /** The end of a turn, as the scheduler and callers see it. */
 export type TurnResult =
-  { status: 'succeeded'; reply: string } | { status: 'failed' | 'cancelled'; error: string };
+  | { status: 'succeeded'; reply: string }
+  | { status: 'waiting'; question: string }
+  | { status: 'failed' | 'cancelled'; error: string };
+
+/** One pass of the loop: an answer, or a question when the check-in limit is passed. */
+type LoopOutcome = { kind: 'reply'; text: string } | { kind: 'question'; text: string };
 
 /** A turn ended on purpose before an answer: a step limit, a stall, a repeated tool failure. */
 class TurnEnded extends Error {}
@@ -78,7 +86,17 @@ export class TurnRunner {
       // The SOUL is fixed when the turn starts: a revision confirmed mid-turn waits for the next one.
       const soul = this.deps.soul ? await this.deps.soul.current(session.kind) : undefined;
       if (soul) turn.useSoul(soul.revision);
-      const reply = await this.loop(session, turn, signal, soul);
+      const outcome = await this.loop(session, turn, signal, soul);
+      if (outcome.kind === 'question') {
+        if (!(await this.pause(turn, session, outcome.text))) {
+          const error = 'The turn was ended elsewhere before it could ask';
+          events.publish('turn.status', { ...base, status: 'failed', error });
+          return { status: 'failed', error };
+        }
+        events.publish('turn.status', { ...base, status: 'waiting', question: outcome.text });
+        return { status: 'waiting', question: outcome.text };
+      }
+      const reply = outcome.text;
       if (!(await this.save(turn, 'running', () => turn.succeed(clock.now())))) {
         const error = 'The turn was ended elsewhere before it finished';
         events.publish('turn.status', { ...base, status: 'failed', error });
@@ -115,7 +133,7 @@ export class TurnRunner {
     turn: Turn,
     signal: AbortSignal,
     soul?: { revision: number; body: string },
-  ): Promise<string> {
+  ): Promise<LoopOutcome> {
     const max = this.limits[session.kind];
     const stall = new StallDetector();
     for (let step = 1; step <= max; step++) {
@@ -124,6 +142,10 @@ export class TurnRunner {
       // Reloading the history each step is what steering means: owner messages that arrived during
       // the turn are stored with its id and appear here before the next model call.
       const context = await this.deps.context.build(session, turn, soul, signal);
+      // Past the check-in amount, ask before spending more (S28). Doing it before the call means the
+      // question itself costs nothing.
+      const question = await this.askBeforeContinuing(session, context);
+      if (question) return { kind: 'question', text: question };
       const response = await this.callModel(session, turn, context, signal);
       const parts: ContentPart[] = [];
       // Reasoning is kept in the transcript but never shown as the reply or sent back (F03).
@@ -140,7 +162,7 @@ export class TurnRunner {
           role: 'assistant',
           content: response.text,
         });
-        return response.text;
+        return { kind: 'reply', text: response.text };
       }
       const results: { isError: boolean }[] = [];
       for (const call of response.toolCalls) {
@@ -161,6 +183,48 @@ export class TurnRunner {
     throw new TurnEnded(
       `Stopped after ${max} model calls without a final answer (step limit for ${session.kind} sessions)`,
     );
+  }
+
+  /**
+   * The question to ask before carrying on, when this session has spent past the check-in amount
+   * since the owner's last message. Checked before a model call, so the question costs nothing.
+   */
+  private async askBeforeContinuing(
+    session: Session,
+    context: BuiltContext,
+  ): Promise<string | undefined> {
+    if (!this.deps.budget) return undefined;
+    const since = lastOwnerAt(context.sources, session.createdAt);
+    const check = await this.deps.budget.checkIn(session.id, since);
+    if (!check.over) return undefined;
+    return `This has cost ${check.spent.toString()} so far. Keep going?`;
+  }
+
+  /**
+   * Ends the turn as `waiting`: the question is stored as Shitsuji's reply, so the owner's next
+   * message (a `resume` turn) sees both the question and the answer.
+   */
+  private async pause(turn: Turn, session: Session, question: string): Promise<boolean> {
+    const now = this.deps.clock.now();
+    return this.deps.repos.uow.run(async (tx) => {
+      turn.wait(now);
+      if (!(await this.deps.repos.turns.update(turn, 'running', tx))) return false;
+      await this.deps.repos.messages.append(
+        {
+          id: newId(),
+          threadId: session.threadId,
+          sessionId: session.id,
+          turnId: turn.id,
+          role: 'assistant',
+          author: 'assistant',
+          parts: [{ type: 'text', text: question }],
+          withdrawn: false,
+          createdAt: now,
+        },
+        tx,
+      );
+      return true;
+    });
   }
 
   /** An owner message steered into this turn after the last model call was sent. */
@@ -312,4 +376,13 @@ export class TurnRunner {
     if (!saved) this.deps.log.warn('Turn was changed elsewhere', { turnId: turn.id, expected });
     return saved;
   }
+}
+
+/** The owner message the check-in counts from; a session with none counts from its start. */
+function lastOwnerAt(messages: readonly Message[], fallback: Date): Date {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!;
+    if (message.author === 'owner' && !message.withdrawn) return message.createdAt;
+  }
+  return fallback;
 }
