@@ -19,8 +19,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SHITSUJI_SEARXNG_URL: http://searxng:8080
-      # The API listens on all interfaces inside the container; the port below keeps it on this machine.
+      # The API and the webhook listen on all interfaces inside the container; the ports below keep
+      # them on this machine. Both need the owner key.
       SHITSUJI_API_HOST: 0.0.0.0
+      SHITSUJI_WEBHOOK_HOST: 0.0.0.0
     ports:
       # The webhook, on this machine only. Remote access comes later (05-open-questions D2).
       - '127.0.0.1:${SHITSUJI_WEBHOOK_PORT:-3000}:3000'

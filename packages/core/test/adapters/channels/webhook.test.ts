@@ -6,12 +6,15 @@ import type { InboundMessage } from '../../../src/ports/ChannelAdapter.js';
 import { describeChannelContract } from '../../contracts/channel.contract.js';
 
 const logger = () => new MemoryLogger();
+const KEY = 'test-owner-key';
+const authorize = (key: string | undefined) => key === KEY;
 const started = async (
   options: { replyTimeoutMs?: number; reply?: string; fail?: boolean } = {},
 ) => {
   const adapter = new WebhookChannelAdapter(logger(), {
     port: 0,
     replyTimeoutMs: options.replyTimeoutMs ?? 2000,
+    authorize,
   });
   const received: InboundMessage[] = [];
   await adapter.start({
@@ -36,14 +39,47 @@ const started = async (
     },
   });
   const url = `http://127.0.0.1:${adapter.getPort()}/webhook`;
-  const post = (body: unknown) =>
+  /** `null` sends no Authorization header. */
+  const post = (body: unknown, key: string | null = KEY) =>
     fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(key !== null && { authorization: `Bearer ${key}` }),
+      },
       body: JSON.stringify(body),
     });
   return { adapter, received, post, url: `http://127.0.0.1:${adapter.getPort()}` };
 };
+
+describe('WebhookChannelAdapter: access (#34)', () => {
+  it('refuses a message without the owner key and starts no turn', async () => {
+    const { adapter, received, post } = await started({ reply: 'secret answer' });
+
+    const response = await post({ content: 'Ping' }, null);
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).not.toContain('secret answer');
+    expect(received).toEqual([]);
+    await adapter.stop();
+  });
+
+  it('refuses a wrong key', async () => {
+    const { adapter, received, post } = await started({ reply: 'Pong.' });
+
+    const response = await post({ content: 'Ping' }, 'not-the-key');
+
+    expect(response.status).toBe(401);
+    expect(received).toEqual([]);
+    await adapter.stop();
+  });
+
+  it('listens on 127.0.0.1 unless told otherwise', async () => {
+    const { adapter } = await started();
+    expect(adapter.getHost()).toBe('127.0.0.1');
+    await adapter.stop();
+  });
+});
 
 describe('WebhookChannelAdapter', () => {
   it('answers a message with the reply the turn delivered (bug 5)', async () => {
@@ -65,7 +101,11 @@ describe('WebhookChannelAdapter', () => {
     const { adapter, post, url } = await started();
     const empty = await post({ destination: 'd1' });
     expect(empty.status).toBe(400);
-    const notJson = await fetch(`${url}/webhook`, { method: 'POST', body: 'not json' });
+    const notJson = await fetch(`${url}/webhook`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${KEY}` },
+      body: 'not json',
+    });
     expect(notJson.status).toBe(400);
     await adapter.stop();
   });
@@ -86,7 +126,7 @@ describe('WebhookChannelAdapter', () => {
   });
 
   it('reports a delivery with no waiting request instead of throwing', async () => {
-    const adapter = new WebhookChannelAdapter(logger(), { port: 0 });
+    const adapter = new WebhookChannelAdapter(logger(), { port: 0, authorize });
     await adapter.start({
       receive: async () => ({
         sessionId: asId<SessionId>('session'),
@@ -115,5 +155,5 @@ describe('WebhookChannelAdapter', () => {
 
 describeChannelContract(
   'webhook',
-  () => new WebhookChannelAdapter(logger(), { port: 0, replyTimeoutMs: 10 }),
+  () => new WebhookChannelAdapter(logger(), { port: 0, replyTimeoutMs: 10, authorize }),
 );

@@ -56,7 +56,8 @@ budget:
   checkIn: 1 # a session pauses to ask after this much since your last message (S28)
 
 channels:
-  webhook:
+  webhook: # POST with `Authorization: Bearer <owner key>`; answers with the reply
     enabled: true
+    host: 127.0.0.1 # this machine only; Compose sets 0.0.0.0 inside the container
     port: 3000
     path: /webhook

@@ -86,7 +86,10 @@ export async function createShitsuji(
     uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
     ...facts,
   });
-  await plugins.load(builtInPlugins(config, options.channels ?? true, status));
+  // The API and the webhook both check the owner key (decision Q3, #34). It is created at start().
+  const keys = new OwnerKeyFile(config.paths.dataDir);
+  const verifyKey = (key: string | undefined) => keys.verify(key);
+  await plugins.load(builtInPlugins(config, options.channels ?? true, status, verifyKey));
   await plugins.load(options.plugins ?? []);
   if (config.plugins.directory) {
     await plugins.load(await loadPluginsFromDirectory(config.plugins.directory, log));
@@ -202,6 +205,7 @@ export async function createShitsuji(
 
   const channels = new ChannelRegistry();
   for (const channel of plugins.channels()) channels.add(channel);
+  const startsApi = options.api ?? config.api.enabled;
 
   return new Shitsuji({
     agent,
@@ -212,30 +216,32 @@ export async function createShitsuji(
     version: VERSION,
     jobs,
     recovery: new StartupRecovery(repos, services.clock, log),
-    startApi:
-      (options.api ?? config.api.enabled)
+    prepare:
+      startsApi || channels.size > 0
         ? async () => {
-            const keys = new OwnerKeyFile(config.paths.dataDir);
             const { created } = await keys.ensure();
             if (created) {
               // Shown once (decision Q3). Also saved to owner.key for the TUI on this machine.
-              log.warn(`New owner key for the API: ${created}  (saved to ${keys.keyPath})`);
+              log.warn(`New owner key: ${created}  (saved to ${keys.keyPath})`);
             }
-            return startApiServer(
-              {
-                agent,
-                repos: repos!,
-                events,
-                clock: services.clock,
-                log,
-                ownerId: OWNER_ID,
-                soul,
-                verifyKey: (k) => keys.verify(k),
-              },
-              config.api,
-            );
           }
         : undefined,
+    startApi: startsApi
+      ? () =>
+          startApiServer(
+            {
+              agent,
+              repos: repos!,
+              events,
+              clock: services.clock,
+              log,
+              ownerId: OWNER_ID,
+              soul,
+              verifyKey,
+            },
+            config.api,
+          )
+      : undefined,
     onStop,
   });
 }
@@ -244,6 +250,7 @@ function builtInPlugins(
   config: ShitsujiConfig,
   withChannels: boolean,
   status: () => Promise<Record<string, unknown>>,
+  verifyKey: (key: string | undefined) => boolean,
 ): ShitsujiPlugin[] {
   const endpoints = (kind: 'openai-compatible' | 'anthropic') =>
     Object.entries(config.models.providers)
@@ -270,7 +277,7 @@ function builtInPlugins(
     }),
   ];
   if (withChannels && config.channels.webhook.enabled) {
-    list.push(new WebhookChannelPlugin(config.channels.webhook));
+    list.push(new WebhookChannelPlugin({ ...config.channels.webhook, authorize: verifyKey }));
   }
   return list;
 }
