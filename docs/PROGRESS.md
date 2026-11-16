@@ -47,6 +47,25 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
       did not change in this pass, so no fixture was re-recorded. The TUI itself makes these same API
       calls; its ten-minute interactive run is left to the owner.)*
 
+## Third pass steps
+
+See [09-third-pass-plan.md](09-third-pass-plan.md). Each step is also a GitHub issue; tick both until every
+agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are proposed, not yet made.
+
+- [ ] **S27** Budget service and spending limits
+- [ ] **S28** The check-in limit
+- [ ] **S29** Activity log with receipts
+- [ ] **S30** ChannelAdapter port and registry
+- [ ] **S31** Channel gateway, pairing and commands
+- [ ] **S32** Telegram adapter
+- [ ] **S33** Telegram files
+- [ ] **S34** Action requests and the policy engine
+- [ ] **S35** Authority, the judge and quote verification
+- [ ] **S36** The approval service
+- [ ] **S37** Approvals on Telegram
+- [ ] **S38** The evaluation harness
+- [ ] **S39** End to end and docs
+
 ## Acceptance criteria by feature
 
 ### [F01 — Core architecture and composition root](features/F01-core-architecture.md)

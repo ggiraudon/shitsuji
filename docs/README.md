@@ -1,7 +1,7 @@
 # Shitsuji research docs
 
 This folder holds the research and design notes for taking Shitsuji from an early prototype to a capable,
-proactive personal assistant. Implementation follows [08-second-pass-plan.md](08-second-pass-plan.md); the first pass is done.
+proactive personal assistant. Implementation follows [09-third-pass-plan.md](09-third-pass-plan.md); the first two passes are done.
 
 ## Read in this order
 
@@ -16,8 +16,9 @@ proactive personal assistant. Implementation follows [08-second-pass-plan.md](08
 | 7 | [05-open-questions.md](05-open-questions.md) | Decisions to make together before implementation |
 | 8 | [06-class-map.md](06-class-map.md) | Mermaid class diagrams of the target code structure, one per area |
 | 9 | [07-first-pass-plan.md](07-first-pass-plan.md) | The first pass (done): F01 + F02 + F03 as steps S1–S14 |
-| 10 | [08-second-pass-plan.md](08-second-pass-plan.md) | **The current plan**: F05 + F04 + HTTP API and TUI as steps S15–S26 |
-| 11 | [PROGRESS.md](PROGRESS.md) | The checklist: every pass's steps and every feature's acceptance criteria |
+| 10 | [08-second-pass-plan.md](08-second-pass-plan.md) | The second pass (done): F05 + F04 + HTTP API and TUI as steps S15–S26 |
+| 11 | [09-third-pass-plan.md](09-third-pass-plan.md) | **The current plan**: F22 + F06 + F11 as steps S27–S39 |
+| 12 | [PROGRESS.md](PROGRESS.md) | The checklist: every pass's steps and every feature's acceptance criteria |
 
 Rules for working on the code (commits, layers, tests) are in [AGENTS.md](../AGENTS.md).
 
