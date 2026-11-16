@@ -86,8 +86,12 @@ export class Shitsuji {
     await this.recovery.run();
     await this.jobs.start();
     this.offReplies = this.events.subscribe('turn.status', (e) => {
-      if (!e.replyChannel || !['succeeded', 'waiting', 'failed', 'cancelled'].includes(e.status))
+      if (!e.replyChannel) return;
+      if (e.status === 'running') {
+        void this.showTyping(e.replyChannel);
         return;
+      }
+      if (!['succeeded', 'waiting', 'failed', 'cancelled'].includes(e.status)) return;
       const text =
         e.status === 'succeeded'
           ? (e.reply ?? '')
@@ -165,10 +169,23 @@ export class Shitsuji {
 
   /** Sends a reply to "<channel>:<chat>"; a channel that is not running here (the TUI) reads events. */
   private async deliver(replyChannel: string, text: string, intent: OutboundIntent): Promise<void> {
-    const colon = replyChannel.indexOf(':');
-    const id = colon === -1 ? replyChannel : replyChannel.slice(0, colon);
-    const chatId = colon === -1 ? '' : replyChannel.slice(colon + 1);
-    await this.deliverTo(id, chatId, text, intent);
+    const { channelId, chatId } = splitReplyChannel(replyChannel);
+    await this.deliverTo(channelId, chatId, text, intent);
+  }
+
+  /** Lets a channel show a typing or "working" indicator while the turn runs. */
+  private async showTyping(replyChannel: string): Promise<void> {
+    const { channelId, chatId } = splitReplyChannel(replyChannel);
+    const channel = this.started.find((c) => c.id === channelId);
+    if (!channel?.typing) return;
+    try {
+      await channel.typing({ chatId });
+    } catch (error) {
+      this.log.warn('Typing indicator failed', {
+        channel: channelId,
+        error: serializeError(error),
+      });
+    }
   }
 
   private async deliverTo(
@@ -191,4 +208,12 @@ export class Shitsuji {
       this.log.error('Reply failed', { channel: channelId, error: serializeError(error) });
     }
   }
+}
+
+/** "telegram:12345" → { channelId: "telegram", chatId: "12345" }. */
+function splitReplyChannel(replyChannel: string): { channelId: string; chatId: string } {
+  const colon = replyChannel.indexOf(':');
+  return colon === -1
+    ? { channelId: replyChannel, chatId: '' }
+    : { channelId: replyChannel.slice(0, colon), chatId: replyChannel.slice(colon + 1) };
 }

@@ -53,6 +53,7 @@ describe('createShitsuji', () => {
     await until(() => channel.sent.length > 0);
 
     expect(channel.sent).toEqual([{ destination: 'chat-42', message: 'Good evening.' }]);
+    expect(channel.typingCalls).toEqual(['chat-42']);
     expect(provider.requests[0]!.model).toBe('test-model');
     await shitsuji.stop();
     expect(channel.stopped).toBe(1);

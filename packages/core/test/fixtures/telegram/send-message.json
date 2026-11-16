@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "result": {
+    "message_id": 77,
+    "from": {
+      "id": 123456,
+      "is_bot": true,
+      "first_name": "Shitsuji",
+      "username": "shitsuji_bot"
+    },
+    "chat": {
+      "id": 42,
+      "first_name": "Owner",
+      "username": "owner",
+      "type": "private"
+    },
+    "date": 1767225601,
+    "text": "Pong."
+  }
+}
