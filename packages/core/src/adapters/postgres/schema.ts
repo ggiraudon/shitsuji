@@ -120,6 +120,19 @@ export interface SoulRevisionsTable {
   created_at: Timestamp;
 }
 
+export interface BudgetReservationsTable {
+  id: string;
+  owner_id: string;
+  amount_micros: ColumnType<string, number, number>; // bigint comes back as a string
+  currency: string;
+  background: boolean;
+  session_id: string | null;
+  turn_id: string | null;
+  state: 'held' | 'settled' | 'released';
+  created_at: Timestamp;
+  ended_at: Timestamp | null;
+}
+
 export interface Database {
   owners: OwnersTable;
   threads: ThreadsTable;
@@ -131,4 +144,5 @@ export interface Database {
   usage: UsageTable;
   soul_fragments: SoulFragmentsTable;
   soul_revisions: SoulRevisionsTable;
+  budget_reservations: BudgetReservationsTable;
 }
