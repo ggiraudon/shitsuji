@@ -22,7 +22,9 @@ the turn's reply, the API hands its messages over as `InboundMessage` (its repli
 Since S31 the `ChannelGateway` resolves each chat through a binding, pairs a new chat with `/start <code>`
 (the code comes from the TUI's `/pair`), ignores unpaired chats on channels that declare `requiresPairing`,
 answers `/stop`, `/status` and `/new`, and hands everything else to the agent with a reply channel.
-Telegram itself follows in S32.
+S32 adds the Telegram adapter itself: grammY long polling, Markdown as Telegram HTML, long replies split
+at paragraph breaks, one "Working…" message removed when the reply arrives, and pairing through the same
+gateway. Files and approval buttons wait for S33 and F11.
 
 ## Inspiration
 
@@ -118,6 +120,11 @@ buttons, task routing and attachments wait for F11 and S33.
 - Progress: one "working…" message edited in place, removed when the turn ends.
 - Voice notes → stored file → speech-to-text when [F23](F23-voice.md) arrives.
 - Commands: `/stop`, `/tasks`, `/status`, `/new` (reset thread, with confirmation).
+
+S32 builds the adapter: grammY long polling behind a narrow transport, the bot token from
+`channels.telegram.token` (a `Secret`, from `SHITSUJI_TELEGRAM_TOKEN`), Markdown to Telegram HTML with
+escaping and paragraph splitting, and one "Working…" message removed when the reply is delivered. Inline
+keyboards, files and voice notes wait for F11, S33 and F23.
 
 ## Changes to existing code
 

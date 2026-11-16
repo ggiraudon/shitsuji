@@ -34,6 +34,13 @@ Telegram, the web UI and the sandbox come next. The plan and progress are in [do
    edit (`/soul apply` keeps it), `/usage` shows spending, `/activity` shows recent tool calls, `/exit`
    quits.
 
+## Telegram
+
+1. In `.env`, set `SHITSUJI_TELEGRAM_ENABLED=true` and `SHITSUJI_TELEGRAM_TOKEN` (from @BotFather).
+2. Start core, then run `/pair` in the TUI. Send `/start <code>` to the bot in the chat you want to pair.
+3. Paired chats can talk to Shitsuji; `/stop`, `/status` and `/new` work there too. Unpaired chats are
+   ignored.
+
 ## Development
 
 Node 22, pnpm (version pinned in `package.json`) and Docker. See [AGENTS.md](AGENTS.md) for the rules
