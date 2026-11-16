@@ -98,22 +98,19 @@ export class Shitsuji {
       this.api = await this.startApi();
       this.log.info('API listening', { url: this.api.url });
     }
+    this.gateway = new ChannelGateway({
+      agent: this.agent,
+      bindings: this.bindings,
+      pairing: this.pairing,
+      channels: this.channels,
+      repos: this.repos,
+      ownerId: this.ownerId,
+      clock: this.clock,
+      log: this.log,
+      version: this.version,
+      reply: (channelId, chatId, text, intent) => this.deliverTo(channelId, chatId, text, intent),
+    });
     for (const channel of this.channels.all()) {
-      if (!this.gateway) {
-        this.gateway = new ChannelGateway({
-          agent: this.agent,
-          bindings: this.bindings,
-          pairing: this.pairing,
-          channels: this.channels,
-          repos: this.repos,
-          ownerId: this.ownerId,
-          clock: this.clock,
-          log: this.log,
-          version: this.version,
-          reply: (channelId, chatId, text, intent) =>
-            this.deliverTo(channelId, chatId, text, intent),
-        });
-      }
       await channel.start({
         receive: (message) => this.gateway!.receive(message),
       });
