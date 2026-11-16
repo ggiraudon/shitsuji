@@ -1,0 +1,14 @@
+{
+  "update_id": 100000003,
+  "message": {
+    "message_id": 8,
+    "from": { "id": 42, "is_bot": false, "first_name": "Owner", "username": "owner" },
+    "chat": { "id": 42, "first_name": "Owner", "username": "owner", "type": "private" },
+    "date": 1767225600,
+    "photo": [
+      { "file_id": "small", "file_unique_id": "s", "width": 90, "height": 90, "file_size": 100 },
+      { "file_id": "large", "file_unique_id": "abc", "width": 800, "height": 600, "file_size": 300 }
+    ],
+    "caption": "Look at this"
+  }
+}

@@ -295,7 +295,12 @@ function builtInPlugins(
           '(put SHITSUJI_TELEGRAM_TOKEN in .env).',
       );
     }
-    list.push(new TelegramChannelPlugin({ token: token.reveal() }));
+    list.push(
+      new TelegramChannelPlugin({
+        token: token.reveal(),
+        handoffDir: path.join(config.paths.dataDir, 'handoff'),
+      }),
+    );
   }
   return list;
 }

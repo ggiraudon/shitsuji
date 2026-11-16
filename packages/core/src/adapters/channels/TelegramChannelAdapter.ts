@@ -3,12 +3,20 @@ import type {
   ChannelCapabilities,
   ChannelTarget,
   DeliveryReceipt,
+  InboundAttachment,
   InboundSink,
   OutboundMessage,
 } from '../../ports/ChannelAdapter.js';
 import { BaseChannelAdapter } from '../../ports/ChannelAdapter.js';
+import type { HandoffStore } from '../files/HandoffStore.js';
 import type { TelegramIncoming, TelegramTransport } from './TelegramTransport.js';
 import { TelegramRenderer } from './TelegramRenderer.js';
+
+export interface TelegramAdapterOptions {
+  /** Where attachments are stored; without it, files are skipped with a warning. */
+  handoff?: HandoffStore;
+  renderer?: TelegramRenderer;
+}
 
 /**
  * Telegram as a chat channel (F06, S32): long polling through the transport, Markdown rendered to
@@ -30,18 +38,22 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
 
   /** The "Working…" message per chat, removed when the turn's reply is delivered. */
   private readonly working = new Map<string, number>();
+  private readonly handoff?: HandoffStore;
+  private readonly renderer: TelegramRenderer;
 
   constructor(
     private readonly transport: TelegramTransport,
     private readonly log: Logger,
-    private readonly renderer = new TelegramRenderer(),
+    options: TelegramAdapterOptions = {},
   ) {
     super();
+    this.handoff = options.handoff;
+    this.renderer = options.renderer ?? new TelegramRenderer();
   }
 
   override async start(sink: InboundSink): Promise<void> {
     await super.start(sink);
-    await this.transport.start((message) => this.onMessage(message));
+    await this.transport.start((message) => void this.onMessage(message));
   }
 
   override async stop(): Promise<void> {
@@ -81,21 +93,57 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
     }
   }
 
-  private onMessage(message: TelegramIncoming): void {
+  private async onMessage(message: TelegramIncoming): Promise<void> {
     if (!this.sink) return;
-    void this.sink
-      .receive({
+    try {
+      if (message.attachment?.kind === 'voice') {
+        // Keep the file for F23, but do not start a turn the agent cannot hear.
+        await this.storeAttachment(message);
+        await this.transport.sendMessage(message.chatId, "I can't listen to voice notes yet.");
+        return;
+      }
+      const attachment = message.attachment ? await this.storeAttachment(message) : undefined;
+      await this.sink.receive({
         channel: this.id,
         chatId: message.chatId,
         text: message.text,
         externalId: String(message.messageId),
         receivedAt: message.receivedAt,
-      })
-      .catch((error: unknown) => {
-        this.log.error('Telegram message failed', {
-          error: { name: (error as Error)?.name, message: (error as Error)?.message },
-        });
+        ...(attachment && { attachments: [attachment] }),
       });
+    } catch (error) {
+      this.log.error('Telegram message failed', {
+        error: { name: (error as Error)?.name, message: (error as Error)?.message },
+      });
+    }
+  }
+
+  /** Downloads the attachment and stores it in the handoff folder; a failure loses the file, not the message. */
+  private async storeAttachment(message: TelegramIncoming): Promise<InboundAttachment | undefined> {
+    const attachment = message.attachment;
+    if (!attachment) return undefined;
+    if (!this.handoff) {
+      this.log.warn('No handoff folder configured; dropping a Telegram attachment', {
+        fileName: attachment.name,
+      });
+      return undefined;
+    }
+    try {
+      const data = await this.transport.downloadFile(attachment.fileId);
+      const saved = await this.handoff.save(attachment.name, data);
+      return {
+        name: saved.name,
+        path: saved.path,
+        size: saved.size,
+        ...(attachment.mediaType && { mediaType: attachment.mediaType }),
+      };
+    } catch (error) {
+      this.log.warn('Could not store a Telegram attachment', {
+        fileName: attachment.name,
+        error: { name: (error as Error)?.name, message: (error as Error)?.message },
+      });
+      return undefined;
+    }
   }
 
   private async clearWorking(chatId: string): Promise<void> {

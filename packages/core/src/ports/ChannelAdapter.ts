@@ -80,6 +80,15 @@ export interface DeliveryReceipt {
   reason?: string;
 }
 
+/** A file the owner sent on a channel, stored where the agent can read it (decision T2). */
+export interface InboundAttachment {
+  name: string;
+  /** Absolute path in the handoff folder. */
+  path: string;
+  mediaType?: string;
+  size?: number;
+}
+
 /** A message arriving from a channel, before the gateway decides what it means (F06, S31). */
 export interface InboundMessage {
   /** The adapter that received it: "webhook", "telegram", "api". */
@@ -92,6 +101,8 @@ export interface InboundMessage {
   receivedAt: Date;
   /** Set when the sender picked a session (the API's TUI); chat channels leave it to the gateway. */
   sessionId?: SessionId;
+  /** Files saved in the handoff folder; the gateway tells the turn where they are. */
+  attachments?: InboundAttachment[];
   metadata?: Record<string, unknown>;
 }
 

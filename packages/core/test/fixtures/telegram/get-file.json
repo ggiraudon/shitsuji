@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "result": {
+    "file_id": "doc-1",
+    "file_unique_id": "doc-u1",
+    "file_size": 3,
+    "file_path": "documents/file_1.pdf"
+  }
+}

@@ -1,4 +1,5 @@
 import { Bot } from 'grammy';
+import { HandoffStore } from '../adapters/files/HandoffStore.js';
 import { WebhookChannelAdapter } from '../adapters/channels/WebhookChannelAdapter.js';
 import { TelegramChannelAdapter } from '../adapters/channels/TelegramChannelAdapter.js';
 import { GrammyTelegramTransport } from '../adapters/channels/TelegramTransport.js';
@@ -31,6 +32,8 @@ export class WebhookChannelPlugin implements ShitsujiPlugin {
 export interface TelegramChannelPluginOptions {
   /** The token from @BotFather. Composition reveals it; the plugin never logs it (F06, S32). */
   token: string;
+  /** Where attachments are stored (decision T2: <dataDir>/handoff). */
+  handoffDir: string;
 }
 
 /** Telegram through grammY with long polling (decision T1). */
@@ -46,6 +49,10 @@ export class TelegramChannelPlugin implements ShitsujiPlugin {
 
   register(ctx: PluginRegistrationContext): void {
     const bot = new Bot(this.options.token);
-    ctx.addChannel(new TelegramChannelAdapter(new GrammyTelegramTransport(bot, ctx.log), ctx.log));
+    ctx.addChannel(
+      new TelegramChannelAdapter(new GrammyTelegramTransport(bot, ctx.log), ctx.log, {
+        handoff: new HandoffStore(this.options.handoffDir),
+      }),
+    );
   }
 }
