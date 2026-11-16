@@ -227,7 +227,7 @@ describe('HTTP API', () => {
       effect: 'compute',
       target: 'core',
       outcome: 'ok',
-      allowedBy: { kind: 'policy', detail: 'the fixed policy allows compute' },
+      allowedBy: { kind: 'policy', detail: 'compute actions need no approval' },
     });
     expect(body.receipts[0]!.durationMs).toBeGreaterThanOrEqual(0);
   });

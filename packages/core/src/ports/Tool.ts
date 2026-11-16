@@ -35,12 +35,21 @@ export interface TrustBasis {
   detail?: string;
 }
 
-/** What the trust policy decided about one call. */
+/** What the trust policy decided about one call (F11, S34). */
 export interface TrustDecision {
-  allow: boolean;
+  /**
+   * `allow`: run it. `ask`: the owner must approve it. `judge`: needs the model judge (S35).
+   * `deny`: never run it.
+   */
+  verdict: 'allow' | 'ask' | 'judge' | 'deny';
+  /** What allowed it (for the receipt); `none` when the call was not allowed. */
   basis: TrustBasis;
-  /** Why it was refused, when it was. */
+  /** Why it asks or is refused, in terms the owner and the model can read. */
   reason?: string;
+  /** A judge may allow only with a verbatim quote of the owner's words (F11, S35). */
+  quoteRequired?: boolean;
+  /** The exact action, so a receipt or an approval names it (S34). */
+  actionHash?: string;
 }
 
 /** What a running tool may use, and nothing else. */
