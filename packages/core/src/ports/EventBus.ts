@@ -3,6 +3,8 @@
  * survive a crash is written to the database first, then published.
  */
 
+import type { OutboundFile } from './Tool.js';
+
 /** Every event and its payload. Add new events here so publishers and subscribers are type-checked. */
 export interface ShitsujiEvents {
   'session.created': { sessionId: string; agentId: string };
@@ -28,6 +30,8 @@ export interface ShitsujiEvents {
     reply?: string;
     /** The question a waiting turn asks, e.g. past the check-in limit (S28). */
     question?: string;
+    /** Files tools attached to this turn's reply (S33). */
+    files?: OutboundFile[];
     error?: string;
     replyChannel?: string;
   };

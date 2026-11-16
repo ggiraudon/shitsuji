@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import type { Logger } from '../../ports/Logger.js';
 import type {
   ChannelCapabilities,
@@ -6,6 +7,7 @@ import type {
   InboundAttachment,
   InboundSink,
   OutboundMessage,
+  OutboundPart,
 } from '../../ports/ChannelAdapter.js';
 import { BaseChannelAdapter } from '../../ports/ChannelAdapter.js';
 import type { HandoffStore } from '../files/HandoffStore.js';
@@ -29,7 +31,7 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
   readonly capabilities: ChannelCapabilities = {
     markdown: 'full',
     buttons: false,
-    files: false,
+    files: true,
     images: false,
     voice: false,
     edits: true,
@@ -64,15 +66,44 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
 
   async deliver(target: ChannelTarget, message: OutboundMessage): Promise<DeliveryReceipt> {
     await this.clearWorking(target.chatId);
-    const { chunks, degraded } = this.renderer.render(message);
+    const files = message.parts.filter(
+      (part): part is Extract<OutboundPart, { kind: 'file' }> => part.kind === 'file',
+    );
+    const textMessage: OutboundMessage = {
+      ...message,
+      parts: message.parts.filter((part) => part.kind !== 'file'),
+    };
+    const { chunks, degraded } = this.renderer.render(textMessage);
     if (degraded.length) {
       this.log.debug('Telegram degraded message parts to text', { parts: degraded });
     }
-    if (!chunks.length) return { delivered: true };
     let first: number | undefined;
     for (const html of chunks) {
       const messageId = await this.transport.sendMessage(target.chatId, html);
       first ??= messageId;
+    }
+    for (const part of files) {
+      if (!part.fileRef.path) {
+        this.log.warn('A Telegram file has no local path; skipping it', {
+          fileName: part.fileRef.name,
+        });
+        continue;
+      }
+      try {
+        const data = await fs.readFile(part.fileRef.path);
+        const messageId = await this.transport.sendDocument(
+          target.chatId,
+          part.fileRef.name,
+          data,
+          part.caption,
+        );
+        first ??= messageId;
+      } catch (error) {
+        this.log.warn('Could not send a Telegram document', {
+          fileName: part.fileRef.name,
+          error: { name: (error as Error)?.name, message: (error as Error)?.message },
+        });
+      }
     }
     return first === undefined
       ? { delivered: true }

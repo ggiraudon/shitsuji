@@ -24,16 +24,38 @@ const jsonResponse = (body: unknown) =>
 
 interface Call {
   url: string;
-  body?: Record<string, unknown>;
+  body?: unknown;
+  contentType?: string | null;
+  /** The raw body when grammY sends multipart as a stream. */
+  stream?: string;
+}
+
+/** grammY builds multipart uploads as a byte stream, not a FormData. */
+async function drain(body: unknown): Promise<string | undefined> {
+  if (!body || typeof body !== 'object' || !(Symbol.asyncIterator in body)) return undefined;
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of body as AsyncIterable<Uint8Array>) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 function setup() {
   const calls: Call[] = [];
   const fetchMock: typeof fetch = async (input, init) => {
     const url = String(input);
-    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-    calls.push({ url, body });
-    if (url.endsWith('/sendMessage') || url.endsWith('/editMessageText')) {
+    const contentType = new Headers(init?.headers).get('content-type');
+    const body =
+      typeof init?.body === 'string'
+        ? JSON.parse(init.body)
+        : init?.body instanceof FormData
+          ? init.body
+          : undefined;
+    const stream = body === undefined ? await drain(init?.body) : undefined;
+    calls.push({ url, body, contentType, ...(stream !== undefined && { stream }) });
+    if (
+      url.endsWith('/sendMessage') ||
+      url.endsWith('/editMessageText') ||
+      url.endsWith('/sendDocument')
+    ) {
       return jsonResponse(fixture('send-message.json'));
     }
     if (url.endsWith('/getFile')) return jsonResponse(fixture('get-file.json'));
@@ -170,5 +192,26 @@ describe('GrammyTelegramTransport (S32)', () => {
         size: 3,
       },
     });
+  });
+});
+
+describe('GrammyTelegramTransport: documents (S33)', () => {
+  it('sends a file as a Telegram document', async () => {
+    const { transport, calls } = setup();
+
+    const id = await transport.sendDocument(
+      '42',
+      'report.pdf',
+      new Uint8Array([1, 2, 3]),
+      'The report',
+    );
+
+    expect(id).toBe(77);
+    const call = calls.find((c) => c.url.endsWith('/sendDocument'))!;
+    expect(call.contentType).toMatch(/^multipart\/form-data; boundary=/);
+    expect(call.stream).toContain('name="caption"');
+    expect(call.stream).toContain('The report');
+    // grammY writes the upload filename unquoted.
+    expect(call.stream).toContain('filename=report.pdf');
   });
 });

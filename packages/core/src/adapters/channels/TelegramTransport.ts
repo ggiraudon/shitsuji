@@ -1,4 +1,4 @@
-import { type Bot } from 'grammy';
+import { type Bot, InputFile } from 'grammy';
 import type { Logger } from '../../ports/Logger.js';
 
 /** A text message as the adapter needs it, independent of grammY's update types. */
@@ -33,6 +33,13 @@ export interface TelegramTransport {
   sendTyping(chatId: string): Promise<void>;
   /** Downloads a file the owner sent. */
   downloadFile(fileId: string): Promise<Uint8Array>;
+  /** Sends a file as a Telegram document and returns its Telegram id. */
+  sendDocument(
+    chatId: string,
+    fileName: string,
+    data: Uint8Array,
+    caption?: string,
+  ): Promise<number>;
 }
 
 /**
@@ -148,6 +155,18 @@ export class GrammyTelegramTransport implements TelegramTransport {
     );
     if (!response.ok) throw new Error(`Telegram file download failed (${response.status})`);
     return new Uint8Array(await response.arrayBuffer());
+  }
+
+  async sendDocument(
+    chatId: string,
+    fileName: string,
+    data: Uint8Array,
+    caption?: string,
+  ): Promise<number> {
+    const message = await this.bot.api.sendDocument(chatId, new InputFile(data, fileName), {
+      ...(caption && { caption }),
+    });
+    return message.message_id;
   }
 }
 

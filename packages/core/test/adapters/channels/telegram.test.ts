@@ -19,6 +19,7 @@ class FakeTelegram implements TelegramTransport {
   readonly deleted: { chatId: string; messageId: number }[] = [];
   readonly typed: string[] = [];
   readonly downloads: string[] = [];
+  readonly documents: { chatId: string; name: string; bytes: Uint8Array; caption?: string }[] = [];
   started = 0;
   stopped = 0;
   failDownload = false;
@@ -47,6 +48,15 @@ class FakeTelegram implements TelegramTransport {
     this.downloads.push(fileId);
     if (this.failDownload) throw new Error('download failed');
     return new Uint8Array([1, 2, 3]);
+  }
+  async sendDocument(
+    chatId: string,
+    name: string,
+    bytes: Uint8Array,
+    caption?: string,
+  ): Promise<number> {
+    this.documents.push({ chatId, name, bytes, ...(caption && { caption }) });
+    return 100 + this.documents.length;
   }
   receive(message: TelegramIncoming): void {
     this.handler?.(message);
@@ -265,5 +275,57 @@ describe('TelegramChannelAdapter: attachments (S33)', () => {
     await until(() => received.length === 1);
     expect(received[0]!.text).toBe('The report is attached.');
     expect(received[0]!.attachments).toBeUndefined();
+  });
+});
+
+describe('TelegramChannelAdapter: files sent back (S33)', () => {
+  it('sends a file the turn attached as a Telegram document', async () => {
+    const { adapter, transport, dir } = await setupFiles();
+    const file = path.join(dir, 'report.pdf');
+    await fs.writeFile(file, 'pdf');
+
+    const receipt = await adapter.deliver(
+      { chatId: '42' },
+      {
+        intent: 'final',
+        parts: [
+          { kind: 'text', markdown: 'Here is the report.' },
+          {
+            kind: 'file',
+            fileRef: { name: 'report.pdf', path: file },
+            caption: 'The report',
+          },
+        ],
+      },
+    );
+
+    expect(receipt).toEqual({ delivered: true, externalId: '1' });
+    expect(transport.sent).toEqual([{ chatId: '42', html: 'Here is the report.' }]);
+    expect(transport.documents).toHaveLength(1);
+    expect(transport.documents[0]).toMatchObject({
+      chatId: '42',
+      name: 'report.pdf',
+      caption: 'The report',
+    });
+    expect(Buffer.from(transport.documents[0]!.bytes).toString()).toBe('pdf');
+  });
+
+  it('keeps the text when the file cannot be read', async () => {
+    const { adapter, transport } = await setupFiles();
+
+    const receipt = await adapter.deliver(
+      { chatId: '42' },
+      {
+        intent: 'final',
+        parts: [
+          { kind: 'text', markdown: 'The file is gone.' },
+          { kind: 'file', fileRef: { name: 'missing.pdf', path: '/no/such/file.pdf' } },
+        ],
+      },
+    );
+
+    expect(receipt.delivered).toBe(true);
+    expect(transport.sent).toEqual([{ chatId: '42', html: 'The file is gone.' }]);
+    expect(transport.documents).toEqual([]);
   });
 });

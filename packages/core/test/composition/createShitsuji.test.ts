@@ -88,6 +88,51 @@ describe('createShitsuji', () => {
     await shitsuji.stop();
   });
 
+  it('sends a file a tool attached as a file part of the reply (S33)', async () => {
+    fs.mkdirSync(path.join(dataDir, 'handoff'), { recursive: true });
+    const file = path.join(dataDir, 'handoff', 'report.pdf');
+    fs.writeFileSync(file, 'pdf');
+    const provider = new ScriptedProvider(
+      [
+        {
+          toolCalls: [
+            { id: 'c1', name: 'workspace.send', arguments: { path: file, caption: 'The report' } },
+          ],
+        },
+        { content: 'Here is the report.' },
+      ],
+      'fake',
+    );
+    const channel = new TestChannel();
+    const plugin: ShitsujiPlugin = {
+      manifest: { id: 'test.fakes', name: 'fakes', version: '1', provides: ['model', 'channel'] },
+      register(ctx) {
+        ctx.addModelProvider(provider);
+        ctx.addChannel(channel);
+      },
+    };
+    const services = testServices();
+    const shitsuji = await createShitsuji(config(), {
+      services,
+      plugins: [plugin],
+    });
+    await shitsuji.start();
+
+    channel.receive('Send me the report', 'chat-42');
+    await until(() => channel.sent.length > 0);
+
+    expect(channel.sent[0]!.message).toContain('Here is the report.');
+    expect(channel.delivered[0]!.parts).toEqual([
+      { kind: 'text', markdown: 'Here is the report.' },
+      {
+        kind: 'file',
+        fileRef: { name: 'report.pdf', path: file, mediaType: 'application/pdf' },
+        caption: 'The report',
+      },
+    ]);
+    await shitsuji.stop();
+  });
+
   it('replies with the error instead of staying silent when the model fails', async () => {
     const { channel, plugin } = fakes([]); // no scripted reply: the model call throws
     const services = testServices();

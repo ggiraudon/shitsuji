@@ -7,7 +7,8 @@ import { serializeError } from '../domain/errors.js';
 import type { ChannelRegistry } from '../application/channels/ChannelRegistry.js';
 import { ChannelGateway } from '../application/channels/ChannelGateway.js';
 import type { PairingService } from '../application/channels/PairingService.js';
-import type { ChannelAdapter, OutboundIntent } from '../ports/ChannelAdapter.js';
+import type { ChannelAdapter, OutboundIntent, OutboundPart } from '../ports/ChannelAdapter.js';
+import type { OutboundFile } from '../ports/Tool.js';
 import type { ChannelBindingStore } from '../ports/ChannelBindingStore.js';
 import type { Clock } from '../ports/Clock.js';
 import type { EventBus } from '../ports/EventBus.js';
@@ -99,7 +100,7 @@ export class Shitsuji {
             ? (e.question ?? '')
             : `Error: ${e.error ?? e.status}`;
       const intent: OutboundIntent = e.status === 'waiting' ? 'question' : 'final';
-      void this.deliver(e.replyChannel, text, intent);
+      void this.deliver(e.replyChannel, text, intent, e.files);
     });
     await this.agent.start();
     await this.prepare?.();
@@ -168,9 +169,14 @@ export class Shitsuji {
   }
 
   /** Sends a reply to "<channel>:<chat>"; a channel that is not running here (the TUI) reads events. */
-  private async deliver(replyChannel: string, text: string, intent: OutboundIntent): Promise<void> {
+  private async deliver(
+    replyChannel: string,
+    text: string,
+    intent: OutboundIntent,
+    files: readonly OutboundFile[] = [],
+  ): Promise<void> {
     const { channelId, chatId } = splitReplyChannel(replyChannel);
-    await this.deliverTo(channelId, chatId, text, intent);
+    await this.deliverTo(channelId, chatId, text, intent, files);
   }
 
   /** Lets a channel show a typing or "working" indicator while the turn runs. */
@@ -193,14 +199,26 @@ export class Shitsuji {
     chatId: string,
     text: string,
     intent: OutboundIntent,
+    files: readonly OutboundFile[] = [],
   ): Promise<void> {
     const channel = this.started.find((c) => c.id === channelId);
     if (!channel) return;
+    const parts: OutboundPart[] = [];
+    if (text) parts.push({ kind: 'text', markdown: text });
+    for (const file of files) {
+      parts.push({
+        kind: 'file',
+        fileRef: {
+          name: file.name,
+          path: file.path,
+          ...(file.mediaType && { mediaType: file.mediaType }),
+        },
+        ...(file.caption && { caption: file.caption }),
+      });
+    }
+    if (!parts.length) return;
     try {
-      const receipt = await channel.deliver(
-        { chatId },
-        { parts: [{ kind: 'text', markdown: text }], intent },
-      );
+      const receipt = await channel.deliver({ chatId }, { parts, intent });
       if (!receipt.delivered) {
         this.log.warn('Reply not delivered', { channel: channelId, reason: receipt.reason });
       }

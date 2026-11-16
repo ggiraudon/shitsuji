@@ -98,6 +98,8 @@ export class TestChannel extends BaseChannelAdapter {
     maxMessageLength: 100_000,
   };
   readonly sent: { destination: string; message: string }[] = [];
+  /** The raw outbound messages, for tests that care about file parts (S33). */
+  readonly delivered: OutboundMessage[] = [];
   readonly typingCalls: string[] = [];
   started = 0;
   stopped = 0;
@@ -119,6 +121,7 @@ export class TestChannel extends BaseChannelAdapter {
   }
 
   async deliver(target: ChannelTarget, message: OutboundMessage) {
+    this.delivered.push(message);
     this.sent.push({
       destination: target.chatId,
       message: this.renderer.render(message, this.capabilities).text,

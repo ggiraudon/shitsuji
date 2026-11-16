@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
 import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
@@ -91,6 +93,28 @@ class FailTool extends BaseTool<z.ZodObject<{ n: z.ZodOptional<z.ZodNumber> }>> 
   }
 }
 
+/** Attaches a file, as workspace.send does (S33). */
+class FileTool extends BaseTool<z.ZodObject<Record<string, never>>> {
+  readonly name = 'test.file';
+  readonly description = 'Attaches a file';
+  readonly input = z.object({});
+  readonly effect = 'read' as const;
+  async run(): Promise<ToolOutput> {
+    return {
+      content: 'Attached report.pdf.',
+      data: {
+        files: [
+          {
+            path: path.join(os.tmpdir(), 'handoff', 'report.pdf'),
+            name: 'report.pdf',
+            mediaType: 'application/pdf',
+          },
+        ],
+      },
+    };
+  }
+}
+
 async function setup(steps: Step[]) {
   const services = testServices();
   const events: string[] = [];
@@ -106,7 +130,7 @@ async function setup(steps: Step[]) {
   const repos = new InMemoryRepositories();
   const jobs = new InMemoryJobQueue(services.log, services.clock);
   const hang = new HangTool();
-  const tools = new ToolCatalog([hang, new FailTool()]);
+  const tools = new ToolCatalog([hang, new FailTool(), new FileTool()]);
   const model = new ControlledModel(steps);
   const agent = new Agent({
     name: 'Test',
@@ -193,6 +217,30 @@ describe('runtime: intake, scheduling and streaming (S20, S21)', () => {
     ]);
     await agent.send('go');
     expect(events.filter((e) => e.startsWith('tool.'))).toEqual(['tool.started', 'tool.finished']);
+  });
+
+  it('publishes the files a tool attached on turn.status: succeeded (S33)', async () => {
+    const { agent, services } = await setup([
+      { tool: { name: 'test.file' } },
+      { text: 'Here is the report.' },
+    ]);
+    const statuses: { status: string; files?: unknown }[] = [];
+    services.events.subscribe('turn.status', (event) => {
+      statuses.push(event);
+    });
+
+    const { reply } = await agent.send('Send me the report');
+
+    expect(reply).toBe('Here is the report.');
+    expect(statuses.find((event) => event.status === 'succeeded')).toMatchObject({
+      files: [
+        {
+          path: path.join(os.tmpdir(), 'handoff', 'report.pdf'),
+          name: 'report.pdf',
+          mediaType: 'application/pdf',
+        },
+      ],
+    });
   });
 });
 
