@@ -1,7 +1,15 @@
 import { WebhookChannelAdapter } from '../adapters/channels/WebhookChannelAdapter.js';
 import type { PluginRegistrationContext, ShitsujiPlugin } from '../ports/Plugin.js';
 
-/** An HTTP endpoint that accepts messages by POST and answers with the reply. */
+export interface WebhookChannelPluginOptions {
+  host: string;
+  port: number;
+  path: string;
+  /** Checks the owner key from `Authorization: Bearer` (#34). */
+  authorize: (key: string | undefined) => boolean;
+}
+
+/** An HTTP endpoint that accepts messages by POST, with the owner key, and answers with the reply. */
 export class WebhookChannelPlugin implements ShitsujiPlugin {
   readonly manifest = {
     id: 'builtin.webhook-channel',
@@ -10,7 +18,7 @@ export class WebhookChannelPlugin implements ShitsujiPlugin {
     provides: ['channel'],
   } as const;
 
-  constructor(private readonly options: { port: number; path: string }) {}
+  constructor(private readonly options: WebhookChannelPluginOptions) {}
 
   register(ctx: PluginRegistrationContext): void {
     ctx.addChannel(new WebhookChannelAdapter(ctx.log, this.options));
