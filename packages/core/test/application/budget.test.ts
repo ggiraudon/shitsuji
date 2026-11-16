@@ -14,7 +14,7 @@ import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { BudgetExceeded } from '../../src/domain/errors.js';
-import { asId, type OwnerId } from '../../src/domain/model/ids.js';
+import { asId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
 import { Money } from '../../src/domain/model/Money.js';
 import type {
   ModelProvider,
@@ -26,7 +26,10 @@ import { ScriptedProvider, testServices } from '../helpers.js';
 const OWNER = asId<OwnerId>('owner');
 const clock = new ManualClock('2026-03-15T12:00:00.000Z');
 
-async function setup(limits = { monthly: Money.of(1), background: Money.of(0.5) }) {
+async function setup(
+  limits = { monthly: Money.of(1), background: Money.of(0.5) },
+  checkIn = Money.of(10),
+) {
   const repos = new InMemoryRepositories();
   await repos.owners.upsert({
     id: OWNER,
@@ -35,10 +38,18 @@ async function setup(limits = { monthly: Money.of(1), background: Money.of(0.5) 
     locale: 'en',
   });
   const log = new MemoryLogger();
-  const budget = new BudgetService({ store: repos.budget, ownerId: OWNER, clock, log, limits });
-  const usage = (amount: number, at: string, background = false) =>
+  const budget = new BudgetService({
+    store: repos.budget,
+    ownerId: OWNER,
+    clock,
+    log,
+    limits,
+    checkIn,
+  });
+  const usage = (amount: number, at: string, background = false, sessionId?: SessionId) =>
     repos.usage.append({
       ownerId: OWNER,
+      ...(sessionId && { sessionId }),
       provider: 'test',
       model: 'm',
       inputTokens: 1,
@@ -65,6 +76,23 @@ describe('BudgetService (F22, S27)', () => {
     await budget.settle(reservation, Money.of(0.4));
 
     expect((await budget.spentThisMonth()).micros).toBe(400_000);
+  });
+
+  it('checks in on one session since the owner last spoke', async () => {
+    const { budget, usage } = await setup(undefined, Money.of(0.00001)); // 10 micros
+    const s1 = asId<SessionId>('s1');
+    const s2 = asId<SessionId>('s2');
+    const s3 = asId<SessionId>('s3');
+    await usage(0.00002, '2026-03-15T12:00:05.000Z', false, s1); // over
+    await usage(0.000005, '2026-03-15T12:00:06.000Z', false, s2); // under
+    await usage(0.00001, '2026-03-15T12:00:07.000Z', false, s3); // exactly the limit
+    await usage(0.00005, '2026-03-15T11:59:00.000Z', false, s1); // before the owner's message
+
+    const since = new Date('2026-03-15T12:00:00.000Z');
+    expect(await budget.checkIn(s1, since)).toMatchObject({ over: true });
+    expect((await budget.checkIn(s1, since)).spent.micros).toBe(20);
+    expect(await budget.checkIn(s2, since)).toMatchObject({ over: false });
+    expect(await budget.checkIn(s3, since)).toMatchObject({ over: false });
   });
 
   it('refuses background work past the monthly limit, but never your own messages', async () => {
@@ -294,6 +322,7 @@ describe('budget through a turn (S27)', () => {
       clock: services.clock,
       log: services.log,
       limits: { monthly: Money.of(0.000001), background: Money.of(0.000001) },
+      checkIn: Money.of(10),
     });
     const raw = new ScriptedProvider([{ content: 'Good evening.' }], 'scripted');
     const metered = new MeteredModelProvider(raw, {

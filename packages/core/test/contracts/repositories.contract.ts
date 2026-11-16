@@ -460,6 +460,48 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       expect((await repos.budget.heldSince(owner, since, 'USD')).isZero()).toBe(true);
     });
 
+    it('budget: counts one session since a time, ignoring other sessions and older spend', async () => {
+      const repos = await create();
+      const { thread, session } = await seed(repos);
+      const other = new Session(newId(), thread.id, 'chat', at(1));
+      await repos.sessions.insert(other);
+      const usage = (sessionId: typeof session.id, amount: number, when: Date) =>
+        repos.usage.append({
+          ownerId: owner,
+          sessionId,
+          provider: 'test',
+          model: 'm',
+          inputTokens: 1,
+          outputTokens: 1,
+          cost: Money.of(amount),
+          at: when,
+        });
+      await usage(session.id, 0.2, at(10));
+      await usage(session.id, 0.3, at(11));
+      await usage(other.id, 0.9, at(11));
+      await usage(session.id, 0.4, at(9)); // before the window
+
+      expect((await repos.budget.sessionSpentSince(owner, session.id, at(10), 'USD')).micros).toBe(
+        500_000,
+      );
+
+      // An open hold in the session counts as spend in flight.
+      await repos.budget.reserve({
+        ownerId: owner,
+        id: 'hold-session',
+        amount: Money.of(0.25),
+        background: false,
+        enforce: false,
+        since: at(0),
+        limits: { monthly: Money.of(1), background: Money.of(1) },
+        now: at(12),
+        sessionId: session.id,
+      });
+      expect((await repos.budget.sessionSpentSince(owner, session.id, at(10), 'USD')).micros).toBe(
+        750_000,
+      );
+    });
+
     it('rejects duplicate ids', async () => {
       const repos = await create();
       const { session } = await seed(repos);

@@ -595,6 +595,10 @@ export class PostgresRepositories implements Repositories {
       heldTotal(this.ex(tx), ownerId, since, currency, background),
     spentSince: (ownerId, since, currency, background, tx) =>
       usageTotal(this.ex(tx), ownerId, since, currency, background),
+    sessionSpentSince: async (ownerId, sessionId, since, currency, tx) =>
+      (await usageTotal(this.ex(tx), ownerId, since, currency, undefined, sessionId)).plus(
+        await heldTotal(this.ex(tx), ownerId, since, currency, undefined, sessionId),
+      ),
     releaseAllHeld: async (at) => {
       const result = await this.ex()
         .updateTable('budget_reservations')
@@ -678,6 +682,7 @@ async function usageTotal(
   since: Date,
   currency: string,
   background?: boolean,
+  sessionId?: SessionId,
 ): Promise<Money> {
   const row = await ex
     .selectFrom('usage')
@@ -687,6 +692,7 @@ async function usageTotal(
     .where('currency', '=', currency)
     .where('cost_micros', 'is not', null)
     .$if(background !== undefined, (qb) => qb.where('background', '=', background!))
+    .$if(sessionId !== undefined, (qb) => qb.where('session_id', '=', sessionId!))
     .executeTakeFirst();
   return Money.fromMicros(Number(row?.total ?? 0), currency);
 }
@@ -698,6 +704,7 @@ async function heldTotal(
   since: Date,
   currency: string,
   background?: boolean,
+  sessionId?: SessionId,
 ): Promise<Money> {
   const row = await ex
     .selectFrom('budget_reservations')
@@ -707,6 +714,7 @@ async function heldTotal(
     .where('created_at', '>=', since)
     .where('currency', '=', currency)
     .$if(background !== undefined, (qb) => qb.where('background', '=', background!))
+    .$if(sessionId !== undefined, (qb) => qb.where('session_id', '=', sessionId!))
     .executeTakeFirst();
   return Money.fromMicros(Number(row?.total ?? 0), currency);
 }
