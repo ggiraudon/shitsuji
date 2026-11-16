@@ -453,6 +453,23 @@ export class PostgresRepositories implements Repositories {
         data: r.data,
         at: r.at,
       })),
+    listRecent: async (ownerId, query = {}, tx) => {
+      let q = this.ex(tx).selectFrom('turn_events').selectAll().where('owner_id', '=', ownerId);
+      if (query.kinds?.length) q = q.where('kind', 'in', [...query.kinds]);
+      if (query.since) q = q.where('at', '>=', query.since);
+      return (
+        await q
+          .orderBy('at', 'desc')
+          .orderBy('id', 'desc')
+          .limit(query.limit ?? 100)
+          .execute()
+      ).map((r) => ({
+        turnId: r.turn_id as TurnId,
+        kind: r.kind as TurnEventKind,
+        data: r.data,
+        at: r.at,
+      }));
+    },
   };
 
   readonly soul: SoulStore = {
@@ -595,6 +612,10 @@ export class PostgresRepositories implements Repositories {
       heldTotal(this.ex(tx), ownerId, since, currency, background),
     spentSince: (ownerId, since, currency, background, tx) =>
       usageTotal(this.ex(tx), ownerId, since, currency, background),
+    sessionSpentSince: async (ownerId, sessionId, since, currency, tx) =>
+      (await usageTotal(this.ex(tx), ownerId, since, currency, undefined, sessionId, true)).plus(
+        await heldTotal(this.ex(tx), ownerId, since, currency, undefined, sessionId, true),
+      ),
     releaseAllHeld: async (at) => {
       const result = await this.ex()
         .updateTable('budget_reservations')
@@ -678,15 +699,19 @@ async function usageTotal(
   since: Date,
   currency: string,
   background?: boolean,
+  sessionId?: SessionId,
+  strict = false,
 ): Promise<Money> {
+  const op: '>' | '>=' = strict ? '>' : '>=';
   const row = await ex
     .selectFrom('usage')
     .select(sql<string>`COALESCE(SUM(cost_micros), 0)`.as('total'))
     .where('owner_id', '=', ownerId)
-    .where('at', '>=', since)
+    .where('at', op, since)
     .where('currency', '=', currency)
     .where('cost_micros', 'is not', null)
     .$if(background !== undefined, (qb) => qb.where('background', '=', background!))
+    .$if(sessionId !== undefined, (qb) => qb.where('session_id', '=', sessionId!))
     .executeTakeFirst();
   return Money.fromMicros(Number(row?.total ?? 0), currency);
 }
@@ -698,15 +723,19 @@ async function heldTotal(
   since: Date,
   currency: string,
   background?: boolean,
+  sessionId?: SessionId,
+  strict = false,
 ): Promise<Money> {
+  const op: '>' | '>=' = strict ? '>' : '>=';
   const row = await ex
     .selectFrom('budget_reservations')
     .select(sql<string>`COALESCE(SUM(amount_micros), 0)`.as('total'))
     .where('owner_id', '=', ownerId)
     .where('state', '=', 'held')
-    .where('created_at', '>=', since)
+    .where('created_at', op, since)
     .where('currency', '=', currency)
     .$if(background !== undefined, (qb) => qb.where('background', '=', background!))
+    .$if(sessionId !== undefined, (qb) => qb.where('session_id', '=', sessionId!))
     .executeTakeFirst();
   return Money.fromMicros(Number(row?.total ?? 0), currency);
 }

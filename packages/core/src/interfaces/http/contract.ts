@@ -57,6 +57,54 @@ export interface TurnDto {
   endedAt?: string;
 }
 
+export interface ActivityReceiptDto {
+  turnId: string;
+  sessionId?: string;
+  tool: string;
+  toolCallId: string;
+  effect?: string;
+  target?: string;
+  outcome: string;
+  durationMs?: number;
+  /** Redacted and shortened arguments. */
+  args?: string;
+  /** What allowed it: the trust basis (S35 fills in quotes and rules). */
+  allowedBy?: { kind: string; detail?: string };
+  /** Why trust refused it, when it did. */
+  deniedBecause?: string;
+  at: string;
+}
+
+export interface ActivityResponse {
+  since: string;
+  receipts: ActivityReceiptDto[];
+}
+
+export interface UsageRowDto {
+  turnId?: string;
+  sessionId?: string;
+  purpose?: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  background?: boolean;
+  cost?: { micros: number; currency: string };
+  at: string;
+}
+
+export interface UsageDto {
+  since: string;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Settled cost of the rows whose price is known, when there is one. */
+  cost: { micros: number; currency: string } | null;
+  rows: UsageRowDto[];
+}
+
 /** Live events on /api/events, as JSON text frames. */
 export type LiveEvent =
   | {
@@ -65,6 +113,7 @@ export type LiveEvent =
       sessionId: string;
       status: string;
       reply?: string;
+      question?: string;
       error?: string;
     }
   | { type: 'turn.text_delta'; turnId: string; sessionId: string; text: string }

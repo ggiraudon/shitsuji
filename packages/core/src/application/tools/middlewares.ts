@@ -2,7 +2,12 @@ import { serializeError } from '../../domain/errors.js';
 import type { TurnId } from '../../domain/model/ids.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { TurnEventRepository } from '../../ports/Repositories.js';
-import { effectOf, type ToolEffect, type ToolOutcome } from '../../ports/Tool.js';
+import {
+  effectOf,
+  type ToolEffect,
+  type ToolOutcome,
+  type TrustDecision,
+} from '../../ports/Tool.js';
 import type { ToolInvocation, ToolMiddleware } from './ToolPipeline.js';
 
 /** Races the call against the turn's AbortSignal; never waits for a tool that ignores it. */
@@ -91,12 +96,13 @@ export class RepeatFailureMiddleware implements ToolMiddleware {
 
 /** Decides whether a call may run. The trust service (F11) will replace the fixed policy. */
 export interface TrustPolicy {
-  decide(inv: ToolInvocation): { allow: true } | { allow: false; reason: string };
+  decide(inv: ToolInvocation): TrustDecision;
 }
 
 /**
  * Until approvals exist (F11): anything that only reads, computes or changes Shitsuji's own world is
- * allowed; acting on the outside world or spending money is refused.
+ * allowed; acting on the outside world or spending money is refused. The basis it reports is what the
+ * activity log shows as "what allowed it".
  */
 export class FixedTrustPolicy implements TrustPolicy {
   constructor(
@@ -108,11 +114,17 @@ export class FixedTrustPolicy implements TrustPolicy {
     ],
   ) {}
 
-  decide(inv: ToolInvocation): { allow: true } | { allow: false; reason: string } {
+  decide(inv: ToolInvocation): TrustDecision {
     const effect = inv.effect ?? 'external';
-    if (this.allowed.includes(effect)) return { allow: true };
+    if (this.allowed.includes(effect)) {
+      return {
+        allow: true,
+        basis: { kind: 'policy', detail: `the fixed policy allows ${effect}` },
+      };
+    }
     return {
       allow: false,
+      basis: { kind: 'none', detail: 'no approval channel exists yet (F11)' },
       reason: `${inv.tool.name} has the effect "${effect}", which needs approvals; approvals arrive with F11.`,
     };
   }
@@ -124,39 +136,66 @@ export class TrustMiddleware implements ToolMiddleware {
 
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const decision = this.policy.decide(inv);
-    if (!decision.allow) return { kind: 'error', reason: 'denied', content: decision.reason };
+    inv.trust = decision;
+    if (!decision.allow) {
+      return {
+        kind: 'error',
+        reason: 'denied',
+        content: decision.reason ?? `${inv.tool.name} was refused by the trust policy.`,
+      };
+    }
     return next();
   }
 }
 
-/** Writes tool_start / tool_end to turn_events, with arguments shortened (redaction comes with F12). */
+/** Masks known secrets in text (the vault arrives with F12; identity until then). */
+export type RedactFn = (text: string) => string;
+
+/**
+ * Writes tool_start / tool_end to turn_events: the call's effect, target, session, arguments
+ * (redacted and shortened), outcome, duration and the trust basis. It sits outside Trust, so refused
+ * calls are receipts too (F22, S29).
+ */
 export class ReceiptMiddleware implements ToolMiddleware {
   readonly name = 'receipt';
   constructor(
     private readonly turnEvents: TurnEventRepository,
     private readonly clock: Clock,
+    private readonly redact: RedactFn = (text) => text,
   ) {}
 
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const turnId = inv.ctx.turnId as TurnId;
-    const base = { tool: inv.tool.name, toolCallId: inv.call.id };
+    const common = {
+      tool: inv.tool.name,
+      toolCallId: inv.call.id,
+      effect: inv.effect,
+      target: inv.tool.target,
+      sessionId: inv.ctx.sessionId,
+    };
+    const args = shorten(this.redact(JSON.stringify(inv.args ?? {})), 2000);
     const started = this.clock.now();
     await this.turnEvents.append({
       turnId,
       kind: 'tool_start',
-      data: { ...base, effect: inv.effect, args: shorten(JSON.stringify(inv.args ?? {}), 2000) },
+      data: { ...common, args },
       at: started,
     });
     const outcome = await next();
+    const trust = inv.trust;
+    const now = this.clock.now();
     await this.turnEvents.append({
       turnId,
       kind: 'tool_end',
       data: {
-        ...base,
+        ...common,
+        args,
         outcome: outcome.kind === 'ok' ? 'ok' : outcome.reason,
-        ms: this.clock.now().getTime() - started.getTime(),
+        ms: now.getTime() - started.getTime(),
+        allowedBy: trust?.basis ?? { kind: 'none' },
+        ...(trust?.reason && { deniedBecause: trust.reason }),
       },
-      at: this.clock.now(),
+      at: now,
     });
     return outcome;
   }
@@ -242,6 +281,8 @@ export interface DefaultPipelineDeps {
   policy?: TrustPolicy;
   repeatLimit?: number;
   maxOutputChars?: number;
+  /** Masks known secrets in receipt arguments (identity until F12). */
+  redact?: RedactFn;
 }
 
 /** The standard chain, outermost first. */
@@ -250,8 +291,9 @@ export function defaultMiddlewares(deps: DefaultPipelineDeps): ToolMiddleware[] 
     new CancellationMiddleware(),
     new ValidationMiddleware(),
     new RepeatFailureMiddleware(deps.repeatLimit),
+    // The receipt sits outside trust so a refused call is in the activity log too (S29).
+    new ReceiptMiddleware(deps.turnEvents, deps.clock, deps.redact),
     new TrustMiddleware(deps.policy ?? new FixedTrustPolicy()),
-    new ReceiptMiddleware(deps.turnEvents, deps.clock),
     new UntrustedWrapMiddleware(),
     new RedactionMiddleware(),
     new OutputLimitMiddleware(deps.maxOutputChars),

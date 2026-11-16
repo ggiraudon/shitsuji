@@ -79,6 +79,14 @@ export interface BudgetStore {
     background?: boolean,
     tx?: Transaction,
   ): Promise<Money>;
+  /** Settled spend plus open holds for one session since `since` (F22 check-in). */
+  sessionSpentSince(
+    ownerId: OwnerId,
+    sessionId: SessionId,
+    since: Date,
+    currency: string,
+    tx?: Transaction,
+  ): Promise<Money>;
   /** Startup recovery: every open hold belongs to a request that died with the process. */
   releaseAllHeld(at: Date): Promise<number>;
 }

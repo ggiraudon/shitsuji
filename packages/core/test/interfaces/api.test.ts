@@ -6,19 +6,29 @@ import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { Agent } from '../../src/application/Agent.js';
 import { NodeTextFile } from '../../src/adapters/files/NodeTextFile.js';
+import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
 import { SoulService } from '../../src/application/soul/SoulService.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { asId, type OwnerId } from '../../src/domain/model/ids.js';
+import type { Tool } from '../../src/ports/Tool.js';
 import { createApi } from '../../src/interfaces/http/createApi.js';
-import { routerFor, ScriptedProvider, testServices } from '../helpers.js';
+import {
+  routerFor,
+  ScriptedProvider,
+  testServices,
+  until,
+  type ScriptedReply,
+} from '../helpers.js';
 
-async function setup(options: { dataDir?: string } = {}) {
+async function setup(
+  options: { dataDir?: string; replies?: ScriptedReply[]; tools?: Tool[] } = {},
+) {
   const services = testServices();
   const repos = new InMemoryRepositories();
   const jobs = new InMemoryJobQueue(services.log, services.clock);
-  const tools = new ToolCatalog();
+  const tools = new ToolCatalog(options.tools ?? []);
   const ownerId = asId<OwnerId>('owner');
   await repos.owners.upsert({
     id: ownerId,
@@ -38,7 +48,7 @@ async function setup(options: { dataDir?: string } = {}) {
   const agent = new Agent({
     name: 'Test',
     ownerId,
-    models: routerFor(new ScriptedProvider([{ content: 'Hi there.' }])),
+    models: routerFor(new ScriptedProvider(options.replies ?? [{ content: 'Hi there.' }])),
     tools,
     pipeline: new ToolPipeline(
       tools,
@@ -156,5 +166,66 @@ describe('HTTP API', () => {
     } finally {
       await fs.rm(dataDir, { recursive: true, force: true });
     }
+  });
+
+  it('lists tool receipts with their effect, target, outcome and what allowed them (S29)', async () => {
+    const { app, agent } = await setup({
+      replies: [
+        { toolCalls: [{ id: 'c1', name: 'math.evaluate', arguments: { expression: '1+1' } }] },
+        { content: 'It is 2.' },
+      ],
+      tools: [new MathEvaluateTool()],
+    });
+    const posted = await app.request('/api/messages', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ content: 'What is 1+1?' }),
+    });
+    const { turnId, sessionId } = (await posted.json()) as {
+      turnId: string;
+      sessionId: string;
+    };
+    const status = async () =>
+      (
+        (await (await app.request(`/api/turns/${turnId}`, { headers: auth })).json()) as {
+          status: string;
+        }
+      ).status;
+    await until(async () => (await status()) === 'succeeded');
+    await agent.idle();
+
+    const res = await app.request('/api/activity', { headers: auth });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      since: string;
+      receipts: {
+        turnId: string;
+        sessionId?: string;
+        tool: string;
+        effect?: string;
+        target?: string;
+        outcome: string;
+        durationMs?: number;
+        allowedBy?: { kind: string; detail?: string };
+      }[];
+    };
+    expect(body.receipts).toHaveLength(1);
+    expect(body.receipts[0]).toMatchObject({
+      turnId,
+      sessionId,
+      tool: 'math.evaluate',
+      effect: 'compute',
+      target: 'core',
+      outcome: 'ok',
+      allowedBy: { kind: 'policy', detail: 'the fixed policy allows compute' },
+    });
+    expect(body.receipts[0]!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('rejects a bad since on the activity and usage routes', async () => {
+    const { app } = await setup();
+    expect((await app.request('/api/activity?since=nope', { headers: auth })).status).toBe(400);
+    expect((await app.request('/api/usage?since=nope', { headers: auth })).status).toBe(400);
+    expect((await app.request('/api/activity')).status).toBe(401);
   });
 });

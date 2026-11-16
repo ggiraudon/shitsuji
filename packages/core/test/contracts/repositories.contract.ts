@@ -346,6 +346,34 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       expect((await repos.soul.fragments(owner)).map((f) => f.body)).toEqual(['New base.']);
     });
 
+    it('lists recent events newest first, filtered by kind and time (activity log)', async () => {
+      const repos = await create();
+      const { session } = await seed(repos);
+      const t = turn(session.id, 50);
+      await repos.turns.insert(t);
+      const append = (kind: 'tool_start' | 'tool_end' | 'note', at: Date) =>
+        repos.turnEvents.append({ turnId: t.id, kind, data: { kind }, at });
+      await append('tool_end', at(1));
+      await append('tool_start', at(2));
+      await append('tool_end', at(3));
+      await append('note', at(4));
+
+      expect(
+        (await repos.turnEvents.listRecent(owner, { kinds: ['tool_end'], limit: 1 })).map(
+          (e) => e.at,
+        ),
+      ).toEqual([at(3)]);
+      expect((await repos.turnEvents.listRecent(owner)).map((e) => e.at)).toEqual([
+        at(4),
+        at(3),
+        at(2),
+        at(1),
+      ]);
+      expect((await repos.turnEvents.listRecent(owner, { since: at(3) })).map((e) => e.at)).toEqual(
+        [at(4), at(3)],
+      );
+    });
+
     it('budget: holds money before a request, settles or releases it, and counts usage', async () => {
       const repos = await create();
       const { session } = await seed(repos);
@@ -458,6 +486,48 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
 
       expect(await repos.budget.releaseAllHeld(at(2))).toBe(2);
       expect((await repos.budget.heldSince(owner, since, 'USD')).isZero()).toBe(true);
+    });
+
+    it('budget: counts one session since a time, ignoring other sessions and older spend', async () => {
+      const repos = await create();
+      const { thread, session } = await seed(repos);
+      const other = new Session(newId(), thread.id, 'chat', at(1));
+      await repos.sessions.insert(other);
+      const usage = (sessionId: typeof session.id, amount: number, when: Date) =>
+        repos.usage.append({
+          ownerId: owner,
+          sessionId,
+          provider: 'test',
+          model: 'm',
+          inputTokens: 1,
+          outputTokens: 1,
+          cost: Money.of(amount),
+          at: when,
+        });
+      await usage(session.id, 0.2, at(10));
+      await usage(session.id, 0.3, at(11));
+      await usage(other.id, 0.9, at(11));
+      await usage(session.id, 0.4, at(9)); // before the window
+
+      expect((await repos.budget.sessionSpentSince(owner, session.id, at(9), 'USD')).micros).toBe(
+        500_000,
+      );
+
+      // An open hold in the session counts as spend in flight.
+      await repos.budget.reserve({
+        ownerId: owner,
+        id: 'hold-session',
+        amount: Money.of(0.25),
+        background: false,
+        enforce: false,
+        since: at(0),
+        limits: { monthly: Money.of(1), background: Money.of(1) },
+        now: at(12),
+        sessionId: session.id,
+      });
+      expect((await repos.budget.sessionSpentSince(owner, session.id, at(9), 'USD')).micros).toBe(
+        750_000,
+      );
     });
 
     it('rejects duplicate ids', async () => {

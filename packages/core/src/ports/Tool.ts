@@ -28,6 +28,21 @@ export const TOOL_EFFECTS: readonly ToolEffect[] = [
 /** Where the tool runs. Only `core` exists until the workspace and desktop containers (F08, F10). */
 export type ToolTarget = 'core' | 'workspace' | 'desktop' | 'mcp';
 
+/** How a tool call was allowed, for receipts and the activity log (F22, F11). */
+export interface TrustBasis {
+  /** `policy` is the fixed rule (S16), `rule` a standing rule, `quote` the owner's words (F11). */
+  kind: 'policy' | 'rule' | 'quote' | 'owner' | 'none';
+  detail?: string;
+}
+
+/** What the trust policy decided about one call. */
+export interface TrustDecision {
+  allow: boolean;
+  basis: TrustBasis;
+  /** Why it was refused, when it was. */
+  reason?: string;
+}
+
 /** What a running tool may use, and nothing else. */
 export interface ToolContext {
   turnId: string;

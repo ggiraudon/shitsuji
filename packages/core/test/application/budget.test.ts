@@ -3,6 +3,7 @@ import { ManualClock } from '../../src/adapters/clock/SystemClock.js';
 import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
+import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
 import { Agent } from '../../src/application/Agent.js';
 import { BudgetService } from '../../src/application/budget/BudgetService.js';
 import { BudgetedModelProvider } from '../../src/application/budget/BudgetedModelProvider.js';
@@ -14,19 +15,23 @@ import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { BudgetExceeded } from '../../src/domain/errors.js';
-import { asId, type OwnerId } from '../../src/domain/model/ids.js';
+import { asId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
+import { textOf } from '../../src/domain/model/Message.js';
 import { Money } from '../../src/domain/model/Money.js';
 import type {
   ModelProvider,
   ModelRequest,
   ModelStreamEvent,
 } from '../../src/ports/ModelProvider.js';
-import { ScriptedProvider, testServices } from '../helpers.js';
+import { ScriptedProvider, testServices, transcript } from '../helpers.js';
 
 const OWNER = asId<OwnerId>('owner');
 const clock = new ManualClock('2026-03-15T12:00:00.000Z');
 
-async function setup(limits = { monthly: Money.of(1), background: Money.of(0.5) }) {
+async function setup(
+  limits = { monthly: Money.of(1), background: Money.of(0.5) },
+  checkIn = Money.of(10),
+) {
   const repos = new InMemoryRepositories();
   await repos.owners.upsert({
     id: OWNER,
@@ -35,10 +40,18 @@ async function setup(limits = { monthly: Money.of(1), background: Money.of(0.5) 
     locale: 'en',
   });
   const log = new MemoryLogger();
-  const budget = new BudgetService({ store: repos.budget, ownerId: OWNER, clock, log, limits });
-  const usage = (amount: number, at: string, background = false) =>
+  const budget = new BudgetService({
+    store: repos.budget,
+    ownerId: OWNER,
+    clock,
+    log,
+    limits,
+    checkIn,
+  });
+  const usage = (amount: number, at: string, background = false, sessionId?: SessionId) =>
     repos.usage.append({
       ownerId: OWNER,
+      ...(sessionId && { sessionId }),
       provider: 'test',
       model: 'm',
       inputTokens: 1,
@@ -65,6 +78,23 @@ describe('BudgetService (F22, S27)', () => {
     await budget.settle(reservation, Money.of(0.4));
 
     expect((await budget.spentThisMonth()).micros).toBe(400_000);
+  });
+
+  it('checks in on one session since the owner last spoke', async () => {
+    const { budget, usage } = await setup(undefined, Money.of(0.00001)); // 10 micros
+    const s1 = asId<SessionId>('s1');
+    const s2 = asId<SessionId>('s2');
+    const s3 = asId<SessionId>('s3');
+    await usage(0.00002, '2026-03-15T12:00:05.000Z', false, s1); // over
+    await usage(0.000005, '2026-03-15T12:00:06.000Z', false, s2); // under
+    await usage(0.00001, '2026-03-15T12:00:07.000Z', false, s3); // exactly the limit
+    await usage(0.00005, '2026-03-15T11:59:00.000Z', false, s1); // before the owner's message
+
+    const since = new Date('2026-03-15T12:00:00.000Z');
+    expect(await budget.checkIn(s1, since)).toMatchObject({ over: true });
+    expect((await budget.checkIn(s1, since)).spent.micros).toBe(20);
+    expect(await budget.checkIn(s2, since)).toMatchObject({ over: false });
+    expect(await budget.checkIn(s3, since)).toMatchObject({ over: false });
   });
 
   it('refuses background work past the monthly limit, but never your own messages', async () => {
@@ -162,6 +192,29 @@ class BreakingProvider implements ModelProvider {
   }
   async listModels() {
     return [];
+  }
+}
+
+/** Moves the clock before each usage event, so spend lands after the owner's message. */
+class TickingProvider implements ModelProvider {
+  readonly id: string;
+  constructor(
+    private readonly inner: ScriptedProvider,
+    private readonly clock: ManualClock,
+  ) {
+    this.id = inner.id;
+  }
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    for await (const event of this.inner.stream(request)) {
+      if (event.type === 'usage') this.clock.advance(1000);
+      yield event;
+    }
+  }
+  listModels() {
+    return this.inner.listModels();
+  }
+  get requests() {
+    return this.inner.requests;
   }
 }
 
@@ -294,6 +347,7 @@ describe('budget through a turn (S27)', () => {
       clock: services.clock,
       log: services.log,
       limits: { monthly: Money.of(0.000001), background: Money.of(0.000001) },
+      checkIn: Money.of(10),
     });
     const raw = new ScriptedProvider([{ content: 'Good evening.' }], 'scripted');
     const metered = new MeteredModelProvider(raw, {
@@ -335,5 +389,89 @@ describe('budget through a turn (S27)', () => {
     const reply = await agent.send('Good evening?');
     expect(reply.reply).toBe('Good evening.');
     expect(raw.requests).toHaveLength(1);
+  });
+});
+
+describe('the check-in through a turn (S28)', () => {
+  it('pauses with a question past the limit, and the owner reply continues the work', async () => {
+    const services = testServices();
+    const repos = new InMemoryRepositories();
+    await repos.owners.upsert({
+      id: OWNER,
+      displayName: 'Jeanne',
+      timezone: 'UTC',
+      locale: 'en',
+    });
+    const catalog = pricedCatalog();
+    const budget = new BudgetService({
+      store: repos.budget,
+      ownerId: OWNER,
+      clock: services.clock,
+      log: services.log,
+      limits: { monthly: Money.of(1), background: Money.of(1) },
+      checkIn: Money.of(0.000001), // one micro-unit: the first priced call passes it
+    });
+    const raw = new TickingProvider(
+      new ScriptedProvider(
+        [
+          { toolCalls: [{ id: 'c1', name: 'math.evaluate', arguments: { expression: '1+1' } }] },
+          { content: 'All done.' },
+        ],
+        'scripted',
+      ),
+      services.clock,
+    );
+    const metered = new MeteredModelProvider(raw, {
+      ownerId: OWNER,
+      usage: repos.usage,
+      catalog,
+      clock: services.clock,
+      log: services.log,
+    });
+    const models = new ModelRouter(
+      new Map([['scripted', new BudgetedModelProvider(metered, { budget, catalog })]]),
+      { purposes: { chat: 'scripted/m' }, fallbacks: {} },
+      catalog,
+      services.log,
+    );
+    const tools = new ToolCatalog([new MathEvaluateTool()]);
+    const jobs = new InMemoryJobQueue(services.log, services.clock);
+    const agent = new Agent({
+      name: 'Test',
+      ownerId: OWNER,
+      models,
+      tools,
+      pipeline: new ToolPipeline(
+        tools,
+        defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock }),
+      ),
+      repos,
+      jobs,
+      budget,
+      ...services,
+    });
+    await jobs.start();
+    await agent.start();
+
+    const first = await agent.send('Please calculate.');
+
+    expect(first.status).toBe('waiting');
+    expect(first.reply).toMatch(/^This has cost .+ so far\. Keep going\?$/);
+    expect((await repos.turns.get(first.turnId))!.status).toBe('waiting');
+    const afterPause = await repos.messages.listBySession(first.sessionId);
+    const question = afterPause.at(-1)!;
+    expect(question).toMatchObject({ role: 'assistant', author: 'assistant' });
+    expect(textOf(question)).toBe(first.reply);
+    expect(raw.requests).toHaveLength(1); // the pause happened before another model call
+
+    const second = await agent.send('Yes, keep going.');
+
+    expect(second.status).toBe('succeeded');
+    expect(second.reply).toBe('All done.');
+    expect(second.turnId).not.toBe(first.turnId);
+    expect((await repos.turns.get(second.turnId))!.source).toBe('resume');
+    const sent = transcript(raw.requests.at(-1)!);
+    expect(sent).toContain('user:Yes, keep going.');
+    expect(sent.some((line) => /Keep going\?/.test(line))).toBe(true);
   });
 });

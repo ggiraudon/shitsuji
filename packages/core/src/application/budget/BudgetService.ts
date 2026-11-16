@@ -11,6 +11,15 @@ export interface BudgetServiceDeps {
   clock: Clock;
   log: Logger;
   limits: BudgetLimits;
+  /** A session pauses to ask when it spends more than this since the owner's last message (S28). */
+  checkIn: Money;
+}
+
+/** What one session has spent since the owner's last message, and whether to ask. */
+export interface CheckIn {
+  spent: Money;
+  limit: Money;
+  over: boolean;
 }
 
 /** What a model request is for: whose budget covers it and where it belongs. */
@@ -136,6 +145,20 @@ export class BudgetService {
     const spent = await store.spentSince(ownerId, since, currency, background);
     const held = await store.heldSince(ownerId, since, currency, background);
     return spent.plus(held);
+  }
+
+  /**
+   * What one session has spent since the owner's last message. A turn that passes the limit pauses
+   * and asks whether to keep going; the owner's answer starts the next turn (S28).
+   */
+  async checkIn(sessionId: SessionId, since: Date): Promise<CheckIn> {
+    const spent = await this.deps.store.sessionSpentSince(
+      this.deps.ownerId,
+      sessionId,
+      since,
+      this.deps.limits.monthly.currency,
+    );
+    return { spent, limit: this.deps.checkIn, over: spent.compare(this.deps.checkIn) > 0 };
   }
 
   /** A price in another currency is as good as none: there is no rate to compare it with. */

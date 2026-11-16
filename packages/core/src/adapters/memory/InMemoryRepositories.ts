@@ -251,6 +251,16 @@ export class InMemoryRepositories implements Repositories {
     },
     listByTurn: async (turnId) =>
       this.state.turnEvents.filter((e) => e.turnId === turnId).map(copy),
+    listRecent: async (_ownerId, query = {}) =>
+      this.state.turnEvents
+        .filter(
+          (e) =>
+            (!query.kinds || query.kinds.includes(e.kind)) &&
+            (!query.since || e.at.getTime() >= query.since.getTime()),
+        )
+        .sort((a, b) => b.at.getTime() - a.at.getTime())
+        .slice(0, query.limit ?? 100)
+        .map(copy),
   };
 
   readonly usage: UsageRepository = {
@@ -359,6 +369,30 @@ export class InMemoryRepositories implements Repositories {
       this.heldTotal(ownerId, since, currency, background),
     spentSince: async (ownerId, since, currency, background) =>
       this.spentTotal(ownerId, since, currency, background),
+    sessionSpentSince: async (ownerId, sessionId, since, currency) => {
+      const at = since.getTime();
+      const usage = this.state.usage
+        .filter(
+          (u) =>
+            u.ownerId === ownerId &&
+            u.sessionId === sessionId &&
+            u.currency === currency &&
+            u.costMicros !== undefined &&
+            u.at.getTime() > at,
+        )
+        .reduce((sum, u) => sum + (u.costMicros ?? 0), 0);
+      const held = this.state.budgetHolds
+        .filter(
+          (h) =>
+            h.ownerId === ownerId &&
+            h.sessionId === sessionId &&
+            h.state === 'held' &&
+            h.currency === currency &&
+            h.createdAt.getTime() > at,
+        )
+        .reduce((sum, h) => sum + h.amountMicros, 0);
+      return Money.fromMicros(usage + held, currency);
+    },
     releaseAllHeld: async (at) => {
       let released = 0;
       for (const row of this.state.budgetHolds) {
@@ -372,7 +406,13 @@ export class InMemoryRepositories implements Repositories {
   };
 
   /** Settled spend from the usage ledger: rows with a known cost, in this currency. */
-  private spentTotal(ownerId: OwnerId, since: Date, currency: string, background?: boolean): Money {
+  private spentTotal(
+    ownerId: OwnerId,
+    since: Date,
+    currency: string,
+    background?: boolean,
+    sessionId?: SessionId,
+  ): Money {
     const micros = this.state.usage
       .filter(
         (u) =>
@@ -380,14 +420,21 @@ export class InMemoryRepositories implements Repositories {
           u.at.getTime() >= since.getTime() &&
           u.currency === currency &&
           u.costMicros !== undefined &&
-          (background === undefined || u.background === background),
+          (background === undefined || u.background === background) &&
+          (sessionId === undefined || u.sessionId === sessionId),
       )
       .reduce((sum, u) => sum + (u.costMicros ?? 0), 0);
     return Money.fromMicros(micros, currency);
   }
 
   /** Open holds since the period started. */
-  private heldTotal(ownerId: OwnerId, since: Date, currency: string, background?: boolean): Money {
+  private heldTotal(
+    ownerId: OwnerId,
+    since: Date,
+    currency: string,
+    background?: boolean,
+    sessionId?: SessionId,
+  ): Money {
     const micros = this.state.budgetHolds
       .filter(
         (h) =>
@@ -395,7 +442,8 @@ export class InMemoryRepositories implements Repositories {
           h.state === 'held' &&
           h.currency === currency &&
           h.createdAt.getTime() >= since.getTime() &&
-          (background === undefined || h.background === background),
+          (background === undefined || h.background === background) &&
+          (sessionId === undefined || h.sessionId === sessionId),
       )
       .reduce((sum, h) => sum + h.amountMicros, 0);
     return Money.fromMicros(micros, currency);

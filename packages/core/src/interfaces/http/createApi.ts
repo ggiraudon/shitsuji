@@ -9,17 +9,20 @@ import { textOf, toolCallsOf, type Message } from '../../domain/model/Message.js
 import type { Clock } from '../../ports/Clock.js';
 import type { EventBus } from '../../ports/EventBus.js';
 import type { Logger } from '../../ports/Logger.js';
-import type { Repositories } from '../../ports/Repositories.js';
+import type { Repositories, TurnEvent } from '../../ports/Repositories.js';
 import {
   LIVE_EVENT_TYPES,
   confirmSoulBody,
   postMessageBody,
+  type ActivityReceiptDto,
+  type ActivityResponse,
   type ConfirmSoulResponse,
   type LiveEvent,
   type MessageDto,
   type PostMessageResponse,
   type SoulDto,
   type TurnDto,
+  type UsageDto,
 } from './contract.js';
 
 export interface ApiDeps {
@@ -141,17 +144,38 @@ export function createApi(deps: ApiDeps): Hono {
     }
   });
 
+  app.get('/api/activity', async (c) => {
+    const since = new Date(c.req.query('since') ?? deps.clock.now().getTime() - 7 * 24 * 3600_000);
+    if (Number.isNaN(since.getTime())) return c.json({ error: 'since must be an ISO date' }, 400);
+    const limit = Math.min(Number(c.req.query('limit') ?? 100) || 100, 500);
+    const events = await deps.repos.turnEvents.listRecent(deps.ownerId, {
+      kinds: ['tool_end'],
+      since,
+      limit,
+    });
+    return c.json({
+      since: since.toISOString(),
+      receipts: events.map(toActivityReceipt),
+    } satisfies ActivityResponse);
+  });
+
   app.get('/api/usage', async (c) => {
-    const since = new Date(c.req.query('since') ?? Date.now() - 30 * 24 * 3600_000);
+    const since = new Date(c.req.query('since') ?? deps.clock.now().getTime() - 30 * 24 * 3600_000);
     if (Number.isNaN(since.getTime())) return c.json({ error: 'since must be an ISO date' }, 400);
     const rows = await deps.repos.usage.listSince(deps.ownerId, since);
+    const priced = rows.filter((r) => r.cost);
+    const currency = priced[0]?.cost!.currency ?? 'USD';
+    const costMicros = priced
+      .filter((r) => r.cost!.currency === currency)
+      .reduce((n, r) => n + r.cost!.micros, 0);
     return c.json({
       since: since.toISOString(),
       calls: rows.length,
       inputTokens: rows.reduce((n, r) => n + r.inputTokens, 0),
       outputTokens: rows.reduce((n, r) => n + r.outputTokens, 0),
+      cost: priced.length ? { micros: costMicros, currency } : null,
       rows: rows.map((r) => ({ ...r, cost: r.cost?.toJSON(), at: r.at.toISOString() })),
-    });
+    } satisfies UsageDto);
   });
 
   app.post('/api/events/ticket', (c) => {
@@ -222,5 +246,39 @@ export function toMessageDto(m: Message): MessageDto {
     withdrawn: m.withdrawn,
     turnId: m.turnId,
     createdAt: m.createdAt.toISOString(),
+  };
+}
+
+/** One stored tool_end event as the activity log shows it; missing fields stay missing. */
+export function toActivityReceipt(event: TurnEvent): ActivityReceiptDto {
+  const data = event.data;
+  const text = (key: string): string | undefined =>
+    typeof data[key] === 'string' ? (data[key] as string) : undefined;
+  const rawBasis = data.allowedBy as { kind?: unknown; detail?: unknown } | undefined;
+  const allowedBy =
+    rawBasis && typeof rawBasis.kind === 'string'
+      ? {
+          kind: rawBasis.kind,
+          ...(typeof rawBasis.detail === 'string' && { detail: rawBasis.detail }),
+        }
+      : undefined;
+  const sessionId = text('sessionId');
+  const effect = text('effect');
+  const target = text('target');
+  const args = text('args');
+  const deniedBecause = text('deniedBecause');
+  return {
+    turnId: event.turnId,
+    ...(sessionId ? { sessionId } : {}),
+    tool: text('tool') ?? 'unknown',
+    toolCallId: text('toolCallId') ?? '',
+    ...(effect ? { effect } : {}),
+    ...(target ? { target } : {}),
+    outcome: text('outcome') ?? event.kind,
+    ...(typeof data.ms === 'number' && { durationMs: data.ms }),
+    ...(args ? { args } : {}),
+    ...(allowedBy ? { allowedBy } : {}),
+    ...(deniedBecause ? { deniedBecause } : {}),
+    at: event.at.toISOString(),
   };
 }

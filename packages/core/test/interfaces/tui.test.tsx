@@ -56,6 +56,31 @@ function fakeClient(history: MessageDto[] = []) {
       calls.soulHash = hash;
       return 4;
     },
+    usage: async () => ({
+      since: new Date(0).toISOString(),
+      calls: 3,
+      inputTokens: 1200,
+      outputTokens: 80,
+      cost: { micros: 1_250_000, currency: 'USD' },
+      rows: [],
+    }),
+    activity: async () => ({
+      since: new Date(0).toISOString(),
+      receipts: [
+        {
+          turnId: 't1',
+          sessionId: 's1',
+          tool: 'math.evaluate',
+          toolCallId: 'c1',
+          effect: 'compute',
+          target: 'core',
+          outcome: 'ok',
+          durationMs: 12,
+          allowedBy: { kind: 'policy', detail: 'the fixed policy allows compute' },
+          at: new Date(0).toISOString(),
+        },
+      ],
+    }),
     events: async (onEvent: (e: LiveEvent) => void) => {
       listener = onEvent;
       return () => (listener = undefined);
@@ -149,6 +174,46 @@ describe('TUI', () => {
     });
     await tick();
     expect(ui.lastFrame()).toContain('Stopped.');
+    ui.unmount();
+  });
+
+  it('shows spending with /usage and each recent tool call with /activity', async () => {
+    const { client } = fakeClient();
+    const ui = render(<ShitsujiApp client={client} />);
+    await tick();
+
+    await type(ui.stdin, '/usage');
+    ui.stdin.write('\r');
+    await tick();
+    expect(ui.lastFrame()).toContain('3 model calls');
+    expect(ui.lastFrame()).toContain('1200 in, 80 out');
+    expect(ui.lastFrame()).toContain('1.2500 USD');
+
+    await type(ui.stdin, '/activity');
+    ui.stdin.write('\r');
+    await tick();
+    const frame = ui.lastFrame()!;
+    expect(frame).toContain('math.evaluate (compute / core) → ok in 12 ms — policy');
+    ui.unmount();
+  });
+
+  it('shows the question of a waiting turn and waits for the answer', async () => {
+    const { client, emit } = fakeClient();
+    const ui = render(<ShitsujiApp client={client} />);
+    await tick();
+
+    emit({
+      type: 'turn.status',
+      turnId: 't1',
+      sessionId: 's1',
+      status: 'waiting',
+      question: 'This has cost 1.20 USD so far. Keep going?',
+    });
+    await tick();
+
+    const frame = ui.lastFrame()!;
+    expect(frame).toContain('Shitsuji: This has cost 1.20 USD so far. Keep going?');
+    expect(frame).toContain('Waiting for your answer');
     ui.unmount();
   });
 

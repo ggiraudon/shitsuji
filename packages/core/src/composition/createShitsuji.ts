@@ -149,6 +149,7 @@ export async function createShitsuji(
       monthly: Money.of(config.budget.monthlyLimit, config.budget.currency),
       background: Money.of(config.budget.backgroundAllowance, config.budget.currency),
     },
+    checkIn: Money.of(config.budget.checkIn, config.budget.currency),
   });
   const providers = new Map(
     [...plugins.providers()].map(([id, raw]) => [
@@ -187,6 +188,7 @@ export async function createShitsuji(
     log,
     events,
     soul,
+    budget,
     stabilityCheck: config.context.stabilityCheck ?? true,
   });
   Object.assign(facts, {

@@ -82,11 +82,26 @@ How a request is checked (S27):
 - The period is the calendar month in UTC. Limits live in `budget.monthlyLimit`,
   `budget.backgroundAllowance` and `budget.checkIn` (S28), in `budget.currency`.
 
+### The check-in
+
+Before each model call, the turn compares what the session has spent since the owner's last message
+with `budget.checkIn`. Past it, the turn ends `waiting` and asks on its channel: "This has cost 1.20
+USD so far. Keep going?" The question is stored as Shitsuji's reply, so the owner's next message starts
+a `resume` turn that sees both the question and the answer. The check runs before a model call, so
+asking costs nothing, and a turn whose last call already produced the final answer is never paused.
+
 ### Activity log and receipts
 
-`ReceiptMiddleware` ([F05](F05-tool-system.md)) writes `turn_events`: tool name, redacted arguments, effect,
-target, trust basis (the quoted owner words or rule), outcome, duration. Workspace commands also keep the
-exit code and the last 16 KB of redacted output. The web UI's Usage screen lists them and exports CSV.
+`ReceiptMiddleware` ([F05](F05-tool-system.md)) writes `tool_start` and `tool_end` to `turn_events`: tool
+name, redacted and shortened arguments, effect, target, session, outcome, duration and the trust basis
+(the fixed policy now; the quoted owner words or a standing rule from F11). It sits outside trust, so a
+refused call is a receipt too, marked `denied` with the reason. The receipt path takes a redactor (identity
+until F12's vault exists), so arguments are masked before they are stored.
+
+`GET /api/activity?since=&limit=` lists the owner's recent `tool_end` receipts, newest first. The TUI's
+`/activity` shows the latest ten and `/usage` shows calls, tokens and the known cost from the ledger. The
+web UI's Usage screen (F07) will list the same receipts with CSV export. Workspace commands will also keep
+the exit code and the last 16 KB of redacted output (F08).
 
 ### Logs, metrics, traces
 

@@ -26,6 +26,8 @@ export interface ShitsujiEvents {
     sessionId: string;
     status: 'queued' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'cancelled';
     reply?: string;
+    /** The question a waiting turn asks, e.g. past the check-in limit (S28). */
+    question?: string;
     error?: string;
     replyChannel?: string;
   };

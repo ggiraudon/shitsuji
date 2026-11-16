@@ -19,6 +19,7 @@ import {
 } from './context/index.js';
 import { ContextBuilder } from './context/ContextBuilder.js';
 import type { ModelRouter } from './models/ModelRouter.js';
+import type { BudgetService } from './budget/BudgetService.js';
 import type { SoulSource } from './soul/SoulService.js';
 import type { StepLimits } from './runtime/limits.js';
 import { MessageIntake, type Submitted, type SubmitOptions } from './runtime/MessageIntake.js';
@@ -45,6 +46,8 @@ export interface AgentOptions {
   events: EventBus;
   /** The assembled standing instructions, fixed per turn (Q6). */
   soul?: SoulSource;
+  /** The check-in limit; absent when the run has no budget (unit tests). */
+  budget?: BudgetService;
   /** How many recent messages are sent to the model (default 40). */
   historyLimit?: number;
   /** Model calls per turn by session kind (decision Q5). */
@@ -59,6 +62,8 @@ export interface SendResult {
   reply: string;
   sessionId: SessionId;
   turnId: TurnId;
+  /** `waiting` means Shitsuji asked a question and the owner's next message continues. */
+  status: 'succeeded' | 'waiting';
 }
 
 /**
@@ -117,6 +122,7 @@ export class Agent {
       stops: this.stops,
       context,
       ...(options.soul && { soul: options.soul }),
+      ...(options.budget && { budget: options.budget }),
       limits: options.limits,
     });
     this.scheduler = new TurnScheduler({ ...options, runner, intake: this.intake });
@@ -181,11 +187,12 @@ export class Agent {
     let waiting: { turnId: string; settle: (r: SendResult | Error) => void } | undefined;
     const off = this.options.events.subscribe('turn.status', (e) => {
       let result: SendResult | Error;
-      if (e.status === 'succeeded') {
+      if (e.status === 'succeeded' || e.status === 'waiting') {
         result = {
-          reply: e.reply ?? '',
+          reply: e.status === 'waiting' ? (e.question ?? '') : (e.reply ?? ''),
           sessionId: e.sessionId as SessionId,
           turnId: e.turnId as TurnId,
+          status: e.status,
         };
       } else if (e.status === 'failed' || e.status === 'cancelled') {
         result = new Error(e.error ?? e.status);
