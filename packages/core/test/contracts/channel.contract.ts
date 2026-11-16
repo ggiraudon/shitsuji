@@ -29,6 +29,7 @@ export function describeChannelContract(name: string, create: () => ChannelAdapt
       const adapter = create();
       await adapter.start({
         receive: async () => ({
+          kind: 'turn',
           sessionId: asId('session'),
           turnId: asId('turn'),
           steered: false,

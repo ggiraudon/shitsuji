@@ -5,14 +5,15 @@ import type { JobQueue } from '../ports/JobQueue.js';
 import type { RunningApi } from './apiServer.js';
 import { serializeError } from '../domain/errors.js';
 import type { ChannelRegistry } from '../application/channels/ChannelRegistry.js';
-import type {
-  ChannelAdapter,
-  InboundMessage,
-  InboundResult,
-  OutboundIntent,
-} from '../ports/ChannelAdapter.js';
+import { ChannelGateway } from '../application/channels/ChannelGateway.js';
+import type { PairingService } from '../application/channels/PairingService.js';
+import type { ChannelAdapter, OutboundIntent } from '../ports/ChannelAdapter.js';
+import type { ChannelBindingStore } from '../ports/ChannelBindingStore.js';
+import type { Clock } from '../ports/Clock.js';
 import type { EventBus } from '../ports/EventBus.js';
 import type { Logger } from '../ports/Logger.js';
+import type { OwnerId } from '../domain/model/ids.js';
+import type { Repositories } from '../ports/Repositories.js';
 
 export interface ShitsujiParts {
   agent: Agent;
@@ -23,6 +24,11 @@ export interface ShitsujiParts {
   version: string;
   jobs: JobQueue;
   recovery: StartupRecovery;
+  bindings: ChannelBindingStore;
+  pairing: PairingService;
+  repos: Repositories;
+  ownerId: OwnerId;
+  clock: Clock;
   /** Starts the HTTP API, if enabled; called once the agent runs. */
   startApi?: () => Promise<RunningApi>;
   /** Run last on stop(), e.g. closing the database pool. */
@@ -47,6 +53,12 @@ export class Shitsuji {
   private readonly startApi?: () => Promise<RunningApi>;
   private api?: RunningApi;
   private started: ChannelAdapter[] = [];
+  private readonly bindings: ChannelBindingStore;
+  private readonly pairing: PairingService;
+  private readonly repos: Repositories;
+  private readonly ownerId: OwnerId;
+  private readonly clock: Clock;
+  private gateway?: ChannelGateway;
 
   constructor(parts: ShitsujiParts) {
     this.agent = parts.agent;
@@ -59,6 +71,11 @@ export class Shitsuji {
     this.jobs = parts.jobs;
     this.recovery = parts.recovery;
     this.startApi = parts.startApi;
+    this.bindings = parts.bindings;
+    this.pairing = parts.pairing;
+    this.repos = parts.repos;
+    this.ownerId = parts.ownerId;
+    this.clock = parts.clock;
   }
 
   async start(): Promise<void> {
@@ -82,8 +99,23 @@ export class Shitsuji {
       this.log.info('API listening', { url: this.api.url });
     }
     for (const channel of this.channels.all()) {
+      if (!this.gateway) {
+        this.gateway = new ChannelGateway({
+          agent: this.agent,
+          bindings: this.bindings,
+          pairing: this.pairing,
+          channels: this.channels,
+          repos: this.repos,
+          ownerId: this.ownerId,
+          clock: this.clock,
+          log: this.log,
+          version: this.version,
+          reply: (channelId, chatId, text, intent) =>
+            this.deliverTo(channelId, chatId, text, intent),
+        });
+      }
       await channel.start({
-        receive: (message) => this.receive(channel, message),
+        receive: (message) => this.gateway!.receive(message),
       });
       this.started.push(channel);
     }
@@ -129,22 +161,21 @@ export class Shitsuji {
     this.log.info('Shitsuji stopped');
   }
 
-  private async receive(channel: ChannelAdapter, message: InboundMessage): Promise<InboundResult> {
-    this.log.info('Message received', { channel: channel.id, length: message.text.length });
-    // The reply comes back through turn.status (see start()), addressed by replyChannel.
-    return this.agent.submit(message.text, {
-      ...(message.sessionId && { sessionId: message.sessionId }),
-      channel: channel.id,
-      replyChannel: `${channel.id}:${message.chatId}`,
-    });
-  }
-
   /** Sends a reply to "<channel>:<chat>"; a channel that is not running here (the TUI) reads events. */
   private async deliver(replyChannel: string, text: string, intent: OutboundIntent): Promise<void> {
     const colon = replyChannel.indexOf(':');
     const id = colon === -1 ? replyChannel : replyChannel.slice(0, colon);
     const chatId = colon === -1 ? '' : replyChannel.slice(colon + 1);
-    const channel = this.started.find((c) => c.id === id);
+    await this.deliverTo(id, chatId, text, intent);
+  }
+
+  private async deliverTo(
+    channelId: string,
+    chatId: string,
+    text: string,
+    intent: OutboundIntent,
+  ): Promise<void> {
+    const channel = this.started.find((c) => c.id === channelId);
     if (!channel) return;
     try {
       const receipt = await channel.deliver(
@@ -152,10 +183,10 @@ export class Shitsuji {
         { parts: [{ kind: 'text', markdown: text }], intent },
       );
       if (!receipt.delivered) {
-        this.log.warn('Reply not delivered', { channel: id, reason: receipt.reason });
+        this.log.warn('Reply not delivered', { channel: channelId, reason: receipt.reason });
       }
     } catch (error) {
-      this.log.error('Reply failed', { channel: id, error: serializeError(error) });
+      this.log.error('Reply failed', { channel: channelId, error: serializeError(error) });
     }
   }
 }

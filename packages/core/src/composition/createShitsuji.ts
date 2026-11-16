@@ -214,6 +214,11 @@ export async function createShitsuji(
     version: VERSION,
     jobs,
     recovery: new StartupRecovery(repos, services.clock, log),
+    bindings: repos.bindings,
+    pairing,
+    repos,
+    ownerId: OWNER_ID,
+    clock: services.clock,
     startApi:
       (options.api ?? config.api.enabled)
         ? async () => {

@@ -238,6 +238,7 @@ describe('HTTP API', () => {
       receive: async (message) => {
         seen.push(message);
         return {
+          kind: 'turn',
           sessionId: asId<SessionId>('s1'),
           turnId: asId<TurnId>('t1'),
           steered: false,

@@ -180,6 +180,15 @@ export class Agent {
     return true;
   }
 
+  /** Stops the newest running or queued turn of a session; false when it is idle. */
+  async stopSession(sessionId: SessionId): Promise<boolean> {
+    const turns = await this.options.repos.turns.listBySession(sessionId);
+    const running = [...turns].reverse().find((t) => t.status === 'running');
+    if (running) return this.stop(running.id);
+    const queued = [...turns].reverse().find((t) => t.status === 'queued');
+    return queued ? this.stop(queued.id) : false;
+  }
+
   /** submit() and wait for the reply. Throws with the reason if the turn fails or is stopped. */
   async send(content: string, opts: SendOptions = {}): Promise<SendResult> {
     // Subscribe before submitting and remember every ending, so a fast turn cannot finish unseen.

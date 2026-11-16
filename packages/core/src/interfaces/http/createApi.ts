@@ -93,7 +93,24 @@ export function createApi(deps: ApiDeps): Hono {
       ...(sessionId && { sessionId }),
     };
     const submitted = await receive(message);
-    return c.json(submitted satisfies PostMessageResponse, 202);
+    if (submitted.kind !== 'turn') {
+      return c.json(
+        {
+          error: 'The message was not run',
+          reason: submitted.kind,
+          ignored: submitted.kind === 'ignored',
+        },
+        409,
+      );
+    }
+    return c.json(
+      {
+        sessionId: submitted.sessionId,
+        turnId: submitted.turnId,
+        steered: submitted.steered,
+      } satisfies PostMessageResponse,
+      202,
+    );
   });
 
   app.post('/api/sessions', async (c) =>
@@ -249,11 +266,13 @@ export function createApi(deps: ApiDeps): Hono {
   // messages over as InboundMessages, so every entry point speaks the same model (S30).
   const receive =
     deps.receive ??
-    ((message: InboundMessage) =>
-      deps.agent.submit(message.text, {
+    (async (message: InboundMessage): Promise<InboundResult> => {
+      const submitted = await deps.agent.submit(message.text, {
         ...(message.sessionId && { sessionId: message.sessionId }),
         channel: message.channel,
-      }));
+      });
+      return { kind: 'turn', ...submitted };
+    });
 
   return app;
 }
