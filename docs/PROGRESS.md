@@ -58,7 +58,7 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 - [x] **S30** ChannelAdapter port and registry
 - [x] **S31** Channel gateway, pairing and commands
 - [x] **S32** Telegram adapter
-- [ ] **S33** Telegram files
+- [x] **S33** Telegram files
 - [ ] **S34** Action requests and the policy engine
 - [ ] **S35** Authority, the judge and quote verification
 - [ ] **S36** The approval service
@@ -113,9 +113,14 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 ### [F06 — Channel gateway and Telegram](features/F06-channel-gateway.md)
 
 - [ ] Pair Telegram from the web UI; chat; approve an action with a button; get a file back.
+      *(S33: a file the agent attaches comes back as a document; the approval button needs F11.)*
 - [x] A message from an unpaired Telegram chat starts no turn.
       *(S31 enforced it in the gateway; S32's Telegram adapter declares `requiresPairing`, so the criterion
       holds for Telegram itself.)*
+- [x] A photo and a document reach the agent in `<dataDir>/handoff`; a voice note is kept and answered
+      "I can't listen to voice notes yet."
+      *(S33: `HandoffStore`, the gateway's attachment note and `workspace.send`; fixture tests for a photo,
+      a document and a file sent back.)*
 - [x] Adding a new channel needs one adapter class and a plugin manifest, no change to the core.
       *(S30: the core looks channels up by id in the registry; the contract tests say what an adapter must do.)*
 
