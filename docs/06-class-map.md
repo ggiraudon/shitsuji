@@ -524,8 +524,7 @@ classDiagram
   }
   class TelegramChannelAdapter
   class WebChannelAdapter
-  class CLIChannel
-  class WebhookChannel
+  class WebhookChannelAdapter
   class MessageRenderer {
     <<interface>>
     +render(outbound, capabilities)
@@ -554,8 +553,7 @@ classDiagram
   ChannelAdapter <|.. BaseChannelAdapter
   BaseChannelAdapter <|-- TelegramChannelAdapter
   BaseChannelAdapter <|-- WebChannelAdapter
-  BaseChannelAdapter <|-- CLIChannel
-  BaseChannelAdapter <|-- WebhookChannel
+  BaseChannelAdapter <|-- WebhookChannelAdapter
   BaseChannelAdapter --> MessageRenderer
   ChannelAdapter --> ChannelCapabilities
   ChannelRegistry o-- ChannelAdapter

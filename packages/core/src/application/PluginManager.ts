@@ -1,5 +1,5 @@
 import { ShitsujiError, serializeError } from '../domain/errors.js';
-import type { Channel } from '../ports/Channel.js';
+import type { ChannelAdapter } from '../ports/ChannelAdapter.js';
 import type { ContextInjectable } from '../ports/ContextInjectable.js';
 import type { EventBus } from '../ports/EventBus.js';
 import type { ModelProvider } from '../ports/ModelProvider.js';
@@ -32,7 +32,7 @@ export interface PluginManagerOptions {
 export class PluginManager {
   private readonly loaded: ShitsujiPlugin[] = [];
   private readonly modelProviders = new Map<string, ModelProvider>();
-  private readonly channelList: Channel[] = [];
+  private readonly channelList: ChannelAdapter[] = [];
   private readonly toolList: Tool[] = [];
   private readonly injectableList: ContextInjectable[] = [];
   private readonly owners = new Map<string, string>(); // "kind:name" -> plugin id
@@ -47,7 +47,7 @@ export class PluginManager {
     return this.modelProviders;
   }
 
-  channels(): readonly Channel[] {
+  channels(): readonly ChannelAdapter[] {
     return this.channelList;
   }
 
@@ -103,7 +103,7 @@ export class PluginManager {
     // Collect first and commit only if register() succeeds, so a failing plugin leaves nothing behind.
     const pending = {
       providers: [] as [string, ModelProvider][],
-      channels: [] as Channel[],
+      channels: [] as ChannelAdapter[],
       tools: [] as Tool[],
       injectables: [] as ContextInjectable[],
       claims: [] as string[],
@@ -123,8 +123,8 @@ export class PluginManager {
         pending.providers.push([providerId, provider]);
       },
       addChannel: (channel) => {
-        require('channel', `channel "${channel.name}"`);
-        track('channel', channel.name);
+        require('channel', `channel "${channel.id}"`);
+        track('channel', channel.id);
         pending.channels.push(channel);
       },
       addTools: (tools) => {
@@ -164,7 +164,7 @@ export class PluginManager {
     log.info('Plugin loaded', {
       version: plugin.manifest.version,
       providers: pending.providers.map(([p]) => p),
-      channels: pending.channels.map((c) => c.name),
+      channels: pending.channels.map((c) => c.id),
       tools: pending.tools.length,
     });
   }

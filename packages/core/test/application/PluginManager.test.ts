@@ -28,7 +28,7 @@ describe('PluginManager', () => {
   it('collects what plugins register', async () => {
     const { plugins } = manager();
     const provider = new ScriptedProvider([], 'deepseek');
-    const channel = new TestChannel('tg');
+    const channel = new TestChannel();
     await plugins.load([
       plugin('models', ['model'], (ctx) => ctx.addModelProvider(provider)),
       plugin('chan', ['channel'], (ctx) => ctx.addChannel(channel)),

@@ -1,4 +1,4 @@
-import type { Channel } from './Channel.js';
+import type { ChannelAdapter } from './ChannelAdapter.js';
 import type { ContextInjectable } from './ContextInjectable.js';
 import type { EventBus } from './EventBus.js';
 import type { Logger } from './Logger.js';
@@ -28,7 +28,7 @@ export interface PluginRegistrationContext {
   readonly events: EventBus;
   /** Registers a model provider under its id, which model refs use ("deepseek" in "deepseek/…"). */
   addModelProvider(provider: ModelProvider): void;
-  addChannel(channel: Channel): void;
+  addChannel(channel: ChannelAdapter): void;
   addTools(tools: readonly Tool[]): void;
   addContextInjectable(injectable: ContextInjectable): void;
 }

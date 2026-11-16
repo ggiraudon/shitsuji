@@ -1,0 +1,149 @@
+import type { SessionId, TurnId } from '../domain/model/ids.js';
+
+/** A channel's id, e.g. "webhook", "telegram", "web". */
+export type ChannelId = string;
+
+/** What a channel can show, so a renderer can degrade what it cannot (F06). */
+export interface ChannelCapabilities {
+  markdown: 'full' | 'basic' | 'none';
+  /** Inline keyboards or cards. */
+  buttons: boolean;
+  files: boolean;
+  images: boolean;
+  voice: boolean;
+  /** Can replace an earlier message in place (progress updates). */
+  edits: boolean;
+  maxMessageLength: number;
+}
+
+/** Where an outbound message goes. */
+export interface ChannelTarget {
+  /** The channel's own conversation id: a chat, a webhook destination, a web session. */
+  chatId: string;
+  /** The message being answered, when the channel can thread. */
+  replyTo?: MessageRef;
+}
+
+export interface MessageRef {
+  channel: ChannelId;
+  chatId: string;
+  messageId?: string;
+}
+
+export interface FileRef {
+  name: string;
+  /** A path in the handoff folder, once files are stored (F08, T2). */
+  path?: string;
+  mediaType?: string;
+}
+
+export interface ChoiceOption {
+  id: string;
+  label: string;
+}
+
+/** One piece of an outbound message. A renderer turns these into what the channel can show. */
+export type OutboundPart =
+  | { kind: 'text'; markdown: string }
+  | { kind: 'file'; fileRef: FileRef; caption?: string }
+  | { kind: 'image'; fileRef: FileRef }
+  | { kind: 'choices'; questionId: string; options: ChoiceOption[]; multi?: boolean }
+  | { kind: 'approval'; approvalId: string; summary: string; actionLabel: string }
+  | { kind: 'link'; url: string; label: string };
+
+export type OutboundIntent = 'update' | 'final' | 'question' | 'nudge';
+
+export interface OutboundMessage {
+  parts: OutboundPart[];
+  replyTo?: MessageRef;
+  intent: OutboundIntent;
+}
+
+/** What a renderer produced for one channel. */
+export interface RenderedMessage {
+  text: string;
+  /** Parts the channel could not show as intended, already degraded to text. */
+  degraded: OutboundPart['kind'][];
+}
+
+/** Renders an OutboundMessage the way one channel can show it (F06). */
+export interface MessageRenderer {
+  render(message: OutboundMessage, capabilities: ChannelCapabilities): RenderedMessage;
+}
+
+/** What a channel did with an outbound message. */
+export interface DeliveryReceipt {
+  delivered: boolean;
+  /** The channel's own id for what it delivered, for edits. */
+  externalId?: string;
+  /** Why it was not delivered (no waiting request, channel down…). */
+  reason?: string;
+}
+
+/** A message arriving from a channel, before the gateway decides what it means (F06, S31). */
+export interface InboundMessage {
+  /** The adapter that received it: "webhook", "telegram", "api". */
+  channel: ChannelId;
+  /** The channel's conversation id. */
+  chatId: string;
+  text: string;
+  /** The channel's own id for the message, for replies and edits. */
+  externalId?: string;
+  receivedAt: Date;
+  /** Set when the sender picked a session (the API's TUI); chat channels leave it to the gateway. */
+  sessionId?: SessionId;
+  metadata?: Record<string, unknown>;
+}
+
+/** What the runtime did with an inbound message; the same shape as MessageIntake's Submitted. */
+export interface InboundResult {
+  sessionId: SessionId;
+  turnId: TurnId;
+  steered: boolean;
+}
+
+/** The one way an adapter hands a message to the core. */
+export interface InboundSink {
+  receive(message: InboundMessage): Promise<InboundResult>;
+}
+
+/**
+ * A chat channel. The adapter owns transport and formatting; the core owns what a message means.
+ * Adding a channel is one adapter class plus a plugin manifest (F06).
+ */
+export interface ChannelAdapter {
+  readonly id: ChannelId;
+  readonly capabilities: ChannelCapabilities;
+  /** Starts the transport and hands inbound messages to the sink. */
+  start(sink: InboundSink): Promise<void>;
+  stop(): Promise<void>;
+  deliver(target: ChannelTarget, message: OutboundMessage): Promise<DeliveryReceipt>;
+  /** Replaces an earlier delivery in place, when `capabilities.edits` is true. */
+  edit?(receipt: DeliveryReceipt, message: OutboundMessage): Promise<void>;
+  /** Shows a typing indicator, when the channel has one. */
+  typing?(target: ChannelTarget): Promise<void>;
+}
+
+/** Template for adapters: running state and the sink; subclasses implement deliver(). */
+export abstract class BaseChannelAdapter implements ChannelAdapter {
+  abstract readonly id: ChannelId;
+  abstract readonly capabilities: ChannelCapabilities;
+  protected sink?: InboundSink;
+  protected running = false;
+
+  async start(sink: InboundSink): Promise<void> {
+    this.sink = sink;
+    this.running = true;
+  }
+
+  async stop(): Promise<void> {
+    this.running = false;
+    this.sink = undefined;
+  }
+
+  abstract deliver(target: ChannelTarget, message: OutboundMessage): Promise<DeliveryReceipt>;
+
+  isRunning(): boolean {
+    return this.running;
+  }
+}

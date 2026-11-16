@@ -4,13 +4,19 @@ import type { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
 import type { RunningApi } from './apiServer.js';
 import { serializeError } from '../domain/errors.js';
-import type { Channel } from '../ports/Channel.js';
+import type { ChannelRegistry } from '../application/channels/ChannelRegistry.js';
+import type {
+  ChannelAdapter,
+  InboundMessage,
+  InboundResult,
+  OutboundIntent,
+} from '../ports/ChannelAdapter.js';
 import type { EventBus } from '../ports/EventBus.js';
 import type { Logger } from '../ports/Logger.js';
 
 export interface ShitsujiParts {
   agent: Agent;
-  channels: readonly Channel[];
+  channels: ChannelRegistry;
   plugins: PluginManager;
   log: Logger;
   events: EventBus;
@@ -31,7 +37,7 @@ export class Shitsuji {
   readonly agent: Agent;
   readonly log: Logger;
   readonly events: EventBus;
-  private readonly channels: readonly Channel[];
+  private readonly channels: ChannelRegistry;
   private readonly plugins: PluginManager;
   private readonly version: string;
   private readonly onStop: readonly (() => Promise<void>)[];
@@ -40,7 +46,7 @@ export class Shitsuji {
   private offReplies?: () => void;
   private readonly startApi?: () => Promise<RunningApi>;
   private api?: RunningApi;
-  private started: Channel[] = [];
+  private started: ChannelAdapter[] = [];
 
   constructor(parts: ShitsujiParts) {
     this.agent = parts.agent;
@@ -67,22 +73,22 @@ export class Shitsuji {
           : e.status === 'waiting'
             ? (e.question ?? '')
             : `Error: ${e.error ?? e.status}`;
-      void this.deliver(e.replyChannel, text);
+      const intent: OutboundIntent = e.status === 'waiting' ? 'question' : 'final';
+      void this.deliver(e.replyChannel, text, intent);
     });
     await this.agent.start();
     if (this.startApi) {
       this.api = await this.startApi();
       this.log.info('API listening', { url: this.api.url });
     }
-    for (const channel of this.channels) {
-      channel.onMessage((message, destination) => {
-        void this.handle(channel, message.content, destination);
+    for (const channel of this.channels.all()) {
+      await channel.start({
+        receive: (message) => this.receive(channel, message),
       });
-      await channel.start();
       this.started.push(channel);
     }
     this.events.publish('system.ready', { version: this.version });
-    this.log.info('Shitsuji started', { channels: this.started.map((c) => c.name) });
+    this.log.info('Shitsuji started', { channels: this.started.map((c) => c.id) });
   }
 
   /** Where the API listens, once started. */
@@ -99,7 +105,7 @@ export class Shitsuji {
         await channel.stop();
       } catch (error) {
         this.log.error('Channel stop failed', {
-          channel: channel.name,
+          channel: channel.id,
           error: serializeError(error),
         });
       }
@@ -123,31 +129,33 @@ export class Shitsuji {
     this.log.info('Shitsuji stopped');
   }
 
-  private async handle(channel: Channel, content: string, destination: string): Promise<void> {
-    this.log.info('Message received', { channel: channel.name, length: content.length });
-    try {
-      // The reply comes back through turn.status (see start()), addressed by replyChannel.
-      await this.agent.submit(content, {
-        channel: channel.name,
-        replyChannel: `${channel.name}:${destination}`,
-      });
-    } catch (error) {
-      this.log.error('Message failed', { channel: channel.name, error: serializeError(error) });
-      await this.deliver(`${channel.name}:${destination}`, `Error: ${(error as Error).message}`);
-    }
+  private async receive(channel: ChannelAdapter, message: InboundMessage): Promise<InboundResult> {
+    this.log.info('Message received', { channel: channel.id, length: message.text.length });
+    // The reply comes back through turn.status (see start()), addressed by replyChannel.
+    return this.agent.submit(message.text, {
+      ...(message.sessionId && { sessionId: message.sessionId }),
+      channel: channel.id,
+      replyChannel: `${channel.id}:${message.chatId}`,
+    });
   }
 
-  /** Sends a reply to "<channel>:<destination>". */
-  private async deliver(replyChannel: string, text: string): Promise<void> {
+  /** Sends a reply to "<channel>:<chat>"; a channel that is not running here (the TUI) reads events. */
+  private async deliver(replyChannel: string, text: string, intent: OutboundIntent): Promise<void> {
     const colon = replyChannel.indexOf(':');
-    const name = colon === -1 ? replyChannel : replyChannel.slice(0, colon);
-    const destination = colon === -1 ? '' : replyChannel.slice(colon + 1);
-    const channel = this.started.find((c) => c.name === name);
-    if (!channel) return; // a channel that is not running here (e.g. the TUI reads events itself)
+    const id = colon === -1 ? replyChannel : replyChannel.slice(0, colon);
+    const chatId = colon === -1 ? '' : replyChannel.slice(colon + 1);
+    const channel = this.started.find((c) => c.id === id);
+    if (!channel) return;
     try {
-      await channel.send(destination, text);
+      const receipt = await channel.deliver(
+        { chatId },
+        { parts: [{ kind: 'text', markdown: text }], intent },
+      );
+      if (!receipt.delivered) {
+        this.log.warn('Reply not delivered', { channel: id, reason: receipt.reason });
+      }
     } catch (error) {
-      this.log.error('Reply failed', { channel: name, error: serializeError(error) });
+      this.log.error('Reply failed', { channel: id, error: serializeError(error) });
     }
   }
 }
