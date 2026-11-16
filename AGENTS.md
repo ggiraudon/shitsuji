@@ -7,8 +7,8 @@ personal assistant with its own sandboxed computer, deployed with Docker Compose
 
 - `docs/README.md` is the index. **The docs are the spec**: build what the feature file says, and if the
   design has to change, change the doc in the same commit.
-- `docs/08-second-pass-plan.md` is the current plan (steps S15–S26; the first pass, `07`, is done), and
-  `docs/PROGRESS.md` is the checklist.
+- `docs/09-third-pass-plan.md` is the current plan (steps S27–S39; passes `07` and `08` are done), and
+  `docs/PROGRESS.md` is the checklist. The same steps are tracked as GitHub issues (see [Issues](#issues)).
 - `docs/05-open-questions.md` holds the decisions. Don't reopen a decided one without asking. If an open one
   blocks you, ask.
 - `docs/06-class-map.md` gives the intended class structure.
@@ -25,6 +25,22 @@ personal assistant with its own sandboxed computer, deployed with Docker Compose
   obvious.
 - **Never push, force-push, rewrite published history or change remotes unless the owner asks.**
 - Never commit `.env`, keys, tokens, real email addresses or database dumps.
+
+## Issues
+
+Work is tracked in GitHub issues on `ggiraudon/shitsuji`; the docs stay the spec.
+
+- **Features** still to build are parent issues titled `F06: Channel gateway and Telegram`, linking to the
+  feature file. **Plan steps** are their sub-issues, titled `S30: ChannelAdapter port and registry`. Open
+  decisions get a `decision` issue linking to `docs/05-open-questions.md`, where the answer is recorded.
+- **Bugs and ideas** found along the way get their own issue (labels `bug` or `idea`, plus the feature, such
+  as `F11`), instead of being left in a chat or a summary. Each pass has a milestone (`Pass 3`).
+- Name the issue in commits: `S30: Add the ChannelAdapter port (#12)`. The step's last commit closes it
+  (`Closes #12` in the body).
+- **For now, also tick `docs/PROGRESS.md`.** Not every agent can reach GitHub yet, so the checklist stays in
+  sync with the issues until the owner says otherwise.
+- If you can't reach GitHub, work from the plan and the feature files, and list the issues to open or close
+  in your final report.
 
 ## Environment
 
