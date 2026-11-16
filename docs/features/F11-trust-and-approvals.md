@@ -127,12 +127,25 @@ Trust middleware. Until the judge ([S35](../09-third-pass-plan.md)) and approval
 Every decision records the action hash in the receipt (S29), which is what an approval will be bound
 to.
 
+### What S35 builds
+
+`AuthorityResolver` keeps only the owner's own messages from the session: tool results, assistant text
+and system notes are never authority. It takes the most recent 20 messages and at most 8,000
+characters, oldest first, plus the standing rules and a routine's instruction; `SessionAuthority`
+reads the transcript. `TrustJudge` calls a small model on the `trust` purpose with two data blocks,
+the owner's words and the action, and may allow only by quoting them. Malformed JSON, a provider
+error, or a 10-second timeout becomes `ask`. `QuoteVerifier` accepts the allow only when the quote is
+a verbatim substring of one owner message; a made-up or paraphrased quote becomes `ask`. The receipt
+records `allowedBy: { kind: 'quote', detail: … }`. Approvals are still S36, so an `ask` refuses for
+now.
+
 ## Changes to existing code
 
 | File | Change |
 |------|--------|
-| `application/tools/middlewares.ts` | S34: `TrustMiddleware` builds an `ActionRequest` and runs the `PolicyEngine`; `FixedTrustPolicy` is gone. An `ask` or `judge` verdict refuses until S36 and S35 exist |
+| `application/tools/middlewares.ts` | S34: `TrustMiddleware` builds an `ActionRequest` and runs the `PolicyEngine`; `FixedTrustPolicy` is gone. S35: the check is awaited, so the service can judge |
 | `ports/Tool.ts` | S34: `TrustDecision` is a verdict (`allow`, `ask`, `judge`, `deny`) with the action hash; `TrustBasis` keeps `kind: 'rule'` for a standing rule |
+| `composition/createShitsuji.ts` | S35: builds `TrustService` with `SessionAuthority` (the message repository) and `TrustJudge` (the model router) |
 
 `workspace.exec` already runs without a command allowlist: the workspace folder, and from
 [F08](F08-workspace-sandbox.md) the container, are the boundary for commands; trust covers outside
