@@ -2,9 +2,9 @@ import { serializeError } from '../../domain/errors.js';
 import type { TurnId } from '../../domain/model/ids.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { TurnEventRepository } from '../../ports/Repositories.js';
-import { effectOf, type ToolOutcome, type TrustDecision } from '../../ports/Tool.js';
+import { effectOf, type ToolOutcome } from '../../ports/Tool.js';
 import { actionRequest, type ActionRequest } from '../trust/ActionRequest.js';
-import { PolicyEngine } from '../trust/PolicyEngine.js';
+import { PolicyOnlyTrust, type TrustPolicy } from '../trust/TrustPolicy.js';
 import type { ToolInvocation, ToolMiddleware } from './ToolPipeline.js';
 
 /** Races the call against the turn's AbortSignal; never waits for a tool that ignores it. */
@@ -91,14 +91,13 @@ export class RepeatFailureMiddleware implements ToolMiddleware {
   }
 }
 
-/** Decides whether a call may run. The policy engine (F11, S34) implements it. */
-export interface TrustPolicy {
-  decide(request: ActionRequest): TrustDecision;
-}
+/** Decides whether a call may run. The trust service (F11, S35) implements it. */
+export type { TrustPolicy };
 
 /**
- * Runs the deterministic policy (F11, S34). Until the judge (S35) and approvals (S36) exist, an `ask`
- * or `judge` verdict refuses the call with the reason that step is missing; nothing risky runs unasked.
+ * Runs the trust policy (F11, S34/S35). A `judge` verdict goes to the model judge through the
+ * service; until approvals exist (S36), an `ask` verdict refuses the call, so nothing risky runs
+ * unasked.
  */
 export class TrustMiddleware implements ToolMiddleware {
   readonly name = 'trust';
@@ -111,7 +110,11 @@ export class TrustMiddleware implements ToolMiddleware {
       effect: inv.effect ?? 'external',
       target: inv.tool.target,
     });
-    const decision = this.policy.decide(request);
+    const decision = await this.policy.decide(request, {
+      turnId: inv.ctx.turnId,
+      sessionId: inv.ctx.sessionId,
+      signal: inv.ctx.signal,
+    });
     if (decision.verdict === 'allow') {
       inv.trust = decision;
       return next();
@@ -132,10 +135,10 @@ function fallbackReason(verdict: 'ask' | 'judge' | 'deny', request: ActionReques
   return `${request.tool} is refused by the trust policy.`;
 }
 
-/** The step that will let an ask or a judgement run; empty for a plain refusal. */
+/** The step that will let an ask run; a bare policy engine has no judge at all. */
 function pendingStep(verdict: 'ask' | 'judge' | 'deny'): string {
   if (verdict === 'ask') return 'Approvals arrive with S36 (F11), so it cannot run yet.';
-  if (verdict === 'judge') return 'The judge arrives with S35 (F11), so it cannot run yet.';
+  if (verdict === 'judge') return 'No trust judge is configured in this graph, so it cannot run.';
   return '';
 }
 
@@ -285,7 +288,7 @@ export function defaultMiddlewares(deps: DefaultPipelineDeps): ToolMiddleware[] 
     new RepeatFailureMiddleware(deps.repeatLimit),
     // The receipt sits outside trust so a refused call is in the activity log too (S29).
     new ReceiptMiddleware(deps.turnEvents, deps.clock, deps.redact),
-    new TrustMiddleware(deps.policy ?? new PolicyEngine()),
+    new TrustMiddleware(deps.policy ?? new PolicyOnlyTrust()),
     new UntrustedWrapMiddleware(),
     new RedactionMiddleware(),
     new OutputLimitMiddleware(deps.maxOutputChars),

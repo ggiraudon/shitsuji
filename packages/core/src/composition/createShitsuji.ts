@@ -24,6 +24,8 @@ import { defaultMiddlewares } from '../application/tools/middlewares.js';
 import { ToolCatalog } from '../application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../application/tools/ToolPipeline.js';
 import { PolicyEngine } from '../application/trust/PolicyEngine.js';
+import { SessionAuthority, TrustService } from '../application/trust/TrustService.js';
+import { TrustJudge } from '../application/trust/TrustJudge.js';
 import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
@@ -180,6 +182,13 @@ export async function createShitsuji(
   const models = new ModelRouter(providers, config.models, catalog, log);
   const chat = selectChat(models);
   log.info('Using chat model', { model: chat.ref });
+  // The owner's words come from the session's transcript; the judge is a small model (M3).
+  const trust = new TrustService({
+    engine: new PolicyEngine(),
+    authority: new SessionAuthority(repos.messages),
+    judge: new TrustJudge({ models, log }),
+    log,
+  });
   const tools = new ToolCatalog(plugins.tools());
   tools.add(new ToolSearchTool(() => tools.list()));
   tools.add(new ToolCallGateway());
@@ -188,7 +197,7 @@ export async function createShitsuji(
     defaultMiddlewares({
       turnEvents: repos.turnEvents,
       clock: services.clock,
-      policy: new PolicyEngine(),
+      policy: trust,
     }),
   );
   const agent = new Agent({

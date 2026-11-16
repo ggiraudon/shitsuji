@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod/v4';
 import { shitsujiConfigSchema } from '../../src/composition/config/schema.js';
 import { createShitsuji, OWNER_ID } from '../../src/composition/createShitsuji.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { loadPluginsFromDirectory } from '../../src/composition/loadPluginsFromDirectory.js';
 import type { ShitsujiPlugin } from '../../src/ports/Plugin.js';
+import { BaseTool, type ToolOutput } from '../../src/ports/Tool.js';
 import { ScriptedProvider, TestChannel, testServices, until } from '../helpers.js';
 
 let dataDir: string;
@@ -14,6 +17,23 @@ beforeEach(() => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shitsuji-root-'));
 });
 afterEach(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+
+const judgeFixture = (name: string) =>
+  fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/trust', name),
+    'utf8',
+  );
+
+/** A tool with an outside effect, to exercise the trust judge (S35). */
+class MailTool extends BaseTool<z.ZodObject<{ to: z.ZodString }>> {
+  readonly name = 'test.mail';
+  readonly description = 'Sends an email';
+  readonly input = z.object({ to: z.string() });
+  readonly effect = 'external' as const;
+  async run(): Promise<ToolOutput> {
+    return { content: 'sent' };
+  }
+}
 
 const config = (extra: Record<string, unknown> = {}) =>
   shitsujiConfigSchema.parse({
@@ -130,6 +150,53 @@ describe('createShitsuji', () => {
         caption: 'The report',
       },
     ]);
+    await shitsuji.stop();
+  });
+
+  it("runs an outside action the judge allows with the owner's quote (S35)", async () => {
+    const provider = new ScriptedProvider(
+      [
+        { toolCalls: [{ id: 'c1', name: 'test.mail', arguments: { to: 'anna@example.com' } }] },
+        { content: judgeFixture('judge-allow.json') },
+        { content: 'The report is on its way.' },
+      ],
+      'fake',
+    );
+    const channel = new TestChannel();
+    const plugin: ShitsujiPlugin = {
+      manifest: {
+        id: 'test.mailer',
+        name: 'mailer',
+        version: '1',
+        provides: ['model', 'channel', 'tools'],
+      },
+      register(ctx) {
+        ctx.addModelProvider(provider);
+        ctx.addChannel(channel);
+        ctx.addTools([new MailTool()]);
+      },
+    };
+    const repos = new InMemoryRepositories();
+    const shitsuji = await createShitsuji(config(), {
+      services: testServices(),
+      plugins: [plugin],
+      repos,
+    });
+    await shitsuji.start();
+
+    channel.receive('Email Anna the quarterly report.', 'chat-42');
+    await until(() => channel.sent.length > 0);
+
+    expect(channel.sent[0]!.message).toBe('The report is on its way.');
+    const receipts = await repos.turnEvents.listRecent(OWNER_ID, {
+      kinds: ['tool_end'],
+      limit: 1,
+    });
+    expect(receipts[0]!.data).toMatchObject({
+      tool: 'test.mail',
+      outcome: 'ok',
+      allowedBy: { kind: 'quote', detail: 'Email Anna the quarterly report' },
+    });
     await shitsuji.stop();
   });
 
