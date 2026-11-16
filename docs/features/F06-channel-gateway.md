@@ -17,7 +17,12 @@ Until S30, `Channel` had `start`, `stop`, `send(destination, text)` and `onMessa
 and the webhook channel's `send` only printed ([bug 5](../00-current-state.md#bugs-and-gaps-found)). S30
 replaced that with the rich `ChannelAdapter` port and a `MessageRenderer`: the webhook answers its POST with
 the turn's reply, the API hands its messages over as `InboundMessage` (its replies still travel on
-`/api/events`), and plugins fill a `ChannelRegistry`. The gateway, pairing and Telegram follow in S31–S33.
+`/api/events`), and plugins fill a `ChannelRegistry`.
+
+Since S31 the `ChannelGateway` resolves each chat through a binding, pairs a new chat with `/start <code>`
+(the code comes from the TUI's `/pair`), ignores unpaired chats on channels that declare `requiresPairing`,
+answers `/stop`, `/status` and `/new`, and hands everything else to the agent with a reply channel.
+Telegram itself follows in S32.
 
 ## Inspiration
 
@@ -98,6 +103,12 @@ class ChannelGateway implements InboundSink {
 - **Reply routing.** A reply to a task's message goes to that task's session; anything else goes to the main
   chat session ([F15](F15-tasks-and-subagents.md)).
 - **Attachments** are stored as files in the `handoff` volume so the workspace can process them.
+
+S31 builds the first slice of this: `ChannelGateway`, channel bindings (with a per-chat session so `/new`
+works), `PairingService` (short-lived, single-use codes issued from `POST /api/pair` and shown by the TUI's
+`/pair`), and the `/stop`, `/status` and `/new` commands. A channel that declares `requiresPairing` starts no
+turn until its chat is paired; the webhook and the API stay open because they are local transports. Callback
+buttons, task routing and attachments wait for F11 and S33.
 
 ### Telegram adapter
 

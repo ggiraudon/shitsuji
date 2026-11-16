@@ -87,6 +87,7 @@ export function transcript(request: ModelRequest): string[] {
 /** A channel driven by the test: `receive()` simulates an incoming message. */
 export class TestChannel extends BaseChannelAdapter {
   readonly id = 'test';
+  override readonly requiresPairing: boolean;
   readonly capabilities: ChannelCapabilities = {
     markdown: 'basic',
     buttons: false,
@@ -100,6 +101,11 @@ export class TestChannel extends BaseChannelAdapter {
   started = 0;
   stopped = 0;
   private readonly renderer = new PlainTextRenderer();
+
+  constructor(requiresPairing = false) {
+    super();
+    this.requiresPairing = requiresPairing;
+  }
 
   override async start(sink: InboundSink) {
     this.started++;

@@ -81,6 +81,10 @@ function fakeClient(history: MessageDto[] = []) {
         },
       ],
     }),
+    pair: async () => ({
+      code: 'ABCD2345',
+      expiresAt: '2026-01-01T00:10:00.000Z',
+    }),
     events: async (onEvent: (e: LiveEvent) => void) => {
       listener = onEvent;
       return () => (listener = undefined);
@@ -174,6 +178,21 @@ describe('TUI', () => {
     });
     await tick();
     expect(ui.lastFrame()).toContain('Stopped.');
+    ui.unmount();
+  });
+
+  it('issues a pairing code with /pair (S31)', async () => {
+    const { client } = fakeClient();
+    const ui = render(<ShitsujiApp client={client} />);
+    await tick();
+
+    await type(ui.stdin, '/pair');
+    ui.stdin.write('\r');
+    await tick();
+
+    const frame = ui.lastFrame()!;
+    expect(frame).toContain('Send /start ABCD2345 to the bot');
+    expect(frame).toContain('valid until 00:10 UTC');
     ui.unmount();
   });
 

@@ -32,6 +32,7 @@ const started = async (
         );
       }
       return {
+        kind: 'turn',
         sessionId: asId<SessionId>('session'),
         turnId: asId<TurnId>('turn'),
         steered: false,
@@ -129,6 +130,7 @@ describe('WebhookChannelAdapter', () => {
     const adapter = new WebhookChannelAdapter(logger(), { port: 0, authorize });
     await adapter.start({
       receive: async () => ({
+        kind: 'turn',
         sessionId: asId<SessionId>('session'),
         turnId: asId<TurnId>('turn'),
         steered: false,

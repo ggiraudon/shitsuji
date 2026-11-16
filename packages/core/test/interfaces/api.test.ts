@@ -6,6 +6,7 @@ import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { Agent } from '../../src/application/Agent.js';
 import { NodeTextFile } from '../../src/adapters/files/NodeTextFile.js';
+import { PairingService } from '../../src/application/channels/PairingService.js';
 import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
 import { SoulService } from '../../src/application/soul/SoulService.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
@@ -51,6 +52,7 @@ async function setup(
     ...(options.dataDir && { file: new NodeTextFile(path.join(options.dataDir, 'SOUL.md')) }),
   });
   await soul.start();
+  const pairing = new PairingService(services.clock, { code: () => 'TEST2345' });
   const agent = new Agent({
     name: 'Test',
     ownerId,
@@ -73,6 +75,7 @@ async function setup(
     ...services,
     ownerId,
     soul,
+    pairing,
     ...(options.receive && { receive: options.receive }),
     verifyKey: (k) => k === 'secret',
   });
@@ -235,6 +238,7 @@ describe('HTTP API', () => {
       receive: async (message) => {
         seen.push(message);
         return {
+          kind: 'turn',
           sessionId: asId<SessionId>('s1'),
           turnId: asId<TurnId>('t1'),
           steered: false,
@@ -251,6 +255,19 @@ describe('HTTP API', () => {
     expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ sessionId: 's1', turnId: 't1', steered: false });
     expect(seen[0]).toMatchObject({ channel: 'api', chatId: 'main', text: 'Hello' });
+  });
+
+  it('issues a pairing code over the API (S31)', async () => {
+    const { app } = await setup();
+    expect((await app.request('/api/pair', { method: 'POST' })).status).toBe(401);
+
+    const res = await app.request('/api/pair', { method: 'POST', headers: auth });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      code: 'TEST2345',
+      expiresAt: expect.any(String),
+    });
   });
 
   it('rejects a bad since on the activity and usage routes', async () => {

@@ -31,6 +31,7 @@ export type TuiClient = Pick<
   | 'applySoul'
   | 'usage'
   | 'activity'
+  | 'pair'
 >;
 
 let counter = 0;
@@ -147,8 +148,21 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
       if (text === '/help') {
         return add(
           'note',
-          'Enter: send (also while working). Esc: stop. /new: new conversation. /soul: the standing instructions. /usage: what it cost. /activity: recent tool calls. /exit: quit.',
+          'Enter: send (also while working). Esc: stop. /new: new conversation. /soul: the standing instructions. /pair: pair a chat. /usage: what it cost. /activity: recent tool calls. /exit: quit.',
         );
+      }
+      if (text === '/pair') {
+        try {
+          const { code, expiresAt } = await client.pair();
+          add(
+            'note',
+            `Send /start ${code} to the bot in the chat you want to pair (valid until ` +
+              `${expiresAt.slice(11, 16)} UTC).`,
+          );
+        } catch (error) {
+          add('error', (error as Error).message);
+        }
+        return;
       }
       if (text === '/usage') {
         try {

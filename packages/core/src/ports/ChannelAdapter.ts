@@ -95,12 +95,13 @@ export interface InboundMessage {
   metadata?: Record<string, unknown>;
 }
 
-/** What the runtime did with an inbound message; the same shape as MessageIntake's Submitted. */
-export interface InboundResult {
-  sessionId: SessionId;
-  turnId: TurnId;
-  steered: boolean;
-}
+/** What the runtime did with an inbound message. */
+export type InboundResult =
+  | { kind: 'turn'; sessionId: SessionId; turnId: TurnId; steered: boolean }
+  /** The gateway answered itself (pairing, a command): no turn ran. */
+  | { kind: 'replied'; reason: 'paired' | 'command' }
+  /** Nothing happened: an unpaired chat, or a message with no text. */
+  | { kind: 'ignored'; reason: string };
 
 /** The one way an adapter hands a message to the core. */
 export interface InboundSink {
@@ -114,6 +115,8 @@ export interface InboundSink {
 export interface ChannelAdapter {
   readonly id: ChannelId;
   readonly capabilities: ChannelCapabilities;
+  /** True for chat apps that must be paired once before they can start turns (Telegram, F06). */
+  readonly requiresPairing?: boolean;
   /** Starts the transport and hands inbound messages to the sink. */
   start(sink: InboundSink): Promise<void>;
   stop(): Promise<void>;
@@ -128,6 +131,7 @@ export interface ChannelAdapter {
 export abstract class BaseChannelAdapter implements ChannelAdapter {
   abstract readonly id: ChannelId;
   abstract readonly capabilities: ChannelCapabilities;
+  readonly requiresPairing?: boolean = false;
   protected sink?: InboundSink;
   protected running = false;
 

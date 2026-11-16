@@ -34,6 +34,12 @@ export interface ConfirmSoulResponse {
   revision: number;
 }
 
+/** A code the owner sends as /start <code> on the chat to pair (S31). */
+export interface PairResponse {
+  code: string;
+  expiresAt: string;
+}
+
 export interface MessageDto {
   id: string;
   role: 'system' | 'user' | 'assistant' | 'tool';

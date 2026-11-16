@@ -171,7 +171,7 @@ describe('Postgres-only guarantees', () => {
         'created_at',
       ],
       turn_events: ['id', 'owner_id', 'turn_id', 'kind', 'data', 'at'],
-      channel_bindings: ['channel', 'external_chat_id', 'owner_id', 'verified_at'],
+      channel_bindings: ['channel', 'external_chat_id', 'owner_id', 'verified_at', 'session_id'],
       usage: [
         'id',
         'owner_id',

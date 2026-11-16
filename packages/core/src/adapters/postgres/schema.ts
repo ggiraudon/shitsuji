@@ -80,6 +80,7 @@ export interface ChannelBindingsTable {
   external_chat_id: string;
   owner_id: string;
   verified_at: Timestamp | null;
+  session_id: string | null;
 }
 
 export interface UsageTable {

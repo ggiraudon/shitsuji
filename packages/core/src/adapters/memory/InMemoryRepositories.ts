@@ -28,6 +28,7 @@ import type {
   UsageRepository,
 } from '../../ports/Repositories.js';
 import type { SoulStore } from '../../ports/SoulStore.js';
+import type { ChannelBinding, ChannelBindingStore } from '../../ports/ChannelBindingStore.js';
 import type { BudgetReservation, BudgetStore } from '../../ports/BudgetStore.js';
 import { assertSameCurrency } from '../../ports/BudgetStore.js';
 import { Money } from '../../domain/model/Money.js';
@@ -74,6 +75,7 @@ interface State {
   soulFragments: { ownerId: OwnerId; fragment: SoulFragment }[];
   soulRevisions: { ownerId: OwnerId; revision: SoulRevision }[];
   budgetHolds: BudgetHoldRow[];
+  bindings: ChannelBinding[];
 }
 
 const emptyState = (): State => ({
@@ -87,6 +89,7 @@ const emptyState = (): State => ({
   soulFragments: [],
   soulRevisions: [],
   budgetHolds: [],
+  bindings: [],
 });
 
 const copy = <T>(value: T): T => structuredClone(value);
@@ -403,6 +406,30 @@ export class InMemoryRepositories implements Repositories {
       }
       return released;
     },
+  };
+
+  readonly bindings: ChannelBindingStore = {
+    get: async (channel, externalChatId) => {
+      const row = this.state.bindings.find(
+        (b) => b.channel === channel && b.externalChatId === externalChatId,
+      );
+      return row && copy(row);
+    },
+    upsert: async (binding) => {
+      const at = this.state.bindings.findIndex(
+        (b) => b.channel === binding.channel && b.externalChatId === binding.externalChatId,
+      );
+      if (at === -1) this.state.bindings.push(copy(binding));
+      else this.state.bindings[at] = copy(binding);
+    },
+    listByOwner: async (ownerId) =>
+      this.state.bindings
+        .filter((b) => b.ownerId === ownerId)
+        .map(copy)
+        .sort(
+          (a, b) =>
+            a.channel.localeCompare(b.channel) || a.externalChatId.localeCompare(b.externalChatId),
+        ),
   };
 
   /** Settled spend from the usage ledger: rows with a known cost, in this currency. */

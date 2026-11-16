@@ -225,13 +225,20 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
       const pending: PendingRequest = { messageId, timer, respond };
       this.enqueue(data.destination, pending);
 
-      this.sink!.receive(inbound).catch((error: unknown) => {
-        this.log.error('Webhook message failed', {
-          error: { name: (error as Error)?.name, message: (error as Error)?.message },
-        });
-        this.removeByMessageId(data.destination, messageId);
-        respond({ success: false, error: (error as Error)?.message ?? 'Message failed' }, 500);
-      });
+      this.sink!.receive(inbound).then(
+        (result) => {
+          if (result.kind !== 'ignored') return;
+          this.removeByMessageId(data.destination, messageId);
+          respond({ success: false, ignored: true, reason: result.reason }, 403);
+        },
+        (error: unknown) => {
+          this.log.error('Webhook message failed', {
+            error: { name: (error as Error)?.name, message: (error as Error)?.message },
+          });
+          this.removeByMessageId(data.destination, messageId);
+          respond({ success: false, error: (error as Error)?.message ?? 'Message failed' }, 500);
+        },
+      );
     });
   }
 

@@ -19,6 +19,7 @@ import { ModelCatalog } from '../application/models/ModelCatalog.js';
 import { ModelRouter, NoModelAvailable } from '../application/models/ModelRouter.js';
 import { PluginManager } from '../application/PluginManager.js';
 import { ChannelRegistry } from '../application/channels/ChannelRegistry.js';
+import { PairingService } from '../application/channels/PairingService.js';
 import { defaultMiddlewares } from '../application/tools/middlewares.js';
 import { ToolCatalog } from '../application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../application/tools/ToolPipeline.js';
@@ -205,6 +206,7 @@ export async function createShitsuji(
 
   const channels = new ChannelRegistry();
   for (const channel of plugins.channels()) channels.add(channel);
+  const pairing = new PairingService(services.clock);
   const startsApi = options.api ?? config.api.enabled;
 
   return new Shitsuji({
@@ -216,6 +218,11 @@ export async function createShitsuji(
     version: VERSION,
     jobs,
     recovery: new StartupRecovery(repos, services.clock, log),
+    bindings: repos.bindings,
+    pairing,
+    repos,
+    ownerId: OWNER_ID,
+    clock: services.clock,
     prepare:
       startsApi || channels.size > 0
         ? async () => {
@@ -237,6 +244,7 @@ export async function createShitsuji(
               log,
               ownerId: OWNER_ID,
               soul,
+              pairing,
               verifyKey,
             },
             config.api,

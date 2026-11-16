@@ -3,6 +3,7 @@ import { Hono, type Context } from 'hono';
 import type { UpgradeWebSocket } from 'hono/ws';
 import type { Agent } from '../../application/Agent.js';
 import type { SoulService } from '../../application/soul/SoulService.js';
+import type { PairingService } from '../../application/channels/PairingService.js';
 import { SoulEditChanged, SoulNoPendingEdit } from '../../domain/model/Soul.js';
 import { asId, type OwnerId, type SessionId, type TurnId } from '../../domain/model/ids.js';
 import { textOf, toolCallsOf, type Message } from '../../domain/model/Message.js';
@@ -20,6 +21,7 @@ import {
   type ConfirmSoulResponse,
   type LiveEvent,
   type MessageDto,
+  type PairResponse,
   type PostMessageResponse,
   type SoulDto,
   type TurnDto,
@@ -35,6 +37,8 @@ export interface ApiDeps {
   ownerId: OwnerId;
   /** The assembled SOUL: reading it and confirming an edit of its export (S23). */
   soul: SoulService;
+  /** Codes that pair a chat with the owner (S31). */
+  pairing: PairingService;
   /**
    * How an API message reaches the runtime. Defaults to agent.submit; the composition can pass the
    * same sink the channel adapters use (S30), so both entry points share the inbound model.
@@ -89,7 +93,24 @@ export function createApi(deps: ApiDeps): Hono {
       ...(sessionId && { sessionId }),
     };
     const submitted = await receive(message);
-    return c.json(submitted satisfies PostMessageResponse, 202);
+    if (submitted.kind !== 'turn') {
+      return c.json(
+        {
+          error: 'The message was not run',
+          reason: submitted.kind,
+          ignored: submitted.kind === 'ignored',
+        },
+        409,
+      );
+    }
+    return c.json(
+      {
+        sessionId: submitted.sessionId,
+        turnId: submitted.turnId,
+        steered: submitted.steered,
+      } satisfies PostMessageResponse,
+      202,
+    );
   });
 
   app.post('/api/sessions', async (c) =>
@@ -125,6 +146,11 @@ export function createApi(deps: ApiDeps): Hono {
   app.post('/api/turns/:id/stop', async (c) =>
     c.json({ stopped: await deps.agent.stop(asId<TurnId>(c.req.param('id'))) }),
   );
+
+  app.post('/api/pair', (c) => {
+    const { code, expiresAt } = deps.pairing.issue(deps.ownerId);
+    return c.json({ code, expiresAt: expiresAt.toISOString() } satisfies PairResponse);
+  });
 
   app.get('/api/soul', async (c) => {
     const view = await deps.soul.view();
@@ -240,11 +266,13 @@ export function createApi(deps: ApiDeps): Hono {
   // messages over as InboundMessages, so every entry point speaks the same model (S30).
   const receive =
     deps.receive ??
-    ((message: InboundMessage) =>
-      deps.agent.submit(message.text, {
+    (async (message: InboundMessage): Promise<InboundResult> => {
+      const submitted = await deps.agent.submit(message.text, {
         ...(message.sessionId && { sessionId: message.sessionId }),
         channel: message.channel,
-      }));
+      });
+      return { kind: 'turn', ...submitted };
+    });
 
   return app;
 }
