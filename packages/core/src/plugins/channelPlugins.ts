@@ -1,7 +1,7 @@
-import { WebhookChannel } from '../adapters/channels/WebhookChannel.js';
+import { WebhookChannelAdapter } from '../adapters/channels/WebhookChannelAdapter.js';
 import type { PluginRegistrationContext, ShitsujiPlugin } from '../ports/Plugin.js';
 
-/** An HTTP endpoint that accepts messages by POST. */
+/** An HTTP endpoint that accepts messages by POST and answers with the reply. */
 export class WebhookChannelPlugin implements ShitsujiPlugin {
   readonly manifest = {
     id: 'builtin.webhook-channel',
@@ -13,6 +13,6 @@ export class WebhookChannelPlugin implements ShitsujiPlugin {
   constructor(private readonly options: { port: number; path: string }) {}
 
   register(ctx: PluginRegistrationContext): void {
-    ctx.addChannel(new WebhookChannel(ctx.log, this.options));
+    ctx.addChannel(new WebhookChannelAdapter(ctx.log, this.options));
   }
 }

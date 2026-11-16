@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ChannelRegistry } from '../../src/application/channels/ChannelRegistry.js';
-import { PlainTextRenderer } from '../../src/application/channels/PlainTextRenderer.js';
+import { PlainTextRenderer } from '../../src/adapters/channels/PlainTextRenderer.js';
 import {
   BaseChannelAdapter,
   type ChannelCapabilities,
@@ -8,6 +8,8 @@ import {
   type DeliveryReceipt,
   type OutboundMessage,
 } from '../../src/ports/ChannelAdapter.js';
+import { describeChannelContract } from '../contracts/channel.contract.js';
+import { TestChannel } from '../helpers.js';
 
 const caps = (over: Partial<ChannelCapabilities> = {}): ChannelCapabilities => ({
   markdown: 'none',
@@ -98,3 +100,5 @@ describe('ChannelRegistry', () => {
     expect(registry.get('missing')).toBeUndefined();
   });
 });
+
+describeChannelContract('test channel', () => new TestChannel());

@@ -3,8 +3,15 @@ import { InProcessEventBus } from '../src/adapters/events/InProcessEventBus.js';
 import { MemoryLogger } from '../src/adapters/logging/loggers.js';
 import { ModelCatalog } from '../src/application/models/ModelCatalog.js';
 import { ModelRouter } from '../src/application/models/ModelRouter.js';
+import { PlainTextRenderer } from '../src/adapters/channels/PlainTextRenderer.js';
 import type { CoreServices } from '../src/composition/services.js';
-import { BaseChannel } from '../src/ports/Channel.js';
+import {
+  BaseChannelAdapter,
+  type ChannelCapabilities,
+  type ChannelTarget,
+  type InboundSink,
+  type OutboundMessage,
+} from '../src/ports/ChannelAdapter.js';
 import type { ToolCallId } from '../src/domain/model/ids.js';
 import type { ModelProvider, ModelRequest, ModelStreamEvent } from '../src/ports/ModelProvider.js';
 
@@ -78,26 +85,47 @@ export function transcript(request: ModelRequest): string[] {
 }
 
 /** A channel driven by the test: `receive()` simulates an incoming message. */
-export class TestChannel extends BaseChannel {
+export class TestChannel extends BaseChannelAdapter {
+  readonly id = 'test';
+  readonly capabilities: ChannelCapabilities = {
+    markdown: 'basic',
+    buttons: false,
+    files: false,
+    images: false,
+    voice: false,
+    edits: false,
+    maxMessageLength: 100_000,
+  };
   readonly sent: { destination: string; message: string }[] = [];
   started = 0;
   stopped = 0;
-  constructor(readonly name = 'test') {
-    super();
-  }
-  override async start() {
+  private readonly renderer = new PlainTextRenderer();
+
+  override async start(sink: InboundSink) {
     this.started++;
-    await super.start();
+    await super.start(sink);
   }
+
   override async stop() {
     this.stopped++;
     await super.stop();
   }
-  async send(destination: string, message: string) {
-    this.sent.push({ destination, message });
+
+  async deliver(target: ChannelTarget, message: OutboundMessage) {
+    this.sent.push({
+      destination: target.chatId,
+      message: this.renderer.render(message, this.capabilities).text,
+    });
+    return { delivered: true };
   }
+
   receive(content: string, destination = 'someone') {
-    this.emitMessage({ id: 'm', role: 'user', content, timestamp: 0 }, destination);
+    void this.sink?.receive({
+      channel: this.id,
+      chatId: destination,
+      text: content,
+      receivedAt: new Date(),
+    });
   }
 }
 
