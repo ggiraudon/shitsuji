@@ -23,6 +23,7 @@ import { PairingService } from '../application/channels/PairingService.js';
 import { defaultMiddlewares } from '../application/tools/middlewares.js';
 import { ToolCatalog } from '../application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../application/tools/ToolPipeline.js';
+import { PolicyEngine } from '../application/trust/PolicyEngine.js';
 import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
@@ -184,7 +185,11 @@ export async function createShitsuji(
   tools.add(new ToolCallGateway());
   const pipeline = new ToolPipeline(
     tools,
-    defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock }),
+    defaultMiddlewares({
+      turnEvents: repos.turnEvents,
+      clock: services.clock,
+      policy: new PolicyEngine(),
+    }),
   );
   const agent = new Agent({
     name: 'Shitsuji',

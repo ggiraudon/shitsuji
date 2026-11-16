@@ -2,12 +2,9 @@ import { serializeError } from '../../domain/errors.js';
 import type { TurnId } from '../../domain/model/ids.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { TurnEventRepository } from '../../ports/Repositories.js';
-import {
-  effectOf,
-  type ToolEffect,
-  type ToolOutcome,
-  type TrustDecision,
-} from '../../ports/Tool.js';
+import { effectOf, type ToolOutcome, type TrustDecision } from '../../ports/Tool.js';
+import { actionRequest, type ActionRequest } from '../trust/ActionRequest.js';
+import { PolicyEngine } from '../trust/PolicyEngine.js';
 import type { ToolInvocation, ToolMiddleware } from './ToolPipeline.js';
 
 /** Races the call against the turn's AbortSignal; never waits for a tool that ignores it. */
@@ -94,58 +91,52 @@ export class RepeatFailureMiddleware implements ToolMiddleware {
   }
 }
 
-/** Decides whether a call may run. The trust service (F11) will replace the fixed policy. */
+/** Decides whether a call may run. The policy engine (F11, S34) implements it. */
 export interface TrustPolicy {
-  decide(inv: ToolInvocation): TrustDecision;
+  decide(request: ActionRequest): TrustDecision;
 }
 
 /**
- * Until approvals exist (F11): anything that only reads, computes or changes Shitsuji's own world is
- * allowed; acting on the outside world or spending money is refused. The basis it reports is what the
- * activity log shows as "what allowed it".
+ * Runs the deterministic policy (F11, S34). Until the judge (S35) and approvals (S36) exist, an `ask`
+ * or `judge` verdict refuses the call with the reason that step is missing; nothing risky runs unasked.
  */
-export class FixedTrustPolicy implements TrustPolicy {
-  constructor(
-    private readonly allowed: readonly ToolEffect[] = [
-      'read',
-      'compute',
-      'write_local',
-      'write_self',
-    ],
-  ) {}
-
-  decide(inv: ToolInvocation): TrustDecision {
-    const effect = inv.effect ?? 'external';
-    if (this.allowed.includes(effect)) {
-      return {
-        allow: true,
-        basis: { kind: 'policy', detail: `the fixed policy allows ${effect}` },
-      };
-    }
-    return {
-      allow: false,
-      basis: { kind: 'none', detail: 'no approval channel exists yet (F11)' },
-      reason: `${inv.tool.name} has the effect "${effect}", which needs approvals; approvals arrive with F11.`,
-    };
-  }
-}
-
 export class TrustMiddleware implements ToolMiddleware {
   readonly name = 'trust';
   constructor(private readonly policy: TrustPolicy) {}
 
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
-    const decision = this.policy.decide(inv);
-    inv.trust = decision;
-    if (!decision.allow) {
-      return {
-        kind: 'error',
-        reason: 'denied',
-        content: decision.reason ?? `${inv.tool.name} was refused by the trust policy.`,
-      };
+    const request = actionRequest({
+      tool: inv.tool.name,
+      arguments: (inv.args ?? {}) as Record<string, unknown>,
+      effect: inv.effect ?? 'external',
+      target: inv.tool.target,
+    });
+    const decision = this.policy.decide(request);
+    if (decision.verdict === 'allow') {
+      inv.trust = decision;
+      return next();
     }
-    return next();
+    const reason = decision.reason ?? fallbackReason(decision.verdict, request);
+    const content = `${reason} ${pendingStep(decision.verdict)}`.trim();
+    inv.trust = { ...decision, reason: content };
+    return { kind: 'error', reason: 'denied', content };
   }
+}
+
+/** The reason to refuse with when the policy gave none. */
+function fallbackReason(verdict: 'ask' | 'judge' | 'deny', request: ActionRequest): string {
+  if (verdict === 'judge') {
+    return `${request.tool} has the effect "${request.effect}" and needs a trust judgement.`;
+  }
+  if (verdict === 'ask') return `${request.tool} needs the owner's approval.`;
+  return `${request.tool} is refused by the trust policy.`;
+}
+
+/** The step that will let an ask or a judgement run; empty for a plain refusal. */
+function pendingStep(verdict: 'ask' | 'judge' | 'deny'): string {
+  if (verdict === 'ask') return 'Approvals arrive with S36 (F11), so it cannot run yet.';
+  if (verdict === 'judge') return 'The judge arrives with S35 (F11), so it cannot run yet.';
+  return '';
 }
 
 /** Masks known secrets in text (the vault arrives with F12; identity until then). */
@@ -193,6 +184,7 @@ export class ReceiptMiddleware implements ToolMiddleware {
         outcome: outcome.kind === 'ok' ? 'ok' : outcome.reason,
         ms: now.getTime() - started.getTime(),
         allowedBy: trust?.basis ?? { kind: 'none' },
+        ...(trust?.actionHash && { actionHash: trust.actionHash }),
         ...(trust?.reason && { deniedBecause: trust.reason }),
       },
       at: now,
@@ -293,7 +285,7 @@ export function defaultMiddlewares(deps: DefaultPipelineDeps): ToolMiddleware[] 
     new RepeatFailureMiddleware(deps.repeatLimit),
     // The receipt sits outside trust so a refused call is in the activity log too (S29).
     new ReceiptMiddleware(deps.turnEvents, deps.clock, deps.redact),
-    new TrustMiddleware(deps.policy ?? new FixedTrustPolicy()),
+    new TrustMiddleware(deps.policy ?? new PolicyEngine()),
     new UntrustedWrapMiddleware(),
     new RedactionMiddleware(),
     new OutputLimitMiddleware(deps.maxOutputChars),

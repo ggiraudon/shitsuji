@@ -3,10 +3,11 @@ import { z } from 'zod/v4';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import {
   defaultMiddlewares,
-  type FixedTrustPolicy,
   type RedactFn,
+  type TrustPolicy,
 } from '../../src/application/tools/middlewares.js';
 import { outcomeText, ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
+import { PolicyEngine } from '../../src/application/trust/PolicyEngine.js';
 import { asId, type ToolCallId, type TurnId } from '../../src/domain/model/ids.js';
 import {
   BaseTool,
@@ -40,7 +41,7 @@ class FakeTool extends BaseTool<z.ZodObject<{ n: z.ZodNumber }>> {
 
 const setup = (
   tools: Tool[],
-  extra: { policy?: FixedTrustPolicy; maxOutputChars?: number; redact?: RedactFn } = {},
+  extra: { policy?: TrustPolicy; maxOutputChars?: number; redact?: RedactFn } = {},
 ) => {
   const services = testServices();
   const repos = new InMemoryRepositories();
@@ -134,15 +135,18 @@ describe('ToolPipeline', () => {
     expect(reasons).toEqual(['failed', 'failed', 'failed', 'failed', 'repeated_failure']);
   });
 
-  it('refuses external and payment effects until approvals exist (F11)', async () => {
+  it('refuses effects that need the judge or approvals, which arrive in S35 and S36 (F11)', async () => {
     const send = new FakeTool('mail.send', 'external');
     const pay = new FakeTool('shop.pay', 'payment');
     const { call } = setup([send, pay]);
-    for (const name of ['mail.send', 'shop.pay']) {
-      const outcome = await call(name, { n: 1 });
-      expect(outcome).toMatchObject({ kind: 'error', reason: 'denied' });
-      expect(outcome.content).toMatch(/needs approvals/);
-    }
+
+    const judged = await call('mail.send', { n: 1 });
+    const approved = await call('shop.pay', { n: 1 });
+
+    expect(judged).toMatchObject({ kind: 'error', reason: 'denied' });
+    expect(judged.content).toMatch(/trust judgement.*S35/);
+    expect(approved).toMatchObject({ kind: 'error', reason: 'denied' });
+    expect(approved.content).toMatch(/owner's approval.*S36/);
     expect(send.runs + pay.runs).toBe(0);
   });
 
@@ -175,8 +179,9 @@ describe('ToolPipeline', () => {
       outcome: 'ok',
       effect: 'read',
       target: 'core',
-      allowedBy: { kind: 'policy', detail: 'the fixed policy allows read' },
+      allowedBy: { kind: 'policy', detail: 'read actions need no approval' },
     });
+    expect(events[1]!.data.actionHash).toMatch(/^[0-9a-f]{64}$/);
     expect(typeof events[1]!.data.ms).toBe('number');
   });
 
@@ -192,7 +197,26 @@ describe('ToolPipeline', () => {
       effect: 'external',
       allowedBy: { kind: 'none' },
     });
-    expect(events[1]!.data.deniedBecause).toMatch(/needs approvals/);
+    expect(events[1]!.data.deniedBecause).toMatch(/trust judgement.*S35/);
+  });
+
+  it('refuses a call a standing rule forbids, and records the rule (S34)', async () => {
+    const send = new FakeTool('mail.send', 'external');
+    const policy: TrustPolicy = {
+      decide: (request) =>
+        new PolicyEngine().decide(request, [
+          { action: 'deny', tool: 'mail.*', detail: 'never email clients' },
+        ]),
+    };
+    const { call, repos } = setup([send], { policy });
+
+    const outcome = await call('mail.send', { n: 1 });
+
+    expect(outcome).toMatchObject({ kind: 'error', reason: 'denied' });
+    expect(outcome.content).toBe('A standing rule forbids it: "never email clients".');
+    expect(send.runs).toBe(0);
+    const events = await repos.turnEvents.listByTurn(asId<TurnId>('turn-1'));
+    expect(events[1]!.data.deniedBecause).toMatch(/never email clients/);
   });
 
   it('redacts arguments before they reach a receipt (F22)', async () => {

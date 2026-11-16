@@ -585,7 +585,7 @@ classDiagram
     +forTurn(turn) Authority
   }
   class PolicyEngine {
-    +evaluate(action, authority) Decision
+    +decide(action, rules) Decision
   }
   class TrustJudge {
     +judge(action, authority) Decision
