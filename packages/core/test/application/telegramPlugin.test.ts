@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { TelegramChannelPlugin } from '../../src/plugins/channelPlugins.js';
@@ -19,7 +21,10 @@ describe('TelegramChannelPlugin (S32)', () => {
       addContextInjectable: () => {},
     } satisfies PluginRegistrationContext;
 
-    new TelegramChannelPlugin({ token: '123456:TEST-token' }).register(ctx);
+    new TelegramChannelPlugin({
+      token: '123456:TEST-token',
+      handoffDir: path.join(os.tmpdir(), 'shitsuji-handoff-test'),
+    }).register(ctx);
 
     expect(channels.map((channel) => channel.id)).toEqual(['telegram']);
     expect(channels[0]!.requiresPairing).toBe(true);

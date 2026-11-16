@@ -115,6 +115,34 @@ export function effectOf<I>(tool: Tool<I>, args: I): ToolEffect {
   return typeof tool.effect === 'function' ? tool.effect(args) : tool.effect;
 }
 
+/** A file a tool asked to attach to the turn's reply (F06, S33). */
+export interface OutboundFile {
+  /** Absolute path on the core machine; the channel adapter reads it. */
+  path: string;
+  name: string;
+  mediaType?: string;
+  caption?: string;
+}
+
+/** The files a tool result asks to attach; an ordinary result has none. */
+export function outboundFiles(outcome: ToolOutcome): OutboundFile[] {
+  const files = outcome.data?.files;
+  if (!Array.isArray(files)) return [];
+  const parsed: OutboundFile[] = [];
+  for (const raw of files) {
+    if (!raw || typeof raw !== 'object') continue;
+    const { path, name, mediaType, caption } = raw as Record<string, unknown>;
+    if (typeof path !== 'string' || typeof name !== 'string') continue;
+    parsed.push({
+      path,
+      name,
+      ...(typeof mediaType === 'string' && { mediaType }),
+      ...(typeof caption === 'string' && { caption }),
+    });
+  }
+  return parsed;
+}
+
 /** The tool as the model sees it: name, description and a JSON Schema of its arguments. */
 export function toolSpec(tool: Tool): ToolSpec {
   const schema = z.toJSONSchema(tool.input, { target: 'draft-7', io: 'input' }) as Record<

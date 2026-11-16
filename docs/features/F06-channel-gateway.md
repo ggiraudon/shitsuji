@@ -24,7 +24,9 @@ Since S31 the `ChannelGateway` resolves each chat through a binding, pairs a new
 answers `/stop`, `/status` and `/new`, and hands everything else to the agent with a reply channel.
 S32 adds the Telegram adapter itself: grammY long polling, Markdown as Telegram HTML, long replies split
 at paragraph breaks, one "Working…" message removed when the reply arrives, and pairing through the same
-gateway. Files and approval buttons wait for S33 and F11.
+gateway. S33 adds files: a photo or document the owner sends is saved in `<dataDir>/handoff` and the turn is
+told its path, a file the agent attaches comes back as a Telegram document, and a voice note gets
+"I can't listen to voice notes yet." Approval buttons wait for F11.
 
 ## Inspiration
 
@@ -104,7 +106,11 @@ class ChannelGateway implements InboundSink {
   channels.
 - **Reply routing.** A reply to a task's message goes to that task's session; anything else goes to the main
   chat session ([F15](F15-tasks-and-subagents.md)).
-- **Attachments** are stored as files in the `handoff` volume so the workspace can process them.
+- **Attachments** are stored in `<dataDir>/handoff` (decision T2) and the turn is told the absolute paths.
+  The file tools may read that folder but never write it; until F08 the workspace container can take it over.
+- **Files back.** A tool result can carry `files` (the `workspace.send` tool does); the turn publishes them on
+  `turn.status` and the reply reaches the channel as file parts, which Telegram sends as documents (the tool
+  refuses files above 48 MB, keeping under Telegram's 50 MB bot limit).
 
 S31 builds the first slice of this: `ChannelGateway`, channel bindings (with a per-chat session so `/new`
 works), `PairingService` (short-lived, single-use codes issued from `POST /api/pair` and shown by the TUI's
@@ -118,13 +124,19 @@ buttons, task routing and attachments wait for F11 and S33.
 - Markdown → Telegram MarkdownV2 or HTML, with escaping; long replies split at paragraph breaks.
 - Inline keyboards for approvals and choices; callback data carries only an opaque ID.
 - Progress: one "working…" message edited in place, removed when the turn ends.
-- Voice notes → stored file → speech-to-text when [F23](F23-voice.md) arrives.
+- Files: documents, photos and voice notes are downloaded into the handoff folder; sent files go back as
+  documents. Voice notes are stored for [F23](F23-voice.md), which answers that it cannot listen yet.
 - Commands: `/stop`, `/tasks`, `/status`, `/new` (reset thread, with confirmation).
 
 S32 builds the adapter: grammY long polling behind a narrow transport, the bot token from
 `channels.telegram.token` (a `Secret`, from `SHITSUJI_TELEGRAM_TOKEN`), Markdown to Telegram HTML with
-escaping and paragraph splitting, and one "Working…" message removed when the reply is delivered. Inline
-keyboards, files and voice notes wait for F11, S33 and F23.
+escaping and paragraph splitting, and one "Working…" message removed when the reply is delivered.
+
+S33 adds the files: the transport maps document, photo and voice updates, downloads them with `getFile`,
+and the adapter stores them with a safe, unique name in `<dataDir>/handoff` before telling the gateway where
+they are; a download failure loses the file, not the message. Outbound, the adapter reads each file part and
+sends it with `sendDocument`, keeping the text when a file cannot be read. Inline keyboards wait for F11 and
+speech-to-text for F23.
 
 ## Changes to existing code
 
@@ -134,10 +146,16 @@ keyboards, files and voice notes wait for F11, S33 and F23.
 | `channels/index.ts` | `ChannelManager` → `ChannelRegistry` filled by plugins (S30) |
 | `channels/CLIChannel.ts` | Removed with decision Q4; the TUI is the terminal interface |
 | `channels/WebhookChannel.ts` | `adapters/channels/WebhookChannelAdapter.ts`: answers its POST with the reply now. Because the caller reads the answer, a POST needs the owner key (`Authorization: Bearer`, 401 without it) and the server listens on `127.0.0.1` unless `channels.webhook.host` is set ([#34](https://github.com/ggiraudon/shitsuji/issues/34)). Signed requests from other services and a real trigger for [F16](F16-scheduler-and-routines.md) come later |
+| `adapters/files/HandoffStore.ts` | New (S33): saves channel attachments in `<dataDir>/handoff` with a safe, unique name (T2) |
+| `adapters/tools/workspace.ts` | New `workspace.send` (S33, effect `read`); `resolveRead` lets the read and list tools reach the handoff folder, and `WorkspaceRoot` gained read-only extra roots |
+| `ports/Tool.ts` | `OutboundFile` and `outboundFiles()` (S33): a tool result may name files for the reply |
 
 ## Acceptance criteria
 
 - Pair Telegram from the web UI; chat; approve an action with a button; get a file back.
+  *(S33: a file the agent attaches comes back as a document. The approval button waits for [F11](F11-trust-and-approvals.md).)*
+- A photo and a document the owner sends reach the agent in `<dataDir>/handoff`; a voice note is kept and answered
+  "I can't listen to voice notes yet." *(S33)*
 - A message from an unpaired Telegram chat starts no turn.
 - Adding a new channel needs one adapter class and a plugin manifest, no change to the core.
 

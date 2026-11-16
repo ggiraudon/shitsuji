@@ -21,6 +21,8 @@ import type { BudgetService } from '../budget/BudgetService.js';
 import type { SoulSource } from '../soul/SoulService.js';
 import type { ToolCatalog } from '../tools/ToolCatalog.js';
 import { outcomeText, type ToolPipeline } from '../tools/ToolPipeline.js';
+import type { OutboundFile } from '../../ports/Tool.js';
+import { outboundFiles } from '../../ports/Tool.js';
 import { TurnLock } from '../TurnLock.js';
 import { DEFAULT_STEP_LIMITS, StallDetector, type StepLimits } from './limits.js';
 import { TurnStopped, type StopController } from './StopController.js';
@@ -46,12 +48,13 @@ export interface TurnRunnerDeps {
 
 /** The end of a turn, as the scheduler and callers see it. */
 export type TurnResult =
-  | { status: 'succeeded'; reply: string }
+  | { status: 'succeeded'; reply: string; files?: OutboundFile[] }
   | { status: 'waiting'; question: string }
   | { status: 'failed' | 'cancelled'; error: string };
 
 /** One pass of the loop: an answer, or a question when the check-in limit is passed. */
-type LoopOutcome = { kind: 'reply'; text: string } | { kind: 'question'; text: string };
+type LoopOutcome =
+  { kind: 'reply'; text: string; files: OutboundFile[] } | { kind: 'question'; text: string };
 
 /** A turn ended on purpose before an answer: a step limit, a stall, a repeated tool failure. */
 class TurnEnded extends Error {}
@@ -97,13 +100,19 @@ export class TurnRunner {
         return { status: 'waiting', question: outcome.text };
       }
       const reply = outcome.text;
+      const files = outcome.files;
       if (!(await this.save(turn, 'running', () => turn.succeed(clock.now())))) {
         const error = 'The turn was ended elsewhere before it finished';
         events.publish('turn.status', { ...base, status: 'failed', error });
         return { status: 'failed', error };
       }
-      events.publish('turn.status', { ...base, status: 'succeeded', reply });
-      return { status: 'succeeded', reply };
+      events.publish('turn.status', {
+        ...base,
+        status: 'succeeded',
+        reply,
+        ...(files.length > 0 && { files }),
+      });
+      return { status: 'succeeded', reply, ...(files.length > 0 && { files }) };
     } catch (error) {
       if (signal.aborted) {
         const reason = signal.reason instanceof TurnStopped ? signal.reason.message : 'stopped';
@@ -136,6 +145,7 @@ export class TurnRunner {
   ): Promise<LoopOutcome> {
     const max = this.limits[session.kind];
     const stall = new StallDetector();
+    const files: OutboundFile[] = [];
     for (let step = 1; step <= max; step++) {
       signal.throwIfAborted();
       if (step > 1) await this.assertStillRunning(turn);
@@ -162,12 +172,13 @@ export class TurnRunner {
           role: 'assistant',
           content: response.text,
         });
-        return { kind: 'reply', text: response.text };
+        return { kind: 'reply', text: response.text, files };
       }
       const results: { isError: boolean }[] = [];
       for (const call of response.toolCalls) {
         const result = await this.executeTool(session, turn, call, signal);
         results.push(result);
+        files.push(...result.files);
         await this.store(session, turn.id, 'tool', 'system', [
           {
             type: 'tool_result',
@@ -316,7 +327,7 @@ export class TurnRunner {
     turn: Turn,
     call: ToolCall,
     signal: AbortSignal,
-  ): Promise<{ content: string; isError: boolean }> {
+  ): Promise<{ content: string; isError: boolean; files: OutboundFile[] }> {
     const { events, log } = this.deps;
     const meta = {
       turnId: turn.id,
@@ -342,7 +353,7 @@ export class TurnRunner {
     if (outcome.kind === 'error' && outcome.reason === 'repeated_failure') {
       throw new TurnEnded(outcome.content); // ends the turn instead of looping (F05)
     }
-    return { content: outcomeText(outcome), isError: !ok };
+    return { content: outcomeText(outcome), isError: !ok, files: outboundFiles(outcome) };
   }
 
   private async store(

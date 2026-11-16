@@ -1,7 +1,12 @@
 import type { OwnerId, SessionId } from '../../domain/model/ids.js';
 import type { SessionKind } from '../../domain/model/Session.js';
 import type { ChannelBinding, ChannelBindingStore } from '../../ports/ChannelBindingStore.js';
-import type { InboundMessage, InboundResult, OutboundIntent } from '../../ports/ChannelAdapter.js';
+import type {
+  InboundAttachment,
+  InboundMessage,
+  InboundResult,
+  OutboundIntent,
+} from '../../ports/ChannelAdapter.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { Repositories } from '../../ports/Repositories.js';
@@ -43,7 +48,7 @@ export class ChannelGateway {
   constructor(private readonly deps: ChannelGatewayDeps) {}
 
   async receive(message: InboundMessage): Promise<InboundResult> {
-    const text = message.text.trim();
+    const text = withAttachments(message.text.trim(), message.attachments);
     if (!text) return { kind: 'ignored', reason: 'empty message' };
     const binding = await this.deps.bindings.get(message.channel, message.chatId);
     const adapter = this.deps.channels.get(message.channel);
@@ -174,4 +179,15 @@ function commandOf(text: string): Command | undefined {
     default:
       return undefined;
   }
+}
+
+/** Tells the turn where the owner's files are, so it can read them if the task needs them. */
+function withAttachments(text: string, attachments?: readonly InboundAttachment[]): string {
+  if (!attachments?.length) return text;
+  const lines = attachments.map(
+    (file) => `- ${file.path}${file.mediaType ? ` (${file.mediaType})` : ''}`,
+  );
+  return [text, 'The owner sent these files; they are saved for you:', ...lines]
+    .filter(Boolean)
+    .join('\n');
 }

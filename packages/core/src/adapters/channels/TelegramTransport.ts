@@ -1,4 +1,4 @@
-import { type Bot } from 'grammy';
+import { type Bot, InputFile } from 'grammy';
 import type { Logger } from '../../ports/Logger.js';
 
 /** A text message as the adapter needs it, independent of grammY's update types. */
@@ -7,6 +7,16 @@ export interface TelegramIncoming {
   messageId: number;
   text: string;
   receivedAt: Date;
+  /** A document, photo or voice note, downloaded when the adapter stores it. */
+  attachment?: TelegramAttachment;
+}
+
+export interface TelegramAttachment {
+  kind: 'document' | 'photo' | 'voice';
+  fileId: string;
+  name: string;
+  mediaType?: string;
+  size?: number;
 }
 
 /**
@@ -21,6 +31,15 @@ export interface TelegramTransport {
   editMessage(chatId: string, messageId: number, html: string): Promise<void>;
   deleteMessage(chatId: string, messageId: number): Promise<void>;
   sendTyping(chatId: string): Promise<void>;
+  /** Downloads a file the owner sent. */
+  downloadFile(fileId: string): Promise<Uint8Array>;
+  /** Sends a file as a Telegram document and returns its Telegram id. */
+  sendDocument(
+    chatId: string,
+    fileName: string,
+    data: Uint8Array,
+    caption?: string,
+  ): Promise<number>;
 }
 
 /**
@@ -34,18 +53,53 @@ export class GrammyTelegramTransport implements TelegramTransport {
   constructor(
     private readonly bot: Bot,
     private readonly log: Logger,
+    private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  /** Attaches the message handler without starting polling; tests use bot.handleUpdate(). */
+  /** Attaches the message handlers without starting polling; tests use bot.handleUpdate(). */
   register(onMessage: (message: TelegramIncoming) => void): void {
     if (this.registered) return;
     this.registered = true;
     this.bot.on('message:text', (ctx) => {
+      onMessage(baseOf(ctx, ctx.message.text));
+    });
+    this.bot.on('message:document', (ctx) => {
+      const document = ctx.message.document;
       onMessage({
-        chatId: String(ctx.chat.id),
-        messageId: ctx.message.message_id,
-        text: ctx.message.text,
-        receivedAt: new Date(ctx.message.date * 1000),
+        ...baseOf(ctx, ctx.message.caption ?? ''),
+        attachment: {
+          kind: 'document',
+          fileId: document.file_id,
+          name: document.file_name ?? `document-${document.file_unique_id}`,
+          ...(document.mime_type && { mediaType: document.mime_type }),
+          ...(document.file_size && { size: document.file_size }),
+        },
+      });
+    });
+    this.bot.on('message:photo', (ctx) => {
+      const photo = ctx.message.photo.at(-1)!;
+      onMessage({
+        ...baseOf(ctx, ctx.message.caption ?? ''),
+        attachment: {
+          kind: 'photo',
+          fileId: photo.file_id,
+          name: `photo-${photo.file_unique_id}.jpg`,
+          mediaType: 'image/jpeg',
+          ...(photo.file_size && { size: photo.file_size }),
+        },
+      });
+    });
+    this.bot.on('message:voice', (ctx) => {
+      const voice = ctx.message.voice;
+      onMessage({
+        ...baseOf(ctx, ''),
+        attachment: {
+          kind: 'voice',
+          fileId: voice.file_id,
+          name: `voice-${voice.file_unique_id}.ogg`,
+          mediaType: voice.mime_type ?? 'audio/ogg',
+          ...(voice.file_size && { size: voice.file_size }),
+        },
       });
     });
   }
@@ -91,4 +145,40 @@ export class GrammyTelegramTransport implements TelegramTransport {
   async sendTyping(chatId: string): Promise<void> {
     await this.bot.api.sendChatAction(chatId, 'typing');
   }
+
+  async downloadFile(fileId: string): Promise<Uint8Array> {
+    const file = await this.bot.api.getFile(fileId);
+    if (!file.file_path) throw new Error('Telegram did not return a file path');
+    // The token is in this URL; never put the URL in an error or a log.
+    const response = await this.fetchImpl(
+      `https://api.telegram.org/file/bot${this.bot.token}/${file.file_path}`,
+    );
+    if (!response.ok) throw new Error(`Telegram file download failed (${response.status})`);
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  async sendDocument(
+    chatId: string,
+    fileName: string,
+    data: Uint8Array,
+    caption?: string,
+  ): Promise<number> {
+    const message = await this.bot.api.sendDocument(chatId, new InputFile(data, fileName), {
+      ...(caption && { caption }),
+    });
+    return message.message_id;
+  }
+}
+
+/** The parts every message update shares. */
+function baseOf(
+  ctx: { chat: { id: number }; message: { message_id: number; date: number } },
+  text: string,
+): TelegramIncoming {
+  return {
+    chatId: String(ctx.chat.id),
+    messageId: ctx.message.message_id,
+    text,
+    receivedAt: new Date(ctx.message.date * 1000),
+  };
 }

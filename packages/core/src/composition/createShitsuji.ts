@@ -52,6 +52,11 @@ function inMemoryWithWarning(log: CoreServices['log']): Repositories {
   return new InMemoryRepositories();
 }
 
+/** Decision Q1: the tools stay in `<dataDir>/workspace` unless the config names another folder. */
+export function workspaceDirOf(config: ShitsujiConfig): string {
+  return config.tools.workspaceDir ?? path.join(config.paths.dataDir, 'workspace');
+}
+
 export interface CreateShitsujiOptions {
   /** Defaults to services built from config.logging. */
   services?: CoreServices;
@@ -200,7 +205,7 @@ export async function createShitsuji(
     storage: config.database.url && !options.repos ? 'postgres' : 'memory',
     chatModel: chat.ref,
     tools: tools.list().map((t) => t.name),
-    workspaceDir: config.tools.workspaceDir,
+    workspaceDir: workspaceDirOf(config),
   });
   for (const injectable of plugins.injectables()) agent.addInjectable(injectable);
 
@@ -275,7 +280,8 @@ function builtInPlugins(
     new OpenAICompatiblePlugin(endpoints('openai-compatible')),
     new AnthropicPlugin(endpoints('anthropic')),
     new CoreToolsPlugin({
-      workspaceDir: config.tools.workspaceDir!,
+      workspaceDir: workspaceDirOf(config),
+      handoffDir: path.join(config.paths.dataDir, 'handoff'),
       exec: config.tools.exec,
       status,
     }),
@@ -295,7 +301,12 @@ function builtInPlugins(
           '(put SHITSUJI_TELEGRAM_TOKEN in .env).',
       );
     }
-    list.push(new TelegramChannelPlugin({ token: token.reveal() }));
+    list.push(
+      new TelegramChannelPlugin({
+        token: token.reveal(),
+        handoffDir: path.join(config.paths.dataDir, 'handoff'),
+      }),
+    );
   }
   return list;
 }
