@@ -38,6 +38,12 @@ describe('loadConfig defaults', () => {
     expect(config.paths.dataDir).toBe(path.join(home, '.shitsuji/data'));
     expect(config.channels.webhook).toEqual({ enabled: true, port: 3000, path: '/webhook' });
     expect(config.models.providers).toEqual({});
+    expect(config.budget).toEqual({
+      currency: 'USD',
+      monthlyLimit: 30,
+      backgroundAllowance: 5,
+      checkIn: 1,
+    });
   });
 
   it('builds providers from API keys when the file has no models section, DeepSeek first', () => {
@@ -77,6 +83,20 @@ models:
     expect(config.models.providers.local!.baseUrl).toBe('http://ollama:11434/v1');
     expect(config.models.providers.local!.apiKey).toBeUndefined();
     expect(config.models.purposes.classify).toBe('local/qwen3:4b');
+  });
+
+  it('reads the spending limits, with dollars by default', () => {
+    writeConfig(
+      'budget: { currency: EUR, monthlyLimit: 12.5, backgroundAllowance: 2, checkIn: 0.5 }',
+    );
+    expect(load().config.budget).toEqual({
+      currency: 'EUR',
+      monthlyLimit: 12.5,
+      backgroundAllowance: 2,
+      checkIn: 0.5,
+    });
+    writeConfig('budget: { monthlyLimit: -1 }');
+    expect(errorOf(() => load()).message).toMatch(/budget\.monthlyLimit/);
   });
 
   it('fails clearly when a variable inside a longer string is not set', () => {
