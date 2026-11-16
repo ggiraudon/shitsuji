@@ -53,7 +53,7 @@ See [09-third-pass-plan.md](09-third-pass-plan.md). Each step is also a GitHub i
 agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 
 - [x] **S27** Budget service and spending limits
-- [ ] **S28** The check-in limit
+- [x] **S28** The check-in limit
 - [ ] **S29** Activity log with receipts
 - [ ] **S30** ChannelAdapter port and registry
 - [ ] **S31** Channel gateway, pairing and commands
@@ -249,7 +249,9 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 ### [F22 — Observability, cost and evals](features/F22-observability-and-cost.md)
 
 - [ ] Every model request appears once in the ledger with tokens; cost appears when the price is known.
-- [ ] A task that passes its check-in pauses and asks on the channel it came from.
+- [x] A task that passes its check-in pauses and asks on the channel it came from.
+      *(S28: the pause applies to any session; the question goes to the turn's `replyChannel`. A dispatched
+      task arrives with F15.)*
 - [ ] The Usage screen shows each action with what allowed it.
 - [ ] `pnpm eval --model deepseek/deepseek-flash` runs at least five scenarios and prints a report.
 
