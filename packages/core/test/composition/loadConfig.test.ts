@@ -36,7 +36,12 @@ describe('loadConfig defaults', () => {
     expect(source).toBeUndefined();
     expect(config.logging).toEqual({ level: 'info', format: 'pretty' });
     expect(config.paths.dataDir).toBe(path.join(home, '.shitsuji/data'));
-    expect(config.channels.webhook).toEqual({ enabled: true, port: 3000, path: '/webhook' });
+    expect(config.channels.webhook).toEqual({
+      enabled: true,
+      host: '127.0.0.1',
+      port: 3000,
+      path: '/webhook',
+    });
     expect(config.models.providers).toEqual({});
     expect(config.budget).toEqual({
       currency: 'USD',

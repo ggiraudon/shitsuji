@@ -153,6 +153,8 @@ export const shitsujiConfigSchema = z
         webhook: z
           .object({
             enabled: z.boolean().default(true),
+            /** 127.0.0.1 keeps it on this machine; Compose sets 0.0.0.0 inside the container (#34). */
+            host: z.string().min(1).default('127.0.0.1'),
             port: z.number().int().min(1).max(65535).default(3000),
             path: z.string().startsWith('/').default('/webhook'),
           })

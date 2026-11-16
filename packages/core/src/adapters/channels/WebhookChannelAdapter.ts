@@ -27,8 +27,15 @@ const webhookBody = z
   });
 
 export interface WebhookChannelOptions {
+  /** 127.0.0.1 by default, so only this machine can reach it; Compose sets 0.0.0.0 in the container. */
+  host?: string;
   port?: number;
   path?: string;
+  /**
+   * Checks the key from `Authorization: Bearer <key>`. Required: a POST talks to Shitsuji as the owner
+   * and gets the reply back, so it needs the owner key like the API does (#34).
+   */
+  authorize: (key: string | undefined) => boolean;
   /** How long a POST waits for the turn's reply before answering "pending". */
   replyTimeoutMs?: number;
 }
@@ -44,6 +51,9 @@ interface PendingRequest {
  * channel only printed replies (bug 5); this one holds the request open until the turn's reply is
  * delivered, or answers 202 when it takes too long. A reply with no waiting request (a background
  * turn, or a request that timed out) cannot be delivered and is logged (F06, S30).
+ *
+ * A POST speaks as the owner and reads the answer, so it needs the owner key, and the server listens
+ * on 127.0.0.1 unless the host is set (#34).
  */
 export class WebhookChannelAdapter extends BaseChannelAdapter {
   readonly id = 'webhook';
@@ -57,9 +67,11 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     maxMessageLength: 100_000,
   };
 
+  private readonly host: string;
   private readonly port: number;
   private readonly path: string;
   private readonly replyTimeoutMs: number;
+  private readonly authorize: (key: string | undefined) => boolean;
   private readonly renderer = new PlainTextRenderer();
   private readonly pending = new Map<string, PendingRequest[]>();
   private server: Server | null = null;
@@ -67,9 +79,11 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
 
   constructor(
     private readonly log: Logger,
-    options: WebhookChannelOptions = {},
+    options: WebhookChannelOptions,
   ) {
     super();
+    this.host = options.host ?? '127.0.0.1';
+    this.authorize = options.authorize;
     this.port = options.port ?? 3000;
     this.path = options.path ?? '/webhook';
     this.replyTimeoutMs = options.replyTimeoutMs ?? 60_000;
@@ -80,13 +94,17 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     this.server = createServer((req, res) => void this.handle(req, res));
     await new Promise<void>((resolve, reject) => {
       this.server!.once('error', reject);
-      this.server!.listen(this.port, () => {
+      this.server!.listen(this.port, this.host, () => {
         this.server!.off('error', reject);
         this.actualPort = (this.server!.address() as AddressInfo).port;
         resolve();
       });
     });
-    this.log.info('Webhook channel started', { port: this.actualPort, path: this.path });
+    this.log.info('Webhook channel started', {
+      host: this.host,
+      port: this.actualPort,
+      path: this.path,
+    });
   }
 
   override async stop(): Promise<void> {
@@ -131,6 +149,11 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     return this.actualPort ?? this.port;
   }
 
+  /** The address it listens on. */
+  getHost(): string {
+    return this.host;
+  }
+
   getUrl(): string {
     return `http://localhost:${this.getPort()}${this.path}`;
   }
@@ -149,6 +172,13 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     }
     if (req.method !== 'POST' || url !== this.path) {
       return this.json(res, 404, { error: 'Not found' });
+    }
+    // Checked before the body is read: without the key nothing reaches the core (#34).
+    const header = req.headers.authorization;
+    const key = header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
+    if (!this.authorize(key)) {
+      req.resume();
+      return this.json(res, 401, { error: 'Missing or wrong owner key' });
     }
 
     let body: string;

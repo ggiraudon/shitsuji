@@ -17,7 +17,7 @@ Until S30, `Channel` had `start`, `stop`, `send(destination, text)` and `onMessa
 and the webhook channel's `send` only printed ([bug 5](../00-current-state.md#bugs-and-gaps-found)). S30
 replaced that with the rich `ChannelAdapter` port and a `MessageRenderer`: the webhook answers its POST with
 the turn's reply, the API hands its messages over as `InboundMessage` (its replies still travel on
-`/api/events`), and plugins fill a `ChannelRegistry`. The gateway, pairing and Telegram follow in S31–S33.
+`/api/events`), and plugins fill a `ChannelRegistry`.
 
 Since S31 the `ChannelGateway` resolves each chat through a binding, pairs a new chat with `/start <code>`
 (the code comes from the TUI's `/pair`), ignores unpaired chats on channels that declare `requiresPairing`,
@@ -126,7 +126,7 @@ buttons, task routing and attachments wait for F11 and S33.
 | `channels/base.ts` | → `ports/ChannelAdapter.ts` (richer); `BaseChannel` becomes `BaseChannelAdapter` (template method for start/stop) |
 | `channels/index.ts` | `ChannelManager` → `ChannelRegistry` filled by plugins (S30) |
 | `channels/CLIChannel.ts` | Removed with decision Q4; the TUI is the terminal interface |
-| `channels/WebhookChannel.ts` | `adapters/channels/WebhookChannelAdapter.ts`: answers its POST with the reply now; signed requests and a real trigger for [F16](F16-scheduler-and-routines.md) come later |
+| `channels/WebhookChannel.ts` | `adapters/channels/WebhookChannelAdapter.ts`: answers its POST with the reply now. Because the caller reads the answer, a POST needs the owner key (`Authorization: Bearer`, 401 without it) and the server listens on `127.0.0.1` unless `channels.webhook.host` is set ([#34](https://github.com/ggiraudon/shitsuji/issues/34)). Signed requests from other services and a real trigger for [F16](F16-scheduler-and-routines.md) come later |
 
 ## Acceptance criteria
 

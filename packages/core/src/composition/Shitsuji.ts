@@ -29,6 +29,8 @@ export interface ShitsujiParts {
   repos: Repositories;
   ownerId: OwnerId;
   clock: Clock;
+  /** Runs before the API and the channels open, e.g. creating the owner key they check. */
+  prepare?: () => Promise<void>;
   /** Starts the HTTP API, if enabled; called once the agent runs. */
   startApi?: () => Promise<RunningApi>;
   /** Run last on stop(), e.g. closing the database pool. */
@@ -50,6 +52,7 @@ export class Shitsuji {
   readonly jobs: JobQueue;
   private readonly recovery: StartupRecovery;
   private offReplies?: () => void;
+  private readonly prepare?: () => Promise<void>;
   private readonly startApi?: () => Promise<RunningApi>;
   private api?: RunningApi;
   private started: ChannelAdapter[] = [];
@@ -70,6 +73,7 @@ export class Shitsuji {
     this.onStop = parts.onStop ?? [];
     this.jobs = parts.jobs;
     this.recovery = parts.recovery;
+    this.prepare = parts.prepare;
     this.startApi = parts.startApi;
     this.bindings = parts.bindings;
     this.pairing = parts.pairing;
@@ -94,6 +98,7 @@ export class Shitsuji {
       void this.deliver(e.replyChannel, text, intent);
     });
     await this.agent.start();
+    await this.prepare?.();
     if (this.startApi) {
       this.api = await this.startApi();
       this.log.info('API listening', { url: this.api.url });
