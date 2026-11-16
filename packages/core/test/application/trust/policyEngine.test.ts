@@ -5,11 +5,17 @@ import {
   PolicyEngine,
   type ApprovalLevel,
 } from '../../../src/application/trust/PolicyEngine.js';
+import type { StandingRule } from '../../../src/application/trust/StandingRule.js';
 import type { ToolEffect } from '../../../src/ports/Tool.js';
 
-const decide = (effect: ToolEffect, level: ApprovalLevel = DEFAULT_APPROVAL_LEVEL) =>
+const decide = (
+  effect: ToolEffect,
+  level: ApprovalLevel = DEFAULT_APPROVAL_LEVEL,
+  rules: StandingRule[] = [],
+) =>
   new PolicyEngine({ level }).decide(
     actionRequest({ tool: 'test.tool', arguments: { n: 1 }, effect, target: 'core' }),
+    rules,
   );
 
 describe('PolicyEngine: the decision order (S34, F11)', () => {
@@ -86,5 +92,81 @@ describe('PolicyEngine: the decision order (S34, F11)', () => {
     expect(decision).toMatchObject({ verdict: 'judge', basis: { kind: 'none' } });
     expect(decision.actionHash).toBe(action.hash);
     expect(action.hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('PolicyEngine: standing rules (S34, F11)', () => {
+  const risky = (
+    effect: ToolEffect,
+    rules: StandingRule[],
+    level: ApprovalLevel = DEFAULT_APPROVAL_LEVEL,
+  ) =>
+    new PolicyEngine({ level }).decide(
+      actionRequest({ tool: 'mail.send', arguments: { to: 'anna' }, effect, target: 'core' }),
+      rules,
+    );
+
+  const rule = (over: Partial<StandingRule> = {}): StandingRule => ({
+    action: 'ask',
+    tool: 'mail.*',
+    ...over,
+  });
+
+  it('lets "go ahead" cover an outside action, and names the rule that allowed it', () => {
+    const goAhead = rule({ action: 'allow', detail: 'go ahead with emails to Anna' });
+
+    expect(risky('external', [goAhead])).toMatchObject({
+      verdict: 'allow',
+      basis: { kind: 'rule', detail: 'go ahead with emails to Anna' },
+    });
+  });
+
+  it('never lets "go ahead" cover a change to Shitsuji itself', () => {
+    expect(risky('write_self', [rule({ action: 'allow' })])).toMatchObject({
+      verdict: 'judge',
+    });
+  });
+
+  it('lets "never" refuse, and "always ask" ask, quoting the owner\'s words', () => {
+    expect(
+      risky('external', [rule({ action: 'deny', detail: 'never email clients' })]),
+    ).toMatchObject({
+      verdict: 'deny',
+      basis: { kind: 'none' },
+      reason: 'A standing rule forbids it: "never email clients".',
+    });
+    expect(
+      risky('external', [rule({ action: 'ask', detail: 'always ask before emailing' })]),
+    ).toMatchObject({
+      verdict: 'ask',
+      reason: 'A standing rule says to ask first: "always ask before emailing".',
+    });
+  });
+
+  it('lets "never" and "always ask" win over "go ahead"', () => {
+    const goAhead = rule({ action: 'allow' });
+
+    expect(risky('external', [goAhead, rule({ action: 'ask' })])).toMatchObject({
+      verdict: 'ask',
+    });
+    expect(
+      risky('external', [goAhead, rule({ action: 'ask' }), rule({ action: 'deny' })]),
+    ).toMatchObject({ verdict: 'deny' });
+  });
+
+  it('ignores a rule for another tool or target', () => {
+    expect(risky('external', [rule({ action: 'allow', tool: 'calendar.*' })])).toMatchObject({
+      verdict: 'judge',
+    });
+    expect(risky('external', [rule({ action: 'allow', target: 'workspace' })])).toMatchObject({
+      verdict: 'judge',
+    });
+  });
+
+  it('never lets a rule allow a payment, but lets "never" refuse one', () => {
+    expect(risky('payment', [rule({ action: 'allow' })])).toMatchObject({ verdict: 'ask' });
+    expect(risky('payment', [rule({ action: 'deny', detail: 'no card charges' })])).toMatchObject({
+      verdict: 'deny',
+    });
   });
 });

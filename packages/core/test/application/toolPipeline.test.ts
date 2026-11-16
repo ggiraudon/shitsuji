@@ -7,6 +7,7 @@ import {
   type TrustPolicy,
 } from '../../src/application/tools/middlewares.js';
 import { outcomeText, ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
+import { PolicyEngine } from '../../src/application/trust/PolicyEngine.js';
 import { asId, type ToolCallId, type TurnId } from '../../src/domain/model/ids.js';
 import {
   BaseTool,
@@ -197,6 +198,25 @@ describe('ToolPipeline', () => {
       allowedBy: { kind: 'none' },
     });
     expect(events[1]!.data.deniedBecause).toMatch(/trust judgement.*S35/);
+  });
+
+  it('refuses a call a standing rule forbids, and records the rule (S34)', async () => {
+    const send = new FakeTool('mail.send', 'external');
+    const policy: TrustPolicy = {
+      decide: (request) =>
+        new PolicyEngine().decide(request, [
+          { action: 'deny', tool: 'mail.*', detail: 'never email clients' },
+        ]),
+    };
+    const { call, repos } = setup([send], { policy });
+
+    const outcome = await call('mail.send', { n: 1 });
+
+    expect(outcome).toMatchObject({ kind: 'error', reason: 'denied' });
+    expect(outcome.content).toBe('A standing rule forbids it: "never email clients".');
+    expect(send.runs).toBe(0);
+    const events = await repos.turnEvents.listByTurn(asId<TurnId>('turn-1'));
+    expect(events[1]!.data.deniedBecause).toMatch(/never email clients/);
   });
 
   it('redacts arguments before they reach a receipt (F22)', async () => {
