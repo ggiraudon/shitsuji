@@ -453,6 +453,23 @@ export class PostgresRepositories implements Repositories {
         data: r.data,
         at: r.at,
       })),
+    listRecent: async (ownerId, query = {}, tx) => {
+      let q = this.ex(tx).selectFrom('turn_events').selectAll().where('owner_id', '=', ownerId);
+      if (query.kinds?.length) q = q.where('kind', 'in', [...query.kinds]);
+      if (query.since) q = q.where('at', '>=', query.since);
+      return (
+        await q
+          .orderBy('at', 'desc')
+          .orderBy('id', 'desc')
+          .limit(query.limit ?? 100)
+          .execute()
+      ).map((r) => ({
+        turnId: r.turn_id as TurnId,
+        kind: r.kind as TurnEventKind,
+        data: r.data,
+        at: r.at,
+      }));
+    },
   };
 
   readonly soul: SoulStore = {

@@ -93,6 +93,16 @@ export interface TurnEvent {
 export interface TurnEventRepository {
   append(event: TurnEvent, tx?: Transaction): Promise<void>;
   listByTurn(turnId: TurnId, tx?: Transaction): Promise<TurnEvent[]>;
+  /** The owner's recent events, newest first, for the activity log (F22). */
+  listRecent(ownerId: OwnerId, query?: TurnEventQuery, tx?: Transaction): Promise<TurnEvent[]>;
+}
+
+export interface TurnEventQuery {
+  /** Only these kinds; every kind when unset. */
+  kinds?: readonly TurnEventKind[];
+  since?: Date;
+  /** Newest first, at most this many. */
+  limit?: number;
 }
 
 /** One model request: what it cost in tokens and, when the price is known, money (F03, F22). */

@@ -346,6 +346,34 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       expect((await repos.soul.fragments(owner)).map((f) => f.body)).toEqual(['New base.']);
     });
 
+    it('lists recent events newest first, filtered by kind and time (activity log)', async () => {
+      const repos = await create();
+      const { session } = await seed(repos);
+      const t = turn(session.id, 50);
+      await repos.turns.insert(t);
+      const append = (kind: 'tool_start' | 'tool_end' | 'note', at: Date) =>
+        repos.turnEvents.append({ turnId: t.id, kind, data: { kind }, at });
+      await append('tool_end', at(1));
+      await append('tool_start', at(2));
+      await append('tool_end', at(3));
+      await append('note', at(4));
+
+      expect(
+        (await repos.turnEvents.listRecent(owner, { kinds: ['tool_end'], limit: 1 })).map(
+          (e) => e.at,
+        ),
+      ).toEqual([at(3)]);
+      expect((await repos.turnEvents.listRecent(owner)).map((e) => e.at)).toEqual([
+        at(4),
+        at(3),
+        at(2),
+        at(1),
+      ]);
+      expect((await repos.turnEvents.listRecent(owner, { since: at(3) })).map((e) => e.at)).toEqual(
+        [at(4), at(3)],
+      );
+    });
+
     it('budget: holds money before a request, settles or releases it, and counts usage', async () => {
       const repos = await create();
       const { session } = await seed(repos);

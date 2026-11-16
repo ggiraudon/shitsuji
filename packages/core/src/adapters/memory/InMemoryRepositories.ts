@@ -251,6 +251,16 @@ export class InMemoryRepositories implements Repositories {
     },
     listByTurn: async (turnId) =>
       this.state.turnEvents.filter((e) => e.turnId === turnId).map(copy),
+    listRecent: async (_ownerId, query = {}) =>
+      this.state.turnEvents
+        .filter(
+          (e) =>
+            (!query.kinds || query.kinds.includes(e.kind)) &&
+            (!query.since || e.at.getTime() >= query.since.getTime()),
+        )
+        .sort((a, b) => b.at.getTime() - a.at.getTime())
+        .slice(0, query.limit ?? 100)
+        .map(copy),
   };
 
   readonly usage: UsageRepository = {
