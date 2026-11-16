@@ -56,12 +56,60 @@ export class ChannelGateway {
       return { kind: 'ignored', reason: 'unpaired' };
     }
 
+    const command = commandOf(text);
+    if (command) return this.command(message, command, binding);
+
     const submitted = await this.deps.agent.submit(text, {
       ...(binding?.sessionId && { sessionId: binding.sessionId }),
       channel: message.channel,
       replyChannel: `${message.channel}:${message.chatId}`,
     });
     return { kind: 'turn', ...submitted };
+  }
+
+  /** `/stop`, `/status`, `/new` and `/new confirm` answered here, without a model call. */
+  private async command(
+    message: InboundMessage,
+    command: Command,
+    binding: ChannelBinding | undefined,
+  ): Promise<InboundResult> {
+    switch (command) {
+      case 'stop': {
+        const sessionId = await this.sessionFor(binding);
+        const stopped = sessionId ? await this.deps.agent.stopSession(sessionId) : false;
+        await this.answer(message, stopped ? 'Stopped.' : 'Nothing is running.', 'final');
+        return { kind: 'replied', reason: 'command' };
+      }
+      case 'status': {
+        const sessionId = await this.sessionFor(binding);
+        const turns = sessionId ? await this.deps.repos.turns.listBySession(sessionId) : [];
+        const running = turns.some((turn) => turn.status === 'running');
+        const queued = turns.filter((turn) => turn.status === 'queued').length;
+        const parts = [
+          `Shitsuji ${this.deps.version} is ${running ? 'working on a turn' : 'idle'}.`,
+        ];
+        if (queued) parts.push(`${queued} turn${queued === 1 ? '' : 's'} queued.`);
+        if (sessionId) parts.push(`Session ${sessionId.slice(0, 8)}.`);
+        await this.answer(message, parts.join(' '), 'final');
+        return { kind: 'replied', reason: 'command' };
+      }
+      case 'new':
+        await this.answer(message, 'Reply /new confirm to start a new conversation.', 'question');
+        return { kind: 'replied', reason: 'command' };
+      case 'new-confirm': {
+        const sessionId = await this.deps.agent.startSession('chat');
+        const current = await this.deps.bindings.get(message.channel, message.chatId);
+        await this.deps.bindings.upsert({
+          channel: message.channel,
+          externalChatId: message.chatId,
+          ownerId: current?.ownerId ?? this.deps.ownerId,
+          ...(current?.verifiedAt && { verifiedAt: current.verifiedAt }),
+          sessionId,
+        });
+        await this.answer(message, 'A new conversation has started.', 'final');
+        return { kind: 'replied', reason: 'command' };
+      }
+    }
   }
 
   /** `/start <code>` from an unpaired chat: consume the code, bind the chat, and answer. */
@@ -107,5 +155,23 @@ export class ChannelGateway {
       this.deps.clock.now(),
     );
     return (await this.deps.repos.sessions.findMainChat(thread.id))?.id;
+  }
+}
+
+type Command = 'stop' | 'status' | 'new' | 'new-confirm';
+
+/** Commands are exact and case-insensitive; anything else is a message. */
+function commandOf(text: string): Command | undefined {
+  switch (text.toLowerCase()) {
+    case '/stop':
+      return 'stop';
+    case '/status':
+      return 'status';
+    case '/new':
+      return 'new';
+    case '/new confirm':
+      return 'new-confirm';
+    default:
+      return undefined;
   }
 }

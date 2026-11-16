@@ -218,6 +218,20 @@ describe('runtime: Stop (S22)', () => {
     expect(model.requests).toHaveLength(1);
   });
 
+  it("stops the session's running turn with stopSession (S31)", async () => {
+    const { agent, model, repos } = await setup([{ text: 'working', hold: true }]);
+    const pending = agent.send('go').catch(() => undefined);
+    await until(() => model.waiting === 1);
+    const sessionId = (await repos.turns.listByStatus('running'))[0]!.sessionId;
+
+    expect(await agent.stopSession(sessionId)).toBe(true);
+    await pending;
+
+    expect((await repos.turns.listBySession(sessionId)).map((t) => t.status)).toEqual([
+      'cancelled',
+    ]);
+  });
+
   it('a withdrawn request is not sent to the model again', async () => {
     const { agent, repos, hang, model } = await setup([
       { tool: { name: 'test.hang' } },
