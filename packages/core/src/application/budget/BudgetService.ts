@@ -77,7 +77,7 @@ export class BudgetService {
 
     const limit =
       outcome.reason === 'monthly_limit' ? this.deps.limits.monthly : this.deps.limits.background;
-    const spent = await this.spentThisMonth(scope.background);
+    const spent = await this.spentThisMonth(outcome.reason === 'background_allowance');
     throw new BudgetExceeded(
       outcome.reason === 'monthly_limit'
         ? `The monthly spending limit of ${limit.toString()} is reached (${spent.toString()} spent ` +

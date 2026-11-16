@@ -595,8 +595,8 @@ export class PostgresRepositories implements Repositories {
       heldTotal(this.ex(tx), ownerId, since, currency, background),
     spentSince: (ownerId, since, currency, background, tx) =>
       usageTotal(this.ex(tx), ownerId, since, currency, background),
-    releaseAllHeld: async (at, tx) => {
-      const result = await this.ex(tx)
+    releaseAllHeld: async (at) => {
+      const result = await this.ex()
         .updateTable('budget_reservations')
         .set({ state: 'released', ended_at: at })
         .where('state', '=', 'held')

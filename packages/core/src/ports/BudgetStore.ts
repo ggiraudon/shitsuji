@@ -58,7 +58,7 @@ export function assertSameCurrency(amount: Money, limits: BudgetLimits): void {
  */
 export interface BudgetStore {
   /** Adds a hold if settled spend plus open holds stays within the limits; never after the request. */
-  reserve(input: ReserveInput, tx?: Transaction): Promise<ReserveOutcome>;
+  reserve(input: ReserveInput): Promise<ReserveOutcome>;
   /** Marks a hold settled: the usage row now carries the real cost. */
   settle(id: string, at: Date, tx?: Transaction): Promise<void>;
   /** Drops a hold: the request cost nothing. */
@@ -80,5 +80,5 @@ export interface BudgetStore {
     tx?: Transaction,
   ): Promise<Money>;
   /** Startup recovery: every open hold belongs to a request that died with the process. */
-  releaseAllHeld(at: Date, tx?: Transaction): Promise<number>;
+  releaseAllHeld(at: Date): Promise<number>;
 }
