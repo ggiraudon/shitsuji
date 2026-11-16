@@ -530,6 +530,46 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       );
     });
 
+    it('stores channel bindings, their verification and their session (S31)', async () => {
+      const repos = await create();
+      const { session } = await seed(repos);
+      expect(await repos.bindings.get('telegram', '42')).toBeUndefined();
+
+      await repos.bindings.upsert({
+        channel: 'telegram',
+        externalChatId: '42',
+        ownerId: owner,
+        verifiedAt: at(90),
+      });
+      expect(await repos.bindings.get('telegram', '42')).toEqual({
+        channel: 'telegram',
+        externalChatId: '42',
+        ownerId: owner,
+        verifiedAt: at(90),
+      });
+
+      // /new sets the chat's session without losing the verification.
+      await repos.bindings.upsert({
+        channel: 'telegram',
+        externalChatId: '42',
+        ownerId: owner,
+        verifiedAt: at(90),
+        sessionId: session.id,
+      });
+      expect(await repos.bindings.get('telegram', '42')).toMatchObject({
+        verifiedAt: at(90),
+        sessionId: session.id,
+      });
+
+      // An open channel can have an unverified binding (the webhook).
+      await repos.bindings.upsert({ channel: 'webhook', externalChatId: 'd1', ownerId: owner });
+      expect((await repos.bindings.get('webhook', 'd1'))!.verifiedAt).toBeUndefined();
+      expect((await repos.bindings.listByOwner(owner)).map((b) => b.channel)).toEqual([
+        'telegram',
+        'webhook',
+      ]);
+    });
+
     it('rejects duplicate ids', async () => {
       const repos = await create();
       const { session } = await seed(repos);

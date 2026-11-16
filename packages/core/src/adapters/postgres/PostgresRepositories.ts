@@ -27,10 +27,12 @@ import type {
   UsageRepository,
 } from '../../ports/Repositories.js';
 import { Money } from '../../domain/model/Money.js';
+import type { ChannelBinding, ChannelBindingStore } from '../../ports/ChannelBindingStore.js';
 import { assertSameCurrency, type BudgetStore } from '../../ports/BudgetStore.js';
 import type { SoulStore } from '../../ports/SoulStore.js';
 import type {
   Database,
+  ChannelBindingsTable,
   MessagesTable,
   SessionsTable,
   SoulFragmentsTable,
@@ -87,6 +89,17 @@ const toMessage = (r: Selectable<MessagesTable>): Message => {
   if (r.channel !== null) m.channel = r.channel;
   if (r.external_ref !== null) m.externalRef = r.external_ref;
   return m;
+};
+
+const toBinding = (r: Selectable<ChannelBindingsTable>): ChannelBinding => {
+  const binding: ChannelBinding = {
+    channel: r.channel,
+    externalChatId: r.external_chat_id,
+    ownerId: r.owner_id as OwnerId,
+  };
+  if (r.verified_at) binding.verifiedAt = r.verified_at;
+  if (r.session_id) binding.sessionId = r.session_id as SessionId;
+  return binding;
 };
 
 const toFragment = (r: Selectable<SoulFragmentsTable>): SoulFragment => {
@@ -624,6 +637,47 @@ export class PostgresRepositories implements Repositories {
         .executeTakeFirst();
       return Number(result.numUpdatedRows);
     },
+  };
+
+  readonly bindings: ChannelBindingStore = {
+    get: async (channel, externalChatId, tx) => {
+      const r = await this.ex(tx)
+        .selectFrom('channel_bindings')
+        .selectAll()
+        .where('channel', '=', channel)
+        .where('external_chat_id', '=', externalChatId)
+        .executeTakeFirst();
+      return r && toBinding(r);
+    },
+    upsert: async (b, tx) => {
+      await this.ex(tx)
+        .insertInto('channel_bindings')
+        .values({
+          channel: b.channel,
+          external_chat_id: b.externalChatId,
+          owner_id: b.ownerId,
+          verified_at: b.verifiedAt ?? null,
+          session_id: b.sessionId ?? null,
+        })
+        .onConflict((c) =>
+          c.columns(['channel', 'external_chat_id']).doUpdateSet({
+            owner_id: b.ownerId,
+            verified_at: b.verifiedAt ?? null,
+            session_id: b.sessionId ?? null,
+          }),
+        )
+        .execute();
+    },
+    listByOwner: async (ownerId, tx) =>
+      (
+        await this.ex(tx)
+          .selectFrom('channel_bindings')
+          .selectAll()
+          .where('owner_id', '=', ownerId)
+          .orderBy('channel')
+          .orderBy('external_chat_id')
+          .execute()
+      ).map(toBinding),
   };
 }
 

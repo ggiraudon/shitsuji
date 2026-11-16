@@ -5,6 +5,7 @@ import type { Session } from '../domain/model/Session.js';
 import type { Thread } from '../domain/model/Thread.js';
 import type { Turn, TurnStatus } from '../domain/model/Turn.js';
 import type { BudgetStore } from './BudgetStore.js';
+import type { ChannelBindingStore } from './ChannelBindingStore.js';
 import type { SoulStore } from './SoulStore.js';
 
 /**
@@ -142,4 +143,5 @@ export interface Repositories {
   usage: UsageRepository;
   soul: SoulStore;
   budget: BudgetStore;
+  bindings: ChannelBindingStore;
 }
