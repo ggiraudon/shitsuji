@@ -30,6 +30,12 @@ const ENV_OVERRIDES: { vars: string[]; path: string[]; parse?: (v: string) => un
   { vars: ['DATABASE_URL'], path: ['database', 'url'] },
   { vars: ['SHITSUJI_WEBHOOK_HOST'], path: ['channels', 'webhook', 'host'] },
   { vars: ['SHITSUJI_WEBHOOK_PORT'], path: ['channels', 'webhook', 'port'], parse: Number },
+  {
+    vars: ['SHITSUJI_TELEGRAM_ENABLED'],
+    path: ['channels', 'telegram', 'enabled'],
+    parse: parseBool,
+  },
+  { vars: ['SHITSUJI_TELEGRAM_TOKEN'], path: ['channels', 'telegram', 'token'] },
   { vars: ['SHITSUJI_API_HOST'], path: ['api', 'host'] },
   { vars: ['SHITSUJI_API_PORT'], path: ['api', 'port'], parse: Number },
   { vars: ['SHITSUJI_SEARXNG_URL'], path: ['tools', 'web', 'searxngUrl'] },

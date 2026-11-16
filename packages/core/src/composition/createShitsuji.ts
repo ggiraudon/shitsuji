@@ -32,7 +32,7 @@ import { asId, type OwnerId } from '../domain/model/ids.js';
 import { Money } from '../domain/model/Money.js';
 import type { Repositories } from '../ports/Repositories.js';
 import type { ShitsujiPlugin } from '../ports/Plugin.js';
-import { WebhookChannelPlugin } from '../plugins/channelPlugins.js';
+import { WebhookChannelPlugin, TelegramChannelPlugin } from '../plugins/channelPlugins.js';
 import { CoreToolsPlugin } from '../plugins/coreToolsPlugin.js';
 import { WebToolsPlugin } from '../plugins/webToolsPlugin.js';
 import { AnthropicPlugin, OpenAICompatiblePlugin } from '../plugins/modelPlugins.js';
@@ -286,6 +286,16 @@ function builtInPlugins(
   ];
   if (withChannels && config.channels.webhook.enabled) {
     list.push(new WebhookChannelPlugin({ ...config.channels.webhook, authorize: verifyKey }));
+  }
+  if (withChannels && config.channels.telegram.enabled) {
+    const token = config.channels.telegram.token;
+    if (!token) {
+      throw new ConfigError(
+        'channels.telegram.enabled is true but channels.telegram.token is not set ' +
+          '(put SHITSUJI_TELEGRAM_TOKEN in .env).',
+      );
+    }
+    list.push(new TelegramChannelPlugin({ token: token.reveal() }));
   }
   return list;
 }

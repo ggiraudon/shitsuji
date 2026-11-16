@@ -53,6 +53,7 @@ describe('createShitsuji', () => {
     await until(() => channel.sent.length > 0);
 
     expect(channel.sent).toEqual([{ destination: 'chat-42', message: 'Good evening.' }]);
+    expect(channel.typingCalls).toEqual(['chat-42']);
     expect(provider.requests[0]!.model).toBe('test-model');
     await shitsuji.stop();
     expect(channel.stopped).toBe(1);
@@ -109,6 +110,14 @@ describe('createShitsuji', () => {
     expect(shitsuji.agent.getTools().map((t) => t.name)).toContain('math.evaluate');
     await shitsuji.start();
     await shitsuji.stop();
+  });
+
+  it('refuses Telegram enabled without a token (S32)', async () => {
+    await expect(
+      createShitsuji(config({ channels: { telegram: { enabled: true } } }), {
+        services: testServices(),
+      }),
+    ).rejects.toThrow(/channels\.telegram\.token/);
   });
 
   it('fails clearly when no plugin registers the chat provider', async () => {

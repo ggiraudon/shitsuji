@@ -23,6 +23,9 @@ services:
       # them on this machine. Both need the owner key.
       SHITSUJI_API_HOST: 0.0.0.0
       SHITSUJI_WEBHOOK_HOST: 0.0.0.0
+      # Telegram reaches out by long polling, so no port is published for it (F06, S32).
+      SHITSUJI_TELEGRAM_ENABLED: ${SHITSUJI_TELEGRAM_ENABLED:-false}
+      SHITSUJI_TELEGRAM_TOKEN: ${SHITSUJI_TELEGRAM_TOKEN:-}
     ports:
       # The webhook, on this machine only. Remote access comes later (05-open-questions D2).
       - '127.0.0.1:${SHITSUJI_WEBHOOK_PORT:-3000}:3000'

@@ -160,6 +160,15 @@ export const shitsujiConfigSchema = z
           })
           .strict()
           .default({}),
+        /** Telegram through grammY with long polling (T1). Pair the chat with /pair first. */
+        telegram: z
+          .object({
+            enabled: z.boolean().default(false),
+            /** The bot token from @BotFather; required when enabled. */
+            token: secret.optional(),
+          })
+          .strict()
+          .default({}),
       })
       .strict()
       .default({}),

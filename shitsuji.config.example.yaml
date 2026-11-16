@@ -61,3 +61,6 @@ channels:
     host: 127.0.0.1 # this machine only; Compose sets 0.0.0.0 inside the container
     port: 3000
     path: /webhook
+  telegram:
+    enabled: false # set true and put SHITSUJI_TELEGRAM_TOKEN in .env; pair the chat with /pair
+    token: ${SHITSUJI_TELEGRAM_TOKEN}

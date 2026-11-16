@@ -98,6 +98,7 @@ export class TestChannel extends BaseChannelAdapter {
     maxMessageLength: 100_000,
   };
   readonly sent: { destination: string; message: string }[] = [];
+  readonly typingCalls: string[] = [];
   started = 0;
   stopped = 0;
   private readonly renderer = new PlainTextRenderer();
@@ -123,6 +124,10 @@ export class TestChannel extends BaseChannelAdapter {
       message: this.renderer.render(message, this.capabilities).text,
     });
     return { delivered: true };
+  }
+
+  async typing(target: ChannelTarget) {
+    this.typingCalls.push(target.chatId);
   }
 
   receive(content: string, destination = 'someone') {
