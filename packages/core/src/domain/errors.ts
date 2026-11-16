@@ -61,6 +61,14 @@ export class PolicyDenied extends ShitsujiError {
   }
 }
 
+/** A model request was refused before it was sent because the budget would not cover it (F22). */
+export class BudgetExceeded extends ShitsujiError {
+  override readonly name = 'BudgetExceeded';
+  constructor(message: string, details?: Record<string, unknown>) {
+    super('budget_exceeded', message, details);
+  }
+}
+
 /** The workspace or desktop container could not be reached. */
 export class SandboxUnavailable extends ShitsujiError {
   override readonly name = 'SandboxUnavailable';
