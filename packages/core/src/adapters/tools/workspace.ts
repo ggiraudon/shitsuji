@@ -11,7 +11,11 @@ import { BaseTool, type ToolContext, type ToolOutput } from '../../ports/Tool.js
 export class WorkspaceRoot {
   private real?: string;
 
-  constructor(readonly dir: string) {}
+  constructor(
+    readonly dir: string,
+    /** Extra folders the read tools may reach, e.g. the handoff folder (T2). Never writable. */
+    private readonly readDirs: readonly string[] = [],
+  ) {}
 
   /** The real path of the root, created on first use. */
   async root(): Promise<string> {
@@ -36,6 +40,50 @@ export class WorkspaceRoot {
     const realExisting = await fs.realpath(existing);
     if (!inside(root, realExisting)) {
       throw new Error(`"${relative}" leads outside the workspace through a link`);
+    }
+    return path.join(realExisting, path.relative(existing, target));
+  }
+
+  /**
+   * Resolves a path for reading: the workspace, then the handoff folder. An absolute path is allowed
+   * only inside one of them (the gateway gives the agent absolute handoff paths, S33).
+   */
+  async resolveRead(input: string): Promise<string> {
+    if (path.isAbsolute(input) || /^[a-zA-Z]:/.test(input)) {
+      return this.resolveAbsoluteRead(input);
+    }
+    let workspacePath: string | undefined;
+    try {
+      workspacePath = await this.resolve(input);
+      if (await exists(workspacePath)) return workspacePath;
+    } catch {
+      // not in the workspace; the read folders may still have it
+    }
+    for (const dir of this.readDirs) {
+      try {
+        const candidate = await new WorkspaceRoot(dir).resolve(input);
+        if (await exists(candidate)) return candidate;
+      } catch {
+        // try the next read folder
+      }
+    }
+    if (workspacePath) return workspacePath;
+    throw new Error(`"${input}" is outside the workspace and the handoff folder`);
+  }
+
+  private async resolveAbsoluteRead(input: string): Promise<string> {
+    const roots = [
+      await this.root(),
+      ...(await Promise.all(this.readDirs.map((dir) => new WorkspaceRoot(dir).root()))),
+    ];
+    const target = path.resolve(input);
+    const root = roots.find((candidate) => inside(candidate, target));
+    if (!root) throw new Error(`"${input}" is outside the workspace and the handoff folder`);
+    let existing = target;
+    while (!(await exists(existing))) existing = path.dirname(existing);
+    const realExisting = await fs.realpath(existing);
+    if (!roots.some((candidate) => inside(candidate, realExisting))) {
+      throw new Error(`"${input}" leads outside the workspace through a link`);
     }
     return path.join(realExisting, path.relative(existing, target));
   }
@@ -69,14 +117,14 @@ const readInput = z.object({
 
 export class WorkspaceReadTool extends BaseTool<typeof readInput> {
   readonly name = 'workspace.read';
-  readonly description = 'Read a text file from the workspace folder.';
+  readonly description = 'Read a text file from the workspace or the handoff folder.';
   readonly input = readInput;
   readonly effect = 'read' as const;
   constructor(private readonly ws: WorkspaceRoot) {
     super();
   }
   async run({ path: p }: z.infer<typeof readInput>): Promise<ToolOutput> {
-    const file = await this.ws.resolve(p);
+    const file = await this.ws.resolveRead(p);
     const stat = await fs.stat(file).catch(() => undefined);
     if (!stat) return { content: `No such file: ${p}`, isError: true };
     if (!stat.isFile()) return { content: `${p} is not a file`, isError: true };
@@ -121,14 +169,14 @@ const listInput = z.object({
 
 export class WorkspaceListTool extends BaseTool<typeof listInput> {
   readonly name = 'workspace.list';
-  readonly description = 'List the files and folders in a workspace folder.';
+  readonly description = 'List the files and folders in a workspace or handoff folder.';
   readonly input = listInput;
   readonly effect = 'read' as const;
   constructor(private readonly ws: WorkspaceRoot) {
     super();
   }
   async run({ path: p }: z.infer<typeof listInput>): Promise<ToolOutput> {
-    const dir = await this.ws.resolve(p);
+    const dir = await this.ws.resolveRead(p);
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => undefined);
     if (!entries) return { content: `No such folder: ${p}`, isError: true };
     const lines = entries
@@ -138,12 +186,88 @@ export class WorkspaceListTool extends BaseTool<typeof listInput> {
   }
 }
 
+const sendInput = z.object({
+  path: z.string().min(1).describe('File path in the workspace or the handoff folder'),
+  caption: z.string().max(1024).optional().describe('A short caption for the recipient'),
+});
+
+/** Telegram's bot upload limit is 50 MB; stay under it. */
+const MAX_SEND_BYTES = 48 * 1024 * 1024;
+
+/**
+ * workspace.send attaches a file to the reply (F06, S33). It only reads (the channel does the sending),
+ * so it stays inside the fixed trust policy; the path is confined to the workspace and handoff roots.
+ */
+export class WorkspaceSendTool extends BaseTool<typeof sendInput> {
+  readonly name = 'workspace.send';
+  readonly description =
+    'Attach a file from the workspace or the handoff folder to your reply. Telegram sends it as a ' +
+    'document. Use it after creating or receiving the file.';
+  readonly input = sendInput;
+  readonly effect = 'read' as const;
+
+  constructor(private readonly ws: WorkspaceRoot) {
+    super();
+  }
+
+  async run(
+    { path: p, caption }: z.infer<typeof sendInput>,
+    _ctx: ToolContext,
+  ): Promise<ToolOutput> {
+    const file = await this.ws.resolveRead(p);
+    const stat = await fs.stat(file).catch(() => undefined);
+    if (!stat) return { content: `No such file: ${p}`, isError: true };
+    if (!stat.isFile()) return { content: `${p} is not a file`, isError: true };
+    if (stat.size > MAX_SEND_BYTES) {
+      return {
+        content: `${p} is ${stat.size} bytes; the limit is ${MAX_SEND_BYTES}`,
+        isError: true,
+      };
+    }
+    const name = path.basename(file);
+    return {
+      content: `Attached ${name}.`,
+      data: {
+        files: [
+          {
+            path: file,
+            name,
+            mediaType: mediaTypeOf(name),
+            ...(caption ? { caption } : {}),
+          },
+        ],
+      },
+    };
+  }
+}
+
+const MIME_TYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.json': 'application/json',
+  '.csv': 'text/csv',
+  '.html': 'text/html',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ogg': 'audio/ogg',
+  '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
+  '.zip': 'application/zip',
+};
+
+function mediaTypeOf(name: string): string {
+  return MIME_TYPES[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
+}
+
 export interface ExecOptions {
   defaultTimeoutSeconds: number;
   maxTimeoutSeconds: number;
   maxOutputBytes: number;
 }
-
 const execInput = z.object({
   program: z.string().min(1).describe('The program to run, e.g. "python3" or "git"'),
   args: z.array(z.string()).default([]).describe('Arguments, one per item; no shell is involved'),

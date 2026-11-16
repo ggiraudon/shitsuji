@@ -7,6 +7,7 @@ import {
   WorkspaceListTool,
   WorkspaceReadTool,
   WorkspaceRoot,
+  WorkspaceSendTool,
   WorkspaceWriteTool,
 } from '../../../src/adapters/tools/workspace.js';
 import type { ToolContext } from '../../../src/ports/Tool.js';
@@ -157,5 +158,72 @@ describe('workspace.exec', () => {
     const out = await pending;
     expect(out.isError).toBe(true);
     expect(Date.now() - started).toBeLessThan(5000);
+  });
+});
+
+describe('Handoff reads and workspace.send (S33)', () => {
+  let handoff: string;
+  beforeEach(() => {
+    handoff = path.join(base, 'handoff');
+    fs.mkdirSync(handoff, { recursive: true });
+  });
+
+  const readRoot = () => new WorkspaceRoot(path.join(base, 'workspace'), [handoff]);
+
+  it('reads a handoff file by relative name and by absolute path', async () => {
+    fs.writeFileSync(path.join(handoff, 'report.txt'), 'hello');
+
+    expect(fs.readFileSync(await readRoot().resolveRead('report.txt'), 'utf8')).toBe('hello');
+    expect(
+      fs.readFileSync(await readRoot().resolveRead(path.join(handoff, 'report.txt')), 'utf8'),
+    ).toBe('hello');
+  });
+
+  it('keeps the workspace readable and refuses anything outside both folders', async () => {
+    fs.mkdirSync(path.join(base, 'workspace'), { recursive: true });
+    fs.writeFileSync(path.join(base, 'workspace', 'notes.md'), 'notes');
+    fs.writeFileSync(path.join(base, 'secret.txt'), 'secret');
+
+    expect(fs.readFileSync(await readRoot().resolveRead('notes.md'), 'utf8')).toBe('notes');
+    await expect(readRoot().resolveRead(path.join(base, 'secret.txt'))).rejects.toThrow(/outside/);
+    await expect(readRoot().resolveRead('../secret.txt')).rejects.toThrow(/outside/);
+  });
+
+  it('attaches a handoff file with its media type', async () => {
+    const file = path.join(handoff, 'report.pdf');
+    fs.writeFileSync(file, 'pdf');
+
+    const output = await new WorkspaceSendTool(readRoot()).run({ path: file }, ctx());
+
+    expect(output.isError).toBeFalsy();
+    expect(output.data).toEqual({
+      files: [{ path: file, name: 'report.pdf', mediaType: 'application/pdf' }],
+    });
+  });
+
+  it('attaches a workspace file by relative path and keeps a caption', async () => {
+    fs.mkdirSync(path.join(base, 'workspace'), { recursive: true });
+    fs.writeFileSync(path.join(base, 'workspace', 'photo.png'), 'png');
+
+    const output = await new WorkspaceSendTool(readRoot()).run(
+      { path: 'photo.png', caption: 'The photo' },
+      ctx(),
+    );
+
+    expect(output.data).toMatchObject({
+      files: [{ name: 'photo.png', mediaType: 'image/png', caption: 'The photo' }],
+    });
+  });
+
+  it('refuses a file outside the roots and reports one that is missing', async () => {
+    const outside = path.join(base, 'secret.txt');
+    fs.writeFileSync(outside, 'secret');
+
+    await expect(new WorkspaceSendTool(readRoot()).run({ path: outside }, ctx())).rejects.toThrow(
+      /outside/,
+    );
+    expect(
+      await new WorkspaceSendTool(readRoot()).run({ path: 'missing.pdf' }, ctx()),
+    ).toMatchObject({ isError: true });
   });
 });

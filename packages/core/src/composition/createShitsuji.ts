@@ -276,6 +276,7 @@ function builtInPlugins(
     new AnthropicPlugin(endpoints('anthropic')),
     new CoreToolsPlugin({
       workspaceDir: config.tools.workspaceDir!,
+      handoffDir: path.join(config.paths.dataDir, 'handoff'),
       exec: config.tools.exec,
       status,
     }),

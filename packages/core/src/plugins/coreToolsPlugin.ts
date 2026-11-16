@@ -5,6 +5,7 @@ import {
   WorkspaceListTool,
   WorkspaceReadTool,
   WorkspaceRoot,
+  WorkspaceSendTool,
   WorkspaceWriteTool,
   type ExecOptions,
 } from '../adapters/tools/workspace.js';
@@ -13,6 +14,8 @@ import type { PluginRegistrationContext, ShitsujiPlugin } from '../ports/Plugin.
 export interface CoreToolsOptions {
   /** The folder the file and exec tools are confined to (decision Q1). */
   workspaceDir: string;
+  /** Read-only attachments from channels (decision T2); optional in tests. */
+  handoffDir?: string;
   exec: ExecOptions & { enabled: boolean };
   status: () => Promise<Record<string, unknown>>;
 }
@@ -32,13 +35,17 @@ export class CoreToolsPlugin implements ShitsujiPlugin {
   constructor(private readonly options: CoreToolsOptions) {}
 
   register(ctx: PluginRegistrationContext): void {
-    const ws = new WorkspaceRoot(this.options.workspaceDir);
+    const ws = new WorkspaceRoot(
+      this.options.workspaceDir,
+      this.options.handoffDir ? [this.options.handoffDir] : [],
+    );
     ctx.addTools([
       new MathEvaluateTool(),
       new SystemStatusTool(this.options.status),
       new WorkspaceReadTool(ws),
       new WorkspaceWriteTool(ws),
       new WorkspaceListTool(ws),
+      new WorkspaceSendTool(ws),
       ...(this.options.exec.enabled ? [new WorkspaceExecTool(ws, this.options.exec)] : []),
     ]);
   }
