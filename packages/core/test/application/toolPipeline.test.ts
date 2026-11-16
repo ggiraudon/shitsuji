@@ -4,6 +4,7 @@ import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryReposito
 import {
   defaultMiddlewares,
   type FixedTrustPolicy,
+  type RedactFn,
 } from '../../src/application/tools/middlewares.js';
 import { outcomeText, ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { asId, type ToolCallId, type TurnId } from '../../src/domain/model/ids.js';
@@ -39,7 +40,7 @@ class FakeTool extends BaseTool<z.ZodObject<{ n: z.ZodNumber }>> {
 
 const setup = (
   tools: Tool[],
-  extra: { policy?: FixedTrustPolicy; maxOutputChars?: number } = {},
+  extra: { policy?: FixedTrustPolicy; maxOutputChars?: number; redact?: RedactFn } = {},
 ) => {
   const services = testServices();
   const repos = new InMemoryRepositories();
@@ -158,13 +159,62 @@ describe('ToolPipeline', () => {
     expect(await call('test.dyn', { n: 11 })).toMatchObject({ reason: 'denied' });
   });
 
-  it('writes tool_start and tool_end receipts', async () => {
+  it('writes receipts with effect, target, outcome, duration and trust basis (S29)', async () => {
     const { call, repos } = setup([new FakeTool()]);
     await call('test.tool', { n: 7 });
     const events = await repos.turnEvents.listByTurn(asId<TurnId>('turn-1'));
     expect(events.map((e) => e.kind)).toEqual(['tool_start', 'tool_end']);
-    expect(events[0]!.data).toMatchObject({ tool: 'test.tool', effect: 'read', args: '{"n":7}' });
-    expect(events[1]!.data).toMatchObject({ outcome: 'ok' });
+    expect(events[0]!.data).toMatchObject({
+      tool: 'test.tool',
+      effect: 'read',
+      target: 'core',
+      sessionId: 'session-1',
+      args: '{"n":7}',
+    });
+    expect(events[1]!.data).toMatchObject({
+      outcome: 'ok',
+      effect: 'read',
+      target: 'core',
+      allowedBy: { kind: 'policy', detail: 'the fixed policy allows read' },
+    });
+    expect(typeof events[1]!.data.ms).toBe('number');
+  });
+
+  it('receipts a refused call, with why it was refused (S29)', async () => {
+    const { call, repos } = setup([new FakeTool('mail.send', 'external')]);
+    expect(await call('mail.send', { n: 1 })).toMatchObject({ reason: 'denied' });
+
+    const events = await repos.turnEvents.listByTurn(asId<TurnId>('turn-1'));
+
+    expect(events.map((e) => e.kind)).toEqual(['tool_start', 'tool_end']);
+    expect(events[1]!.data).toMatchObject({
+      outcome: 'denied',
+      effect: 'external',
+      allowedBy: { kind: 'none' },
+    });
+    expect(events[1]!.data.deniedBecause).toMatch(/needs approvals/);
+  });
+
+  it('redacts arguments before they reach a receipt (F22)', async () => {
+    class SecretTool extends BaseTool<z.ZodObject<{ token: z.ZodString }>> {
+      readonly name = 'test.secret';
+      readonly description = 'Uses a token';
+      readonly input = z.object({ token: z.string() });
+      readonly effect = 'write_self' as const;
+      async run(): Promise<ToolOutput> {
+        return { content: 'done' };
+      }
+    }
+    const { call, repos } = setup([new SecretTool()], {
+      redact: (text) => text.replaceAll('sk-live-123', '[secret]'),
+    });
+
+    await call('test.secret', { token: 'sk-live-123' });
+
+    const events = await repos.turnEvents.listByTurn(asId<TurnId>('turn-1'));
+    expect(JSON.stringify(events)).not.toContain('sk-live-123');
+    expect(events[0]!.data.args).toContain('[secret]');
+    expect(events[1]!.data.args).toContain('[secret]');
   });
 
   it('wraps untrusted output and strips forged wrapper tags', async () => {

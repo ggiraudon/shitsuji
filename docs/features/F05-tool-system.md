@@ -70,8 +70,8 @@ Default order, each in its own class:
 | 1 | `CancellationMiddleware` | Races the call against the turn's `AbortSignal`; never waits for a tool that ignores it |
 | 2 | `ValidationMiddleware` | zod-parse the arguments; a failure returns the exact field errors to the model |
 | 3 | `RepeatFailureMiddleware` | After N identical failures of one tool, end the run with the last specific cause |
-| 4 | `TrustMiddleware` | Ask the trust service ([F11](F11-trust-and-approvals.md)): allow, ask, or deny |
-| 5 | `ReceiptMiddleware` | Write `tool_start` / `tool_end` to `turn_events` with redacted arguments ([F22](F22-observability-and-cost.md)) |
+| 4 | `ReceiptMiddleware` | Write `tool_start` / `tool_end` to `turn_events` with effect, target, outcome, duration, redacted arguments and the trust basis ([F22](F22-observability-and-cost.md)). It sits outside trust, so a refused call is in the activity log too |
+| 5 | `TrustMiddleware` | Ask the trust service ([F11](F11-trust-and-approvals.md)): allow, ask, or deny |
 | 6 | `ExecuteMiddleware` | Call `run()`, or forward to the workspace / desktop / MCP client for that target |
 | 7 | `OutputLimitMiddleware` | Cap output size; keep head and tail; save the full output as a workspace file |
 | 8 | `RedactionMiddleware` | Remove known secrets ([F12](F12-secrets-vault.md)) |

@@ -1,5 +1,11 @@
 import type { ToolCall } from '../../domain/model/Message.js';
-import type { Tool, ToolContext, ToolEffect, ToolOutcome } from '../../ports/Tool.js';
+import type {
+  Tool,
+  ToolContext,
+  ToolEffect,
+  ToolOutcome,
+  TrustDecision,
+} from '../../ports/Tool.js';
 import { TOOL_CALL, toolCallInput } from './ToolCallGateway.js';
 
 /** One call travelling through the pipeline. Middlewares fill in `args` and `effect` as they learn them. */
@@ -11,6 +17,8 @@ export interface ToolInvocation {
   args?: unknown;
   /** The effect of this call with these arguments (set by ValidationMiddleware). */
   effect?: ToolEffect;
+  /** What the trust policy decided (set by TrustMiddleware), for the receipt (F22). */
+  trust?: TrustDecision;
 }
 
 /** Chain of responsibility: each middleware may answer itself or pass the call on with next(). */
