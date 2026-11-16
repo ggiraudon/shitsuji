@@ -50,7 +50,7 @@ See [08-second-pass-plan.md](08-second-pass-plan.md). Decisions Q1–Q5 are made
 ## Third pass steps
 
 See [09-third-pass-plan.md](09-third-pass-plan.md). Each step is also a GitHub issue; tick both until every
-agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are proposed, not yet made.
+agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 
 - [ ] **S27** Budget service and spending limits
 - [ ] **S28** The check-in limit

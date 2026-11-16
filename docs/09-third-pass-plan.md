@@ -41,7 +41,10 @@ And on the machine running it:
 
 ## Decisions needed before starting
 
-| # | Question | Proposal |
+All six were accepted as proposed on 2026-11-15 and are recorded in
+[05-open-questions.md](05-open-questions.md#third-pass-decided-2026-11-15).
+
+| # | Question | Decision |
 |---|----------|----------|
 | P2 | Default monthly spend limit? | **$30** a month, plus a **$5** background allowance and a **$1** check-in per session since your last message; all three in `budget.*` in the config |
 | P6 | Default approval level? | **Auto-accept workspace changes**: `write_local` runs; `external` and `write_self` go to the judge, which may only allow with a verbatim quote of your words; `payment` always asks |
@@ -162,6 +165,6 @@ evals/            scenarios, fake services, report
 
 | When | What |
 |------|------|
-| Before S27 | Answers to P2, P6, M3, D2, T1 and T2 |
+| Before S27 | Answers to P2, P6, M3, D2, T1 and T2 (done) |
 | S32 | A Telegram bot token from @BotFather, put in `.env` as `SHITSUJI_TELEGRAM_TOKEN` |
 | S39 | About fifteen minutes with your phone for the live check |
