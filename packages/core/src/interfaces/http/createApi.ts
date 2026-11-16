@@ -7,6 +7,7 @@ import { SoulEditChanged, SoulNoPendingEdit } from '../../domain/model/Soul.js';
 import { asId, type OwnerId, type SessionId, type TurnId } from '../../domain/model/ids.js';
 import { textOf, toolCallsOf, type Message } from '../../domain/model/Message.js';
 import type { Clock } from '../../ports/Clock.js';
+import type { InboundMessage, InboundResult } from '../../ports/ChannelAdapter.js';
 import type { EventBus } from '../../ports/EventBus.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { Repositories, TurnEvent } from '../../ports/Repositories.js';
@@ -34,6 +35,11 @@ export interface ApiDeps {
   ownerId: OwnerId;
   /** The assembled SOUL: reading it and confirming an edit of its export (S23). */
   soul: SoulService;
+  /**
+   * How an API message reaches the runtime. Defaults to agent.submit; the composition can pass the
+   * same sink the channel adapters use (S30), so both entry points share the inbound model.
+   */
+  receive?: (message: InboundMessage) => Promise<InboundResult>;
   /** Checks the owner key (decision Q3). */
   verifyKey: (key: string | undefined) => boolean;
   /** Builds the WebSocket upgrade for this app (@hono/node-ws); omitted in tests that only use REST. */
@@ -75,10 +81,14 @@ export function createApi(deps: ApiDeps): Hono {
       );
     }
     const sessionId = await resolveSession(parsed.data.sessionId);
-    const submitted = await deps.agent.submit(parsed.data.content, {
-      sessionId,
+    const message: InboundMessage = {
       channel: 'api',
-    });
+      chatId: sessionId ?? 'main',
+      text: parsed.data.content,
+      receivedAt: deps.clock.now(),
+      ...(sessionId && { sessionId }),
+    };
+    const submitted = await receive(message);
     return c.json(submitted satisfies PostMessageResponse, 202);
   });
 
@@ -225,6 +235,16 @@ export function createApi(deps: ApiDeps): Hono {
     const thread = await deps.repos.threads.getOrCreateForOwner(deps.ownerId, deps.clock.now());
     return (await deps.repos.sessions.findMainChat(thread.id))?.id;
   }
+
+  // The API is a transport, not a chat channel: its replies travel on /api/events. It still hands
+  // messages over as InboundMessages, so every entry point speaks the same model (S30).
+  const receive =
+    deps.receive ??
+    ((message: InboundMessage) =>
+      deps.agent.submit(message.text, {
+        ...(message.sessionId && { sessionId: message.sessionId }),
+        channel: message.channel,
+      }));
 
   return app;
 }

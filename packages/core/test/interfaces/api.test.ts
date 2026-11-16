@@ -11,7 +11,8 @@ import { SoulService } from '../../src/application/soul/SoulService.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
-import { asId, type OwnerId } from '../../src/domain/model/ids.js';
+import { asId, type OwnerId, type SessionId, type TurnId } from '../../src/domain/model/ids.js';
+import type { InboundMessage, InboundResult } from '../../src/ports/ChannelAdapter.js';
 import type { Tool } from '../../src/ports/Tool.js';
 import { createApi } from '../../src/interfaces/http/createApi.js';
 import {
@@ -23,7 +24,12 @@ import {
 } from '../helpers.js';
 
 async function setup(
-  options: { dataDir?: string; replies?: ScriptedReply[]; tools?: Tool[] } = {},
+  options: {
+    dataDir?: string;
+    replies?: ScriptedReply[];
+    tools?: Tool[];
+    receive?: (message: InboundMessage) => Promise<InboundResult>;
+  } = {},
 ) {
   const services = testServices();
   const repos = new InMemoryRepositories();
@@ -67,6 +73,7 @@ async function setup(
     ...services,
     ownerId,
     soul,
+    ...(options.receive && { receive: options.receive }),
     verifyKey: (k) => k === 'secret',
   });
   return { app, agent, soul };
@@ -220,6 +227,30 @@ describe('HTTP API', () => {
       allowedBy: { kind: 'policy', detail: 'the fixed policy allows compute' },
     });
     expect(body.receipts[0]!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('hands API messages to the shared inbound sink as InboundMessage (S30)', async () => {
+    const seen: InboundMessage[] = [];
+    const { app } = await setup({
+      receive: async (message) => {
+        seen.push(message);
+        return {
+          sessionId: asId<SessionId>('s1'),
+          turnId: asId<TurnId>('t1'),
+          steered: false,
+        };
+      },
+    });
+
+    const res = await app.request('/api/messages', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ content: 'Hello' }),
+    });
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ sessionId: 's1', turnId: 't1', steered: false });
+    expect(seen[0]).toMatchObject({ channel: 'api', chatId: 'main', text: 'Hello' });
   });
 
   it('rejects a bad since on the activity and usage routes', async () => {
