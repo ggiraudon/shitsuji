@@ -17,6 +17,21 @@ const newTurn = () =>
   });
 
 describe('Turn state machine', () => {
+  it('knows which turns the background allowance covers (F22)', () => {
+    const turn = (source: 'user' | 'task' | 'schedule' | 'event' | 'resume') =>
+      Turn.create({
+        id: newId<TurnId>(),
+        sessionId: newId<SessionId>(),
+        source,
+        createdAt: t0,
+      });
+    expect(turn('user').isBackground).toBe(false);
+    expect(turn('resume').isBackground).toBe(false);
+    for (const source of ['task', 'schedule', 'event'] as const) {
+      expect(turn(source).isBackground, source).toBe(true);
+    }
+  });
+
   it('starts queued and records times through a successful run', () => {
     const turn = newTurn();
     expect(turn.status).toBe('queued');

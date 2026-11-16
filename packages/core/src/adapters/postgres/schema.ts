@@ -86,6 +86,7 @@ export interface UsageTable {
   id: Generated<string>;
   owner_id: string;
   turn_id: string | null;
+  session_id: string | null;
   purpose: string | null;
   provider: string;
   model: string;
@@ -93,6 +94,7 @@ export interface UsageTable {
   output_tokens: number;
   cached_input_tokens: number | null;
   reasoning_tokens: number | null;
+  background: Generated<boolean>;
   cost_micros: ColumnType<string | null, number | null, number | null>; // bigint comes back as a string
   currency: string | null;
   at: Timestamp;
@@ -118,6 +120,19 @@ export interface SoulRevisionsTable {
   created_at: Timestamp;
 }
 
+export interface BudgetReservationsTable {
+  id: string;
+  owner_id: string;
+  amount_micros: ColumnType<string, number, number>; // bigint comes back as a string
+  currency: string;
+  background: boolean;
+  session_id: string | null;
+  turn_id: string | null;
+  state: 'held' | 'settled' | 'released';
+  created_at: Timestamp;
+  ended_at: Timestamp | null;
+}
+
 export interface Database {
   owners: OwnersTable;
   threads: ThreadsTable;
@@ -129,4 +144,5 @@ export interface Database {
   usage: UsageTable;
   soul_fragments: SoulFragmentsTable;
   soul_revisions: SoulRevisionsTable;
+  budget_reservations: BudgetReservationsTable;
 }

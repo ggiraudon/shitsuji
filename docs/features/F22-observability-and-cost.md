@@ -67,6 +67,21 @@ class BudgetService {
 
 DeepSeek is cheap, so defaults can be low; they are settings, not constants.
 
+How a request is checked (S27):
+
+- Before each model request, `BudgetService` reserves a conservative maximum: every character of the
+  prompt and tool schemas at three characters per token, plus the output the request allows, priced
+  from `models.catalog`.
+- The store checks and inserts the hold atomically, under the owner's row lock, so parallel requests
+  (and two cores) cannot overspend. The usage row replaces the hold when the request ends; a failed or
+  stopped request releases it, and startup releases any hold left by a crash.
+- Past the monthly limit, only owner-started requests run; background work is refused with the limit,
+  the spend and the reason. Background work must also fit the background allowance, and is refused
+  when the model's price is unknown. Owner-started work runs without a reservation in that case, so
+  the monthly total is a lower bound (and the anonymous price is logged once).
+- The period is the calendar month in UTC. Limits live in `budget.monthlyLimit`,
+  `budget.backgroundAllowance` and `budget.checkIn` (S28), in `budget.currency`.
+
 ### Activity log and receipts
 
 `ReceiptMiddleware` ([F05](F05-tool-system.md)) writes `turn_events`: tool name, redacted arguments, effect,

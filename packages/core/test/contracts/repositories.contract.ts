@@ -246,6 +246,7 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       await repos.usage.append({
         ownerId: owner,
         turnId: t.id,
+        sessionId: session.id,
         purpose: 'chat',
         provider: 'deepseek',
         model: 'deepseek-flash',
@@ -253,6 +254,7 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
         outputTokens: 80,
         cachedInputTokens: 1000,
         reasoningTokens: 20,
+        background: true,
         cost: Money.fromMicros(345, 'USD'),
         at: at(71),
       });
@@ -266,10 +268,17 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       });
       const rows = await repos.usage.listSince(owner, at(71));
       expect(rows).toHaveLength(2);
-      expect(rows[0]).toMatchObject({ turnId: t.id, purpose: 'chat', cachedInputTokens: 1000 });
+      expect(rows[0]).toMatchObject({
+        turnId: t.id,
+        sessionId: session.id,
+        purpose: 'chat',
+        cachedInputTokens: 1000,
+        background: true,
+      });
       expect(rows[0]!.cost!.micros).toBe(345);
       expect(rows[0]!.at).toEqual(at(71));
       expect(rows[1]!.cost).toBeUndefined();
+      expect(rows[1]!.background).toBe(false);
       expect(await repos.usage.listSince(owner, at(72))).toHaveLength(1);
     });
 
@@ -335,6 +344,120 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
         at(83),
       );
       expect((await repos.soul.fragments(owner)).map((f) => f.body)).toEqual(['New base.']);
+    });
+
+    it('budget: holds money before a request, settles or releases it, and counts usage', async () => {
+      const repos = await create();
+      const { session } = await seed(repos);
+      const since = at(0);
+      const limits = { monthly: Money.of(1), background: Money.of(1) };
+      const input = (
+        id: string,
+        amount: number,
+        extra: { background?: boolean; enforce?: boolean } = {},
+      ) => ({
+        ownerId: owner,
+        id,
+        amount: Money.of(amount),
+        background: true,
+        enforce: true,
+        since,
+        limits,
+        now: at(1),
+        sessionId: session.id,
+        ...extra,
+      });
+
+      expect(await repos.budget.reserve(input('hold-1', 0.6))).toMatchObject({
+        reserved: true,
+      });
+      expect((await repos.budget.heldSince(owner, since, 'USD')).micros).toBe(600_000);
+      expect((await repos.budget.spentSince(owner, since, 'USD')).isZero()).toBe(true);
+
+      // A second hold of the same size would pass the monthly limit.
+      expect(await repos.budget.reserve(input('hold-2', 0.6))).toEqual({
+        reserved: false,
+        reason: 'monthly_limit',
+      });
+
+      // Settling frees the hold; the usage row becomes the real spend.
+      await repos.budget.settle('hold-1', at(2));
+      expect((await repos.budget.heldSince(owner, since, 'USD')).isZero()).toBe(true);
+      await repos.usage.append({
+        ownerId: owner,
+        sessionId: session.id,
+        provider: 'deepseek',
+        model: 'deepseek-flash',
+        inputTokens: 10,
+        outputTokens: 5,
+        background: true,
+        cost: Money.of(0.4),
+        at: at(3),
+      });
+      expect((await repos.budget.spentSince(owner, since, 'USD')).micros).toBe(400_000);
+      // Owner-started spend is counted separately too.
+      expect((await repos.budget.spentSince(owner, since, 'USD', false)).isZero()).toBe(true);
+
+      // Exactly the limit is allowed.
+      expect((await repos.budget.reserve(input('hold-3', 0.6))).reserved).toBe(true);
+      await repos.budget.release('hold-3', at(4));
+      expect((await repos.budget.heldSince(owner, since, 'USD')).isZero()).toBe(true);
+
+      // An owner-started request is never refused, but its hold counts.
+      expect(
+        (await repos.budget.reserve(input('hold-4', 5, { background: false, enforce: false })))
+          .reserved,
+      ).toBe(true);
+      expect(await repos.budget.reserve(input('hold-5', 1))).toEqual({
+        reserved: false,
+        reason: 'monthly_limit',
+      });
+    });
+
+    it('budget: lets only one of two concurrent reservations through', async () => {
+      const repos = await create();
+      await seed(repos);
+      const since = at(0);
+      const limits = { monthly: Money.of(1), background: Money.of(1) };
+      const reserve = (id: string) =>
+        repos.budget.reserve({
+          ownerId: owner,
+          id,
+          amount: Money.of(0.6),
+          background: true,
+          enforce: true,
+          since,
+          limits,
+          now: at(1),
+        });
+
+      const results = await Promise.all([reserve('a'), reserve('b')]);
+
+      expect(results.filter((r) => r.reserved)).toHaveLength(1);
+      expect((await repos.budget.heldSince(owner, since, 'USD')).micros).toBe(600_000);
+    });
+
+    it('budget: releases every open hold at startup', async () => {
+      const repos = await create();
+      await seed(repos);
+      const since = at(0);
+      const limits = { monthly: Money.of(1), background: Money.of(1) };
+      const reserve = (id: string) =>
+        repos.budget.reserve({
+          ownerId: owner,
+          id,
+          amount: Money.of(0.1),
+          background: true,
+          enforce: true,
+          since,
+          limits,
+          now: at(1),
+        });
+      await reserve('a');
+      await reserve('b');
+
+      expect(await repos.budget.releaseAllHeld(at(2))).toBe(2);
+      expect((await repos.budget.heldSince(owner, since, 'USD')).isZero()).toBe(true);
     });
 
     it('rejects duplicate ids', async () => {

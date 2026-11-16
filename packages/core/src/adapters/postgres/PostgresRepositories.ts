@@ -27,6 +27,7 @@ import type {
   UsageRepository,
 } from '../../ports/Repositories.js';
 import { Money } from '../../domain/model/Money.js';
+import { assertSameCurrency, type BudgetStore } from '../../ports/BudgetStore.js';
 import type { SoulStore } from '../../ports/SoulStore.js';
 import type {
   Database,
@@ -518,6 +519,91 @@ export class PostgresRepositories implements Repositories {
         .execute();
     },
   };
+
+  readonly budget: BudgetStore = {
+    reserve: async (input) => {
+      assertSameCurrency(input.amount, input.limits);
+      // One owner (P1): locking that row serialises budget decisions across cores.
+      return this.db.transaction().execute(async (trx) => {
+        await trx
+          .selectFrom('owners')
+          .select('id')
+          .where('id', '=', input.ownerId)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        const monthlyUsed = (
+          await usageTotal(trx, input.ownerId, input.since, input.amount.currency)
+        ).plus(await heldTotal(trx, input.ownerId, input.since, input.amount.currency));
+        const backgroundUsed = (
+          await usageTotal(trx, input.ownerId, input.since, input.amount.currency, true)
+        ).plus(await heldTotal(trx, input.ownerId, input.since, input.amount.currency, true));
+        if (input.enforce && monthlyUsed.plus(input.amount).compare(input.limits.monthly) > 0) {
+          return { reserved: false as const, reason: 'monthly_limit' as const };
+        }
+        if (
+          input.background &&
+          backgroundUsed.plus(input.amount).compare(input.limits.background) > 0
+        ) {
+          return { reserved: false as const, reason: 'background_allowance' as const };
+        }
+        await trx
+          .insertInto('budget_reservations')
+          .values({
+            id: input.id,
+            owner_id: input.ownerId,
+            amount_micros: input.amount.micros,
+            currency: input.amount.currency,
+            background: input.background,
+            session_id: input.sessionId ?? null,
+            turn_id: input.turnId ?? null,
+            state: 'held',
+            created_at: input.now,
+            ended_at: null,
+          })
+          .execute();
+        return {
+          reserved: true as const,
+          reservation: {
+            id: input.id,
+            ownerId: input.ownerId,
+            amount: input.amount,
+            background: input.background,
+            ...(input.sessionId && { sessionId: input.sessionId }),
+            ...(input.turnId && { turnId: input.turnId }),
+            createdAt: input.now,
+          },
+        };
+      });
+    },
+    settle: async (id, at, tx) => {
+      await this.ex(tx)
+        .updateTable('budget_reservations')
+        .set({ state: 'settled', ended_at: at })
+        .where('id', '=', id)
+        .where('state', '=', 'held')
+        .execute();
+    },
+    release: async (id, at, tx) => {
+      await this.ex(tx)
+        .updateTable('budget_reservations')
+        .set({ state: 'released', ended_at: at })
+        .where('id', '=', id)
+        .where('state', '=', 'held')
+        .execute();
+    },
+    heldSince: (ownerId, since, currency, background, tx) =>
+      heldTotal(this.ex(tx), ownerId, since, currency, background),
+    spentSince: (ownerId, since, currency, background, tx) =>
+      usageTotal(this.ex(tx), ownerId, since, currency, background),
+    releaseAllHeld: async (at) => {
+      const result = await this.ex()
+        .updateTable('budget_reservations')
+        .set({ state: 'released', ended_at: at })
+        .where('state', '=', 'held')
+        .executeTakeFirst();
+      return Number(result.numUpdatedRows);
+    },
+  };
 }
 
 /** Not a member above so the class reads in table order; attached in the constructor. */
@@ -529,6 +615,7 @@ function usageRepository(ex: (tx?: Transaction) => Kysely<Database>): UsageRepos
         .values({
           owner_id: r.ownerId,
           turn_id: r.turnId ?? null,
+          session_id: r.sessionId ?? null,
           purpose: r.purpose ?? null,
           provider: r.provider,
           model: r.model,
@@ -536,6 +623,7 @@ function usageRepository(ex: (tx?: Transaction) => Kysely<Database>): UsageRepos
           output_tokens: r.outputTokens,
           cached_input_tokens: r.cachedInputTokens ?? null,
           reasoning_tokens: r.reasoningTokens ?? null,
+          background: r.background ?? false,
           cost_micros: r.cost?.micros ?? null,
           currency: r.cost?.currency ?? null,
           at: r.at,
@@ -562,9 +650,11 @@ function usageRepository(ex: (tx?: Transaction) => Kysely<Database>): UsageRepos
           at: row.at,
         };
         if (row.turn_id !== null) record.turnId = row.turn_id as TurnId;
+        if (row.session_id !== null) record.sessionId = row.session_id as SessionId;
         if (row.purpose !== null) record.purpose = row.purpose;
         if (row.cached_input_tokens !== null) record.cachedInputTokens = row.cached_input_tokens;
         if (row.reasoning_tokens !== null) record.reasoningTokens = row.reasoning_tokens;
+        record.background = row.background;
         if (row.cost_micros !== null) {
           record.cost = Money.fromMicros(Number(row.cost_micros), row.currency ?? 'USD');
         }
@@ -577,4 +667,46 @@ function usageRepository(ex: (tx?: Transaction) => Kysely<Database>): UsageRepos
 function assertInserted(result: { numInsertedOrUpdatedRows?: bigint }[], parent: string): void {
   const n = result.reduce((sum, r) => sum + Number(r.numInsertedOrUpdatedRows ?? 0n), 0);
   if (n === 0) throw new Error(`Insert failed: ${parent} does not exist`);
+}
+
+type QueryExecutor = Kysely<Database> | KyselyTx<Database>;
+
+/** Settled spend from the usage ledger: priced rows in this currency, optionally only background. */
+async function usageTotal(
+  ex: QueryExecutor,
+  ownerId: OwnerId,
+  since: Date,
+  currency: string,
+  background?: boolean,
+): Promise<Money> {
+  const row = await ex
+    .selectFrom('usage')
+    .select(sql<string>`COALESCE(SUM(cost_micros), 0)`.as('total'))
+    .where('owner_id', '=', ownerId)
+    .where('at', '>=', since)
+    .where('currency', '=', currency)
+    .where('cost_micros', 'is not', null)
+    .$if(background !== undefined, (qb) => qb.where('background', '=', background!))
+    .executeTakeFirst();
+  return Money.fromMicros(Number(row?.total ?? 0), currency);
+}
+
+/** Open holds since the period started, optionally only background ones. */
+async function heldTotal(
+  ex: QueryExecutor,
+  ownerId: OwnerId,
+  since: Date,
+  currency: string,
+  background?: boolean,
+): Promise<Money> {
+  const row = await ex
+    .selectFrom('budget_reservations')
+    .select(sql<string>`COALESCE(SUM(amount_micros), 0)`.as('total'))
+    .where('owner_id', '=', ownerId)
+    .where('state', '=', 'held')
+    .where('created_at', '>=', since)
+    .where('currency', '=', currency)
+    .$if(background !== undefined, (qb) => qb.where('background', '=', background!))
+    .executeTakeFirst();
+  return Money.fromMicros(Number(row?.total ?? 0), currency);
 }

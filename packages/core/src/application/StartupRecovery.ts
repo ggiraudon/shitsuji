@@ -21,6 +21,16 @@ export class StartupRecovery {
   ) {}
 
   async run(): Promise<Turn[]> {
+    // A hold from the previous run belongs to a request whose process died with it.
+    try {
+      const released = await this.repos.budget.releaseAllHeld(this.clock.now());
+      if (released > 0) {
+        this.log.warn('Released budget holds left by the previous run', { count: released });
+      }
+    } catch (error) {
+      this.log.error('Could not release budget holds', { error: serializeError(error) });
+    }
+
     const recovered: Turn[] = [];
     for (const turn of await this.repos.turns.listByStatus('running')) {
       try {

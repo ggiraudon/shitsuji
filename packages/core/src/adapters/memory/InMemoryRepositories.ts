@@ -28,6 +28,8 @@ import type {
   UsageRepository,
 } from '../../ports/Repositories.js';
 import type { SoulStore } from '../../ports/SoulStore.js';
+import type { BudgetReservation, BudgetStore } from '../../ports/BudgetStore.js';
+import { assertSameCurrency } from '../../ports/BudgetStore.js';
 import { Money } from '../../domain/model/Money.js';
 
 interface ThreadRow {
@@ -45,6 +47,20 @@ interface SessionRow {
   summaryCount: number;
 }
 
+/** A budget hold, kept as plain fields so a transaction can snapshot and restore it. */
+interface BudgetHoldRow {
+  id: string;
+  ownerId: OwnerId;
+  amountMicros: number;
+  currency: string;
+  background: boolean;
+  sessionId?: SessionId;
+  turnId?: TurnId;
+  state: 'held' | 'settled' | 'released';
+  createdAt: Date;
+  endedAt?: Date;
+}
+
 /** Plain records only, so a transaction can snapshot and restore the whole state. */
 interface State {
   owners: Map<OwnerId, Owner>;
@@ -57,6 +73,7 @@ interface State {
   usage: (Omit<UsageRecord, 'cost'> & { costMicros?: number; currency?: string })[];
   soulFragments: { ownerId: OwnerId; fragment: SoulFragment }[];
   soulRevisions: { ownerId: OwnerId; revision: SoulRevision }[];
+  budgetHolds: BudgetHoldRow[];
 }
 
 const emptyState = (): State => ({
@@ -69,10 +86,24 @@ const emptyState = (): State => ({
   usage: [],
   soulFragments: [],
   soulRevisions: [],
+  budgetHolds: [],
 });
 
 const copy = <T>(value: T): T => structuredClone(value);
 const toThread = (r: ThreadRow) => new Thread(r.id, r.ownerId, new Date(r.createdAt), r.status);
+const toReservation = (row: BudgetHoldRow): BudgetReservation => {
+  const reservation: BudgetReservation = {
+    id: row.id,
+    ownerId: row.ownerId,
+    amount: Money.fromMicros(row.amountMicros, row.currency),
+    background: row.background,
+    createdAt: new Date(row.createdAt),
+  };
+  if (row.sessionId) reservation.sessionId = row.sessionId;
+  if (row.turnId) reservation.turnId = row.turnId;
+  return reservation;
+};
+
 const toSession = (r: SessionRow) =>
   new Session(r.id, r.threadId, r.kind, new Date(r.createdAt), r.summary, r.summaryCount);
 
@@ -225,7 +256,14 @@ export class InMemoryRepositories implements Repositories {
   readonly usage: UsageRepository = {
     append: async (r) => {
       const { cost, ...rest } = r;
-      this.state.usage.push(copy({ ...rest, costMicros: cost?.micros, currency: cost?.currency }));
+      this.state.usage.push(
+        copy({
+          ...rest,
+          background: r.background ?? false,
+          costMicros: cost?.micros,
+          currency: cost?.currency,
+        }),
+      );
     },
     listSince: async (ownerId, since) =>
       this.state.usage
@@ -266,6 +304,102 @@ export class InMemoryRepositories implements Repositories {
       this.state.soulRevisions.push({ ownerId, revision: copy(revision) });
     },
   };
+
+  readonly budget: BudgetStore = {
+    reserve: (input) =>
+      this.uow.run(async () => {
+        assertSameCurrency(input.amount, input.limits);
+        const monthlyUsed = this.spentTotal(input.ownerId, input.since, input.amount.currency).plus(
+          this.heldTotal(input.ownerId, input.since, input.amount.currency),
+        );
+        const backgroundUsed = this.spentTotal(
+          input.ownerId,
+          input.since,
+          input.amount.currency,
+          true,
+        ).plus(this.heldTotal(input.ownerId, input.since, input.amount.currency, true));
+        if (input.enforce && monthlyUsed.plus(input.amount).compare(input.limits.monthly) > 0) {
+          return { reserved: false as const, reason: 'monthly_limit' as const };
+        }
+        if (
+          input.background &&
+          backgroundUsed.plus(input.amount).compare(input.limits.background) > 0
+        ) {
+          return { reserved: false as const, reason: 'background_allowance' as const };
+        }
+        const row: BudgetHoldRow = {
+          id: input.id,
+          ownerId: input.ownerId,
+          amountMicros: input.amount.micros,
+          currency: input.amount.currency,
+          background: input.background,
+          state: 'held',
+          createdAt: new Date(input.now),
+          ...(input.sessionId && { sessionId: input.sessionId }),
+          ...(input.turnId && { turnId: input.turnId }),
+        };
+        this.state.budgetHolds.push(copy(row));
+        return { reserved: true as const, reservation: toReservation(row) };
+      }),
+    settle: async (id, at) => {
+      const row = this.state.budgetHolds.find((h) => h.id === id && h.state === 'held');
+      if (row) {
+        row.state = 'settled';
+        row.endedAt = new Date(at);
+      }
+    },
+    release: async (id, at) => {
+      const row = this.state.budgetHolds.find((h) => h.id === id && h.state === 'held');
+      if (row) {
+        row.state = 'released';
+        row.endedAt = new Date(at);
+      }
+    },
+    heldSince: async (ownerId, since, currency, background) =>
+      this.heldTotal(ownerId, since, currency, background),
+    spentSince: async (ownerId, since, currency, background) =>
+      this.spentTotal(ownerId, since, currency, background),
+    releaseAllHeld: async (at) => {
+      let released = 0;
+      for (const row of this.state.budgetHolds) {
+        if (row.state !== 'held') continue;
+        row.state = 'released';
+        row.endedAt = new Date(at);
+        released++;
+      }
+      return released;
+    },
+  };
+
+  /** Settled spend from the usage ledger: rows with a known cost, in this currency. */
+  private spentTotal(ownerId: OwnerId, since: Date, currency: string, background?: boolean): Money {
+    const micros = this.state.usage
+      .filter(
+        (u) =>
+          u.ownerId === ownerId &&
+          u.at.getTime() >= since.getTime() &&
+          u.currency === currency &&
+          u.costMicros !== undefined &&
+          (background === undefined || u.background === background),
+      )
+      .reduce((sum, u) => sum + (u.costMicros ?? 0), 0);
+    return Money.fromMicros(micros, currency);
+  }
+
+  /** Open holds since the period started. */
+  private heldTotal(ownerId: OwnerId, since: Date, currency: string, background?: boolean): Money {
+    const micros = this.state.budgetHolds
+      .filter(
+        (h) =>
+          h.ownerId === ownerId &&
+          h.state === 'held' &&
+          h.currency === currency &&
+          h.createdAt.getTime() >= since.getTime() &&
+          (background === undefined || h.background === background),
+      )
+      .reduce((sum, h) => sum + h.amountMicros, 0);
+    return Money.fromMicros(micros, currency);
+  }
 
   private revisionsOf(ownerId: OwnerId): SoulRevision[] {
     return this.state.soulRevisions

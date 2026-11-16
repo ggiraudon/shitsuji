@@ -196,7 +196,7 @@ export class TurnRunner {
       tools: this.deps.tools.specs(),
       temperature: 0.7,
       maxOutputTokens: 4096,
-      metadata: { turnId: turn.id },
+      metadata: { turnId: turn.id, sessionId: session.id, background: turn.isBackground },
     };
     if (!request.tools?.length) delete request.tools;
     events.publish('llm.request', {

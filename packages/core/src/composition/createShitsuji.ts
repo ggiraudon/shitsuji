@@ -6,6 +6,8 @@ import { InMemoryRepositories } from '../adapters/memory/InMemoryRepositories.js
 import { PostgresDatabase } from '../adapters/postgres/PostgresDatabase.js';
 import { PostgresRepositories } from '../adapters/postgres/PostgresRepositories.js';
 import { Agent } from '../application/Agent.js';
+import { BudgetedModelProvider } from '../application/budget/BudgetedModelProvider.js';
+import { BudgetService } from '../application/budget/BudgetService.js';
 import { SoulService } from '../application/soul/SoulService.js';
 import { NodeTextFile } from '../adapters/files/NodeTextFile.js';
 import {
@@ -135,17 +137,31 @@ export async function createShitsuji(
     log.warn('Could not prepare the SOUL export', { error: serializeError(error) });
   }
 
-  // Every provider gets the same chain: metering outside, retries inside, redaction closest to the wire.
+  // Every provider gets the same chain: budget outside, metering next, retries inside, redaction
+  // closest to the wire.
   const catalog = catalogFrom(config);
+  const budget = new BudgetService({
+    store: repos.budget,
+    ownerId: OWNER_ID,
+    clock: services.clock,
+    log,
+    limits: {
+      monthly: Money.of(config.budget.monthlyLimit, config.budget.currency),
+      background: Money.of(config.budget.backgroundAllowance, config.budget.currency),
+    },
+  });
   const providers = new Map(
     [...plugins.providers()].map(([id, raw]) => [
       id,
-      new MeteredModelProvider(
-        new RetryingModelProvider(new RedactingModelProvider(raw), {
-          log,
-          maxAttempts: config.models.retry.maxAttempts,
-        }),
-        { ownerId: OWNER_ID, usage: repos!.usage, catalog, clock: services.clock, log },
+      new BudgetedModelProvider(
+        new MeteredModelProvider(
+          new RetryingModelProvider(new RedactingModelProvider(raw), {
+            log,
+            maxAttempts: config.models.retry.maxAttempts,
+          }),
+          { ownerId: OWNER_ID, usage: repos!.usage, catalog, clock: services.clock, log },
+        ),
+        { budget, catalog },
       ),
     ]),
   );

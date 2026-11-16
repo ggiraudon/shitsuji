@@ -137,7 +137,7 @@ export class Compactor {
           messages: [{ role: 'user', parts: [{ type: 'text', text: prompt }] }],
           temperature: 0.2,
           maxOutputTokens: this.maxSummaryTokens,
-          metadata: { turnId: turn.id },
+          metadata: { turnId: turn.id, sessionId: session.id, background: turn.isBackground },
         },
         { signal },
       );

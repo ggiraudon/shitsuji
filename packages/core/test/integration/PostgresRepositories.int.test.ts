@@ -176,6 +176,7 @@ describe('Postgres-only guarantees', () => {
         'id',
         'owner_id',
         'turn_id',
+        'session_id',
         'purpose',
         'provider',
         'model',
@@ -183,6 +184,7 @@ describe('Postgres-only guarantees', () => {
         'output_tokens',
         'cached_input_tokens',
         'reasoning_tokens',
+        'background',
         'cost_micros',
         'currency',
         'at',
@@ -198,6 +200,18 @@ describe('Postgres-only guarantees', () => {
         'updated_at',
       ],
       soul_revisions: ['owner_id', 'revision', 'body', 'fragments', 'source', 'created_at'],
+      budget_reservations: [
+        'id',
+        'owner_id',
+        'amount_micros',
+        'currency',
+        'background',
+        'session_id',
+        'turn_id',
+        'state',
+        'created_at',
+        'ended_at',
+      ],
     };
     for (const [table, cols] of Object.entries(expected)) {
       for (const col of cols) expect(actual.has(`${table}.${col}`), `${table}.${col}`).toBe(true);

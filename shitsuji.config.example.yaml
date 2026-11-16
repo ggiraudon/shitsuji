@@ -48,9 +48,14 @@ models:
   retry:
     maxAttempts: 3 # transient failures only, and never after the model has started answering
 
+# Spending limits (F22). Amounts are in `currency`; the period is the calendar month, UTC.
+budget:
+  currency: USD
+  monthlyLimit: 30 # past it, only your own messages run; background turns are refused
+  backgroundAllowance: 5 # what background work (no owner message) may spend per month
+  checkIn: 1 # a session pauses to ask after this much since your last message (S28)
+
 channels:
-  cli:
-    enabled: true
   webhook:
     enabled: true
     port: 3000

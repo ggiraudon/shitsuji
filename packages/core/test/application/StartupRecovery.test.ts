@@ -4,6 +4,7 @@ import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryReposito
 import { INTERRUPTED, StartupRecovery } from '../../src/application/StartupRecovery.js';
 import { asId, newId, type OwnerId } from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
+import { Money } from '../../src/domain/model/Money.js';
 import { Session } from '../../src/domain/model/Session.js';
 import { Turn } from '../../src/domain/model/Turn.js';
 import { testServices } from '../helpers.js';
@@ -57,6 +58,30 @@ describe('StartupRecovery', () => {
     const services = testServices();
     expect(await new StartupRecovery(repos, services.clock, services.log).run()).toEqual([]);
     expect(services.log.records).toEqual([]);
+  });
+
+  it('releases budget holds left by the previous run (F22)', async () => {
+    const { repos } = await withTurns('queued');
+    const services = testServices();
+    const limits = { monthly: Money.of(1), background: Money.of(1) };
+    const reserve = (id: string) =>
+      repos.budget.reserve({
+        ownerId: owner,
+        id,
+        amount: Money.of(0.2),
+        background: true,
+        enforce: true,
+        since: new Date(0),
+        limits,
+        now: new Date(),
+      });
+    await reserve('a');
+    await reserve('b');
+
+    await new StartupRecovery(repos, services.clock, services.log).run();
+
+    expect((await repos.budget.heldSince(owner, new Date(0), 'USD')).isZero()).toBe(true);
+    expect(services.log.records.some((r) => /budget holds/.test(r.message))).toBe(true);
   });
 });
 

@@ -103,6 +103,22 @@ export const shitsujiConfigSchema = z
       })
       .strict()
       .default({}),
+    /** Spending limits (F22, S27). Amounts are in `currency`; the period is the calendar month, UTC. */
+    budget: z
+      .object({
+        currency: z
+          .string()
+          .regex(/^[A-Z]{3}$/, 'must be a three-letter currency code such as USD')
+          .default('USD'),
+        /** Past the monthly limit only your own messages run; background turns are refused. */
+        monthlyLimit: z.number().nonnegative().default(30),
+        /** What background work (no owner message) may spend per month. */
+        backgroundAllowance: z.number().nonnegative().default(5),
+        /** A session pauses to ask when it has spent this much since your last message (S28). */
+        checkIn: z.number().nonnegative().default(1),
+      })
+      .strict()
+      .default({}),
     /** How the TUI finds core (S25). The key defaults to <dataDir>/owner.key on this machine. */
     tui: z
       .object({

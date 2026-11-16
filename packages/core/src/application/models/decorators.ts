@@ -1,5 +1,5 @@
 import { ProviderError, serializeError } from '../../domain/errors.js';
-import type { OwnerId, TurnId } from '../../domain/model/ids.js';
+import type { OwnerId, SessionId, TurnId } from '../../domain/model/ids.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { Logger } from '../../ports/Logger.js';
 import type {
@@ -131,6 +131,7 @@ export class MeteredModelProvider extends ModelProviderDecorator {
       await this.options.usage.append({
         ownerId,
         turnId: request.metadata?.turnId as TurnId | undefined,
+        sessionId: request.metadata?.sessionId as SessionId | undefined,
         purpose: request.metadata?.purpose,
         provider: this.id,
         model: request.model,
@@ -138,6 +139,7 @@ export class MeteredModelProvider extends ModelProviderDecorator {
         outputTokens: tokens.outputTokens,
         cachedInputTokens: tokens.cachedInputTokens,
         reasoningTokens: tokens.reasoningTokens,
+        background: request.metadata?.background === true,
         cost: catalog.cost(ref, tokens),
         at: clock.now(),
       });
