@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { ManualClock } from '../../src/adapters/clock/SystemClock.js';
+import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
+import { Agent } from '../../src/application/Agent.js';
 import { BudgetService } from '../../src/application/budget/BudgetService.js';
 import { BudgetedModelProvider } from '../../src/application/budget/BudgetedModelProvider.js';
 import { estimateRequestCost } from '../../src/application/budget/estimate.js';
 import { MeteredModelProvider } from '../../src/application/models/decorators.js';
 import { ModelCatalog } from '../../src/application/models/ModelCatalog.js';
+import { ModelRouter } from '../../src/application/models/ModelRouter.js';
+import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
+import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
+import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { BudgetExceeded } from '../../src/domain/errors.js';
 import { asId, type OwnerId } from '../../src/domain/model/ids.js';
 import { Money } from '../../src/domain/model/Money.js';
@@ -15,7 +21,7 @@ import type {
   ModelRequest,
   ModelStreamEvent,
 } from '../../src/ports/ModelProvider.js';
-import { ScriptedProvider } from '../helpers.js';
+import { ScriptedProvider, testServices } from '../helpers.js';
 
 const OWNER = asId<OwnerId>('owner');
 const clock = new ManualClock('2026-03-15T12:00:00.000Z');
@@ -262,5 +268,72 @@ describe('BudgetedModelProvider (S27)', () => {
 
     await expect(collect(provider.stream(requestFor(true)))).rejects.toThrow(/no known price/);
     expect(raw.requests).toHaveLength(0);
+  });
+});
+
+describe('budget through a turn (S27)', () => {
+  it('refuses a background turn at the limit and still answers your own message', async () => {
+    const services = testServices();
+    const repos = new InMemoryRepositories();
+    await repos.owners.upsert({
+      id: OWNER,
+      displayName: 'Jeanne',
+      timezone: 'UTC',
+      locale: 'en',
+    });
+    const catalog = new ModelCatalog([
+      {
+        ref: 'scripted/m',
+        maxOutput: 100,
+        price: { inputPerMTok: Money.of(1), outputPerMTok: Money.of(2) },
+      },
+    ]);
+    const budget = new BudgetService({
+      store: repos.budget,
+      ownerId: OWNER,
+      clock: services.clock,
+      log: services.log,
+      limits: { monthly: Money.of(0.000001), background: Money.of(0.000001) },
+    });
+    const raw = new ScriptedProvider([{ content: 'Good evening.' }], 'scripted');
+    const metered = new MeteredModelProvider(raw, {
+      ownerId: OWNER,
+      usage: repos.usage,
+      catalog,
+      clock: services.clock,
+      log: services.log,
+    });
+    const models = new ModelRouter(
+      new Map([['scripted', new BudgetedModelProvider(metered, { budget, catalog })]]),
+      { purposes: { chat: 'scripted/m' }, fallbacks: {} },
+      catalog,
+      services.log,
+    );
+    const tools = new ToolCatalog();
+    const jobs = new InMemoryJobQueue(services.log, services.clock);
+    const agent = new Agent({
+      name: 'Test',
+      ownerId: OWNER,
+      models,
+      tools,
+      pipeline: new ToolPipeline(
+        tools,
+        defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock }),
+      ),
+      repos,
+      jobs,
+      ...services,
+    });
+    await jobs.start();
+    await agent.start();
+
+    await expect(agent.send('plan the week', { source: 'task' })).rejects.toThrow(
+      /monthly spending limit/,
+    );
+    expect(raw.requests).toHaveLength(0); // refused before the provider was called
+
+    const reply = await agent.send('Good evening?');
+    expect(reply.reply).toBe('Good evening.');
+    expect(raw.requests).toHaveLength(1);
   });
 });
