@@ -59,7 +59,7 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 - [x] **S31** Channel gateway, pairing and commands
 - [x] **S32** Telegram adapter
 - [x] **S33** Telegram files
-- [ ] **S34** Action requests and the policy engine
+- [x] **S34** Action requests and the policy engine
 - [ ] **S35** Authority, the judge and quote verification
 - [ ] **S36** The approval service
 - [ ] **S37** Approvals on Telegram

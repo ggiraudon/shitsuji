@@ -106,16 +106,37 @@ stateDiagram-v2
 
 | Level | `write_local` | `external` | `write_self` | `payment` |
 |-------|---------------|------------|--------------|-----------|
-| Ask | ask | judge → ask | judge → ask | ask |
-| Auto-accept workspace changes (default) | allow | judge → ask | judge → ask | ask |
-| Trusted | allow | judge (may allow with quote) | judge | ask |
+| Ask | ask | ask | ask | ask |
+| Auto-accept workspace changes (default) | allow | judge, quote required | judge, quote required | ask |
+| Trusted | allow | judge, quote required | judge | ask |
+
+"Quote required" means the judge may allow only by quoting the owner's words verbatim ([P6](../05-open-questions.md#decided-2026-11-14)).
+The Ask level does not spend a judgement at all: nothing could come of it but a question. A standing
+rule can make any of these stricter ("never", "always ask") and, at the levels that consult the judge,
+looser ("go ahead"); it never lets a payment run unasked, and never covers a change to Shitsuji itself.
 
 There is deliberately no "full access, never ask" level for external actions.
 
+### What S34 builds
+
+`ActionRequest` (the exact tool, validated arguments, effect, target and a SHA-256 over the canonical
+JSON), `StandingRule` (tool glob, optional target, allow/ask/deny, the owner's words kept for the
+receipt) and the `PolicyEngine` that applies the order above. It replaced S16's fixed policy in the
+Trust middleware. Until the judge ([S35](../09-third-pass-plan.md)) and approvals (S36) land, an `ask` or
+`judge` verdict refuses the call and names the step that is missing, so nothing risky runs unasked.
+Every decision records the action hash in the receipt (S29), which is what an approval will be bound
+to.
+
 ## Changes to existing code
 
-None today (no policy exists). The shell allowlist in `ExecuteCommandTool` is removed: the sandbox
-([F08](F08-workspace-sandbox.md)) is the boundary for commands, and trust covers outside effects.
+| File | Change |
+|------|--------|
+| `application/tools/middlewares.ts` | S34: `TrustMiddleware` builds an `ActionRequest` and runs the `PolicyEngine`; `FixedTrustPolicy` is gone. An `ask` or `judge` verdict refuses until S36 and S35 exist |
+| `ports/Tool.ts` | S34: `TrustDecision` is a verdict (`allow`, `ask`, `judge`, `deny`) with the action hash; `TrustBasis` keeps `kind: 'rule'` for a standing rule |
+
+`workspace.exec` already runs without a command allowlist: the workspace folder, and from
+[F08](F08-workspace-sandbox.md) the container, are the boundary for commands; trust covers outside
+effects.
 
 ## Acceptance criteria
 
