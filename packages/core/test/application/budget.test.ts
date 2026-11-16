@@ -3,12 +3,19 @@ import { ManualClock } from '../../src/adapters/clock/SystemClock.js';
 import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { BudgetService } from '../../src/application/budget/BudgetService.js';
+import { BudgetedModelProvider } from '../../src/application/budget/BudgetedModelProvider.js';
 import { estimateRequestCost } from '../../src/application/budget/estimate.js';
+import { MeteredModelProvider } from '../../src/application/models/decorators.js';
 import { ModelCatalog } from '../../src/application/models/ModelCatalog.js';
 import { BudgetExceeded } from '../../src/domain/errors.js';
 import { asId, type OwnerId } from '../../src/domain/model/ids.js';
 import { Money } from '../../src/domain/model/Money.js';
-import type { ModelRequest } from '../../src/ports/ModelProvider.js';
+import type {
+  ModelProvider,
+  ModelRequest,
+  ModelStreamEvent,
+} from '../../src/ports/ModelProvider.js';
+import { ScriptedProvider } from '../helpers.js';
 
 const OWNER = asId<OwnerId>('owner');
 const clock = new ManualClock('2026-03-15T12:00:00.000Z');
@@ -137,5 +144,123 @@ describe('estimateRequestCost (S27)', () => {
     const request: ModelRequest = { model: 'm', messages: [] };
     expect(estimateRequestCost(catalog, 'p/other', request)).toBeUndefined();
     expect(estimateRequestCost(new ModelCatalog(), 'p/m', request)).toBeUndefined();
+  });
+});
+
+/** A provider that reports what it used and then fails before finishing: a dropped connection. */
+class BreakingProvider implements ModelProvider {
+  readonly id = 'breaking';
+  async *stream(): AsyncIterable<ModelStreamEvent> {
+    yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } };
+    throw new Error('connection lost');
+  }
+  async listModels() {
+    return [];
+  }
+}
+
+const pricedCatalog = (withPrice = true) =>
+  new ModelCatalog([
+    {
+      ref: 'scripted/m',
+      maxOutput: 100,
+      ...(withPrice && { price: { inputPerMTok: Money.of(1), outputPerMTok: Money.of(2) } }),
+    },
+  ]);
+
+const requestFor = (background: boolean): ModelRequest => ({
+  model: 'm',
+  system: 'x'.repeat(300),
+  messages: [{ role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+  maxOutputTokens: 100,
+  metadata: { turnId: 't1', sessionId: 's1', background },
+});
+
+async function collect(stream: AsyncIterable<ModelStreamEvent>): Promise<ModelStreamEvent[]> {
+  const events: ModelStreamEvent[] = [];
+  for await (const event of stream) events.push(event);
+  return events;
+}
+
+describe('BudgetedModelProvider (S27)', () => {
+  async function chain(
+    replies: { content?: string }[] = [{ content: 'Hello.' }],
+    limits = { monthly: Money.of(1), background: Money.of(1) },
+  ) {
+    const { repos, budget, log } = await setup(limits);
+    const catalog = pricedCatalog();
+    const raw = new ScriptedProvider(replies, 'scripted');
+    const metered = new MeteredModelProvider(raw, {
+      ownerId: OWNER,
+      usage: repos.usage,
+      catalog,
+      clock,
+      log,
+    });
+    return {
+      provider: new BudgetedModelProvider(metered, { budget, catalog }),
+      raw,
+      repos,
+      budget,
+    };
+  }
+
+  it('holds before the request and settles with what the usage row cost', async () => {
+    const { provider, repos, budget } = await chain();
+
+    const events = await collect(provider.stream(requestFor(false)));
+
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+    const rows = await repos.usage.listSince(OWNER, new Date(0));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ background: false, sessionId: 's1' });
+    expect(rows[0]!.cost!.micros).toBe(20);
+    expect((await budget.spentThisMonth()).micros).toBe(20);
+    expect((await repos.budget.heldSince(OWNER, new Date(0), 'USD')).isZero()).toBe(true);
+  });
+
+  it('releases the hold when the request fails before it finishes', async () => {
+    const { repos, budget, log } = await setup();
+    const catalog = pricedCatalog();
+    const provider = new BudgetedModelProvider(new BreakingProvider(), { budget, catalog });
+
+    await expect(collect(provider.stream(requestFor(false)))).rejects.toThrow('connection lost');
+
+    expect((await budget.spentThisMonth()).isZero()).toBe(true);
+    expect((await repos.budget.heldSince(OWNER, new Date(0), 'USD')).isZero()).toBe(true);
+    expect(log.records.some((r) => r.level === 'error')).toBe(false); // releasing is routine
+  });
+
+  it('refuses background work before the provider is called', async () => {
+    const { provider, raw } = await chain([{ content: 'Hello.' }], {
+      monthly: Money.of(0.000001),
+      background: Money.of(0.000001),
+    });
+
+    await expect(collect(provider.stream(requestFor(true)))).rejects.toBeInstanceOf(BudgetExceeded);
+    expect(raw.requests).toHaveLength(0);
+
+    // The same limit does not stop your own message.
+    await expect(collect(provider.stream(requestFor(false)))).resolves.toHaveLength(3);
+    expect(raw.requests).toHaveLength(1);
+  });
+
+  it('refuses an unpriced background call before the provider is called', async () => {
+    const { repos, budget, log } = await setup();
+    const catalog = pricedCatalog(false);
+    const raw = new ScriptedProvider([{ content: 'Hello.' }], 'scripted');
+    const provider = new BudgetedModelProvider(
+      new MeteredModelProvider(raw, {
+        ownerId: OWNER,
+        usage: repos.usage,
+        catalog,
+        clock,
+        log,
+      }),
+      { budget, catalog },
+    );
+
+    await expect(collect(provider.stream(requestFor(true)))).rejects.toThrow(/no known price/);
+    expect(raw.requests).toHaveLength(0);
   });
 });
