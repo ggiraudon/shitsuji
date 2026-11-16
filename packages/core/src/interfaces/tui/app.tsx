@@ -22,7 +22,15 @@ export interface Line {
 /** The parts of ApiClient the TUI uses (a fake one is enough for tests). */
 export type TuiClient = Pick<
   ApiClient,
-  'history' | 'send' | 'stop' | 'newSession' | 'events' | 'soul' | 'applySoul'
+  | 'history'
+  | 'send'
+  | 'stop'
+  | 'newSession'
+  | 'events'
+  | 'soul'
+  | 'applySoul'
+  | 'usage'
+  | 'activity'
 >;
 
 let counter = 0;
@@ -139,8 +147,41 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
       if (text === '/help') {
         return add(
           'note',
-          'Enter: send (also while working). Esc: stop. /new: new conversation. /soul: the standing instructions. /exit: quit.',
+          'Enter: send (also while working). Esc: stop. /new: new conversation. /soul: the standing instructions. /usage: what it cost. /activity: recent tool calls. /exit: quit.',
         );
+      }
+      if (text === '/usage') {
+        try {
+          const usage = await client.usage();
+          add(
+            'note',
+            `${usage.calls} model calls since ${usage.since.slice(0, 10)}: ${usage.inputTokens} in, ` +
+              `${usage.outputTokens} out, ${formatMoney(usage.cost)}.`,
+          );
+        } catch (error) {
+          add('error', (error as Error).message);
+        }
+        return;
+      }
+      if (text === '/activity') {
+        try {
+          const { receipts } = await client.activity(10);
+          if (!receipts.length) {
+            add('note', 'No tool calls yet.');
+            return;
+          }
+          for (const receipt of receipts) {
+            const took = receipt.durationMs === undefined ? '' : ` in ${receipt.durationMs} ms`;
+            add(
+              'note',
+              `${receipt.tool} (${receipt.effect ?? '?'} / ${receipt.target ?? '?'}) → ` +
+                `${receipt.outcome}${took} — ${receipt.allowedBy?.kind ?? 'unknown'}`,
+            );
+          }
+        } catch (error) {
+          add('error', (error as Error).message);
+        }
+        return;
       }
       if (text === '/soul') {
         try {
@@ -234,6 +275,10 @@ const prefix = (kind: Line['kind']) =>
 
 /** The first lines of a proposed SOUL, so the TUI shows the gist rather than the whole file. */
 const preview = (text: string) => text.split('\n').slice(0, 8).join('\n').slice(0, 600);
+
+/** A cost as the TUI shows it; unknown prices stay unknown. */
+const formatMoney = (cost: { micros: number; currency: string } | null) =>
+  cost ? `${(cost.micros / 1_000_000).toFixed(4)} ${cost.currency}` : 'cost unknown';
 const lineColor = (kind: Line['kind']) =>
   kind === 'owner'
     ? colors.accent

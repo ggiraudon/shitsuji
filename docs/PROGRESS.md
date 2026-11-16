@@ -54,7 +54,7 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 
 - [x] **S27** Budget service and spending limits
 - [x] **S28** The check-in limit
-- [ ] **S29** Activity log with receipts
+- [x] **S29** Activity log with receipts
 - [ ] **S30** ChannelAdapter port and registry
 - [ ] **S31** Channel gateway, pairing and commands
 - [ ] **S32** Telegram adapter

@@ -31,7 +31,8 @@ Telegram, the web UI and the sandbox come next. The plan and progress are in [do
 
    Enter sends (also while it works, to add to the current request), Esc stops the current turn,
    `/new` starts a new conversation, `/soul` shows the standing instructions' revision and any waiting
-   edit (`/soul apply` keeps it), `/exit` quits.
+   edit (`/soul apply` keeps it), `/usage` shows spending, `/activity` shows recent tool calls, `/exit`
+   quits.
 
 ## Development
 

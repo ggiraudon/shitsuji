@@ -1,9 +1,11 @@
 import type {
+  ActivityResponse,
   LiveEvent,
   MessageDto,
   PostMessageResponse,
   SoulDto,
   TurnDto,
+  UsageDto,
 } from '../http/contract.js';
 
 export class ApiError extends Error {
@@ -79,6 +81,16 @@ export class ApiClient {
   async applySoul(hash: string): Promise<number> {
     return (await this.request<{ revision: number }>('POST', '/api/soul/confirm', { hash }))
       .revision;
+  }
+
+  /** Spending so far, from the usage ledger (S29). */
+  usage(): Promise<UsageDto> {
+    return this.request('GET', '/api/usage');
+  }
+
+  /** Recent tool receipts, newest first (S29). */
+  activity(limit = 10): Promise<ActivityResponse> {
+    return this.request('GET', `/api/activity?limit=${limit}`);
   }
 
   /**
