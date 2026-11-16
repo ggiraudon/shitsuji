@@ -135,7 +135,7 @@ describe('ToolPipeline', () => {
     expect(reasons).toEqual(['failed', 'failed', 'failed', 'failed', 'repeated_failure']);
   });
 
-  it('refuses effects that need the judge or approvals, which arrive in S35 and S36 (F11)', async () => {
+  it('refuses a judgement when the graph has no judge, and a payment until S36 (F11)', async () => {
     const send = new FakeTool('mail.send', 'external');
     const pay = new FakeTool('shop.pay', 'payment');
     const { call } = setup([send, pay]);
@@ -144,7 +144,7 @@ describe('ToolPipeline', () => {
     const approved = await call('shop.pay', { n: 1 });
 
     expect(judged).toMatchObject({ kind: 'error', reason: 'denied' });
-    expect(judged.content).toMatch(/trust judgement.*S35/);
+    expect(judged.content).toMatch(/No trust judge is configured/);
     expect(approved).toMatchObject({ kind: 'error', reason: 'denied' });
     expect(approved.content).toMatch(/owner's approval.*S36/);
     expect(send.runs + pay.runs).toBe(0);
@@ -197,7 +197,7 @@ describe('ToolPipeline', () => {
       effect: 'external',
       allowedBy: { kind: 'none' },
     });
-    expect(events[1]!.data.deniedBecause).toMatch(/trust judgement.*S35/);
+    expect(events[1]!.data.deniedBecause).toMatch(/No trust judge is configured/);
   });
 
   it('refuses a call a standing rule forbids, and records the rule (S34)', async () => {

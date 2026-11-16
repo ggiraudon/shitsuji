@@ -579,10 +579,15 @@ classDiagram
   direction LR
   class TrustService {
     <<facade>>
-    +check(action, authority) Decision
+    +decide(action, check) Decision
   }
+  class AuthoritySource {
+    <<interface>>
+    +forTurn(check) Authority
+  }
+  class SessionAuthority
   class AuthorityResolver {
-    +forTurn(turn) Authority
+    +resolve(sources) Authority
   }
   class PolicyEngine {
     +decide(action, rules) Decision
@@ -628,12 +633,14 @@ classDiagram
     separate container
   }
 
-  TrustService --> AuthorityResolver
+  TrustService --> AuthoritySource
+  AuthoritySource <|.. SessionAuthority
+  SessionAuthority --> AuthorityResolver
   TrustService --> PolicyEngine
   TrustService --> TrustJudge
   TrustService --> ApprovalService
   TrustService ..> Decision
-  TrustJudge --> QuoteVerifier
+  TrustService --> QuoteVerifier
   TrustJudge --> ModelRouter : purpose trust
   ApprovalService --> ActionRequest
   SecretStore <|.. PostgresSecretStore
