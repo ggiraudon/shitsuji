@@ -2,6 +2,7 @@ import type {
   ActivityResponse,
   LiveEvent,
   MessageDto,
+  PairResponse,
   PostMessageResponse,
   SoulDto,
   TurnDto,
@@ -91,6 +92,11 @@ export class ApiClient {
   /** Recent tool receipts, newest first (S29). */
   activity(limit = 10): Promise<ActivityResponse> {
     return this.request('GET', `/api/activity?limit=${limit}`);
+  }
+
+  /** A code that pairs a chat with you (S31). */
+  pair(): Promise<PairResponse> {
+    return this.request('POST', '/api/pair');
   }
 
   /**
