@@ -86,6 +86,7 @@ export interface UsageTable {
   id: Generated<string>;
   owner_id: string;
   turn_id: string | null;
+  session_id: string | null;
   purpose: string | null;
   provider: string;
   model: string;
@@ -93,6 +94,7 @@ export interface UsageTable {
   output_tokens: number;
   cached_input_tokens: number | null;
   reasoning_tokens: number | null;
+  background: Generated<boolean>;
   cost_micros: ColumnType<string | null, number | null, number | null>; // bigint comes back as a string
   currency: string | null;
   at: Timestamp;

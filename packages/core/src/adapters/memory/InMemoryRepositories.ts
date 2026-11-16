@@ -225,7 +225,14 @@ export class InMemoryRepositories implements Repositories {
   readonly usage: UsageRepository = {
     append: async (r) => {
       const { cost, ...rest } = r;
-      this.state.usage.push(copy({ ...rest, costMicros: cost?.micros, currency: cost?.currency }));
+      this.state.usage.push(
+        copy({
+          ...rest,
+          background: r.background ?? false,
+          costMicros: cost?.micros,
+          currency: cost?.currency,
+        }),
+      );
     },
     listSince: async (ownerId, since) =>
       this.state.usage

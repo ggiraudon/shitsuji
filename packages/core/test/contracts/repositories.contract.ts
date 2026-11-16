@@ -246,6 +246,7 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       await repos.usage.append({
         ownerId: owner,
         turnId: t.id,
+        sessionId: session.id,
         purpose: 'chat',
         provider: 'deepseek',
         model: 'deepseek-flash',
@@ -253,6 +254,7 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
         outputTokens: 80,
         cachedInputTokens: 1000,
         reasoningTokens: 20,
+        background: true,
         cost: Money.fromMicros(345, 'USD'),
         at: at(71),
       });
@@ -266,10 +268,17 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       });
       const rows = await repos.usage.listSince(owner, at(71));
       expect(rows).toHaveLength(2);
-      expect(rows[0]).toMatchObject({ turnId: t.id, purpose: 'chat', cachedInputTokens: 1000 });
+      expect(rows[0]).toMatchObject({
+        turnId: t.id,
+        sessionId: session.id,
+        purpose: 'chat',
+        cachedInputTokens: 1000,
+        background: true,
+      });
       expect(rows[0]!.cost!.micros).toBe(345);
       expect(rows[0]!.at).toEqual(at(71));
       expect(rows[1]!.cost).toBeUndefined();
+      expect(rows[1]!.background).toBe(false);
       expect(await repos.usage.listSince(owner, at(72))).toHaveLength(1);
     });
 

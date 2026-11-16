@@ -76,6 +76,11 @@ export class Turn {
     return TERMINAL_TURN_STATUSES.includes(this.props.status);
   }
 
+  /** True when no owner message started this turn: tasks, schedules and events (F22). */
+  get isBackground(): boolean {
+    return this.props.source !== 'user' && this.props.source !== 'resume';
+  }
+
   /** Fixes the SOUL revision for this turn; a revision confirmed later waits for the next turn. */
   useSoul(revision: number): void {
     this.props.soulRevision = revision;

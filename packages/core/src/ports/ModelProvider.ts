@@ -22,7 +22,13 @@ export interface ModelRequest {
   temperature?: number;
   maxOutputTokens?: number;
   /** Who is asking, for metering and logs. Adapters ignore it. */
-  metadata?: { purpose?: string; turnId?: string };
+  metadata?: {
+    purpose?: string;
+    turnId?: string;
+    sessionId?: string;
+    /** True when no owner message started this work (tasks, schedules, events). */
+    background?: boolean;
+  };
 }
 
 export interface TokenUsage {

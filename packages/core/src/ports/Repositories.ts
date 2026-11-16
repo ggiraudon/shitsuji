@@ -98,6 +98,7 @@ export interface TurnEventRepository {
 export interface UsageRecord {
   ownerId: OwnerId;
   turnId?: TurnId;
+  sessionId?: SessionId;
   purpose?: string;
   provider: string;
   model: string;
@@ -105,6 +106,8 @@ export interface UsageRecord {
   outputTokens: number;
   cachedInputTokens?: number;
   reasoningTokens?: number;
+  /** True when no owner message started the work that caused this request. */
+  background?: boolean;
   /** Undefined when the model has no configured price. */
   cost?: Money;
   at: Date;

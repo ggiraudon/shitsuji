@@ -529,6 +529,7 @@ function usageRepository(ex: (tx?: Transaction) => Kysely<Database>): UsageRepos
         .values({
           owner_id: r.ownerId,
           turn_id: r.turnId ?? null,
+          session_id: r.sessionId ?? null,
           purpose: r.purpose ?? null,
           provider: r.provider,
           model: r.model,
@@ -536,6 +537,7 @@ function usageRepository(ex: (tx?: Transaction) => Kysely<Database>): UsageRepos
           output_tokens: r.outputTokens,
           cached_input_tokens: r.cachedInputTokens ?? null,
           reasoning_tokens: r.reasoningTokens ?? null,
+          background: r.background ?? false,
           cost_micros: r.cost?.micros ?? null,
           currency: r.cost?.currency ?? null,
           at: r.at,
@@ -562,9 +564,11 @@ function usageRepository(ex: (tx?: Transaction) => Kysely<Database>): UsageRepos
           at: row.at,
         };
         if (row.turn_id !== null) record.turnId = row.turn_id as TurnId;
+        if (row.session_id !== null) record.sessionId = row.session_id as SessionId;
         if (row.purpose !== null) record.purpose = row.purpose;
         if (row.cached_input_tokens !== null) record.cachedInputTokens = row.cached_input_tokens;
         if (row.reasoning_tokens !== null) record.reasoningTokens = row.reasoning_tokens;
+        record.background = row.background;
         if (row.cost_micros !== null) {
           record.cost = Money.fromMicros(Number(row.cost_micros), row.currency ?? 'USD');
         }
