@@ -55,7 +55,7 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 - [x] **S27** Budget service and spending limits
 - [x] **S28** The check-in limit
 - [x] **S29** Activity log with receipts
-- [ ] **S30** ChannelAdapter port and registry
+- [x] **S30** ChannelAdapter port and registry
 - [ ] **S31** Channel gateway, pairing and commands
 - [ ] **S32** Telegram adapter
 - [ ] **S33** Telegram files
@@ -114,7 +114,8 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 
 - [ ] Pair Telegram from the web UI; chat; approve an action with a button; get a file back.
 - [ ] A message from an unpaired Telegram chat starts no turn.
-- [ ] Adding a new channel needs one adapter class and a plugin manifest, no change to the core.
+- [x] Adding a new channel needs one adapter class and a plugin manifest, no change to the core.
+      *(S30: the core looks channels up by id in the registry; the contract tests say what an adapter must do.)*
 
 ### [F07 — Web UI](features/F07-web-ui.md)
 

@@ -44,7 +44,8 @@ These are concrete problems, not style notes. Each is fixed by the feature named
    sends arguments in pieces. Streaming also drops the tool-call mapping that `complete()` has. [F03]
 4. ~~**No loop limit.**~~ *(fixed in S8: a step limit per turn; the repeated-failure check comes with F04)* `runLoop` has no maximum number of steps and no repeated-failure check, so a model that
    keeps calling tools never stops. [F04]
-5. **Webhook replies go nowhere.** `WebhookChannel.send` only prints to the console. [F06]
+5. ~~**Webhook replies go nowhere.**~~ *(fixed in S30: the POST answers with the turn's reply, or 202 when
+   it takes too long)* [F06]
 6. ~~**The shell tool runs on the host, and its allowlist can be bypassed.**~~ *(contained in S17: no shell, confined to the workspace folder; fixed by F08)* The check is
    `cmd.startsWith('ls')`, so `ls; rm -rf ~` passes, and `node` / `npm` / `git` are allowed outright. [F05, F08]
 7. ~~**File tools can read and write anywhere**~~ *(contained in S17: confined to the workspace folder; F08 moves them into the sandbox)* the process can (`resolve(path)` with no root). [F05, F08]

@@ -13,9 +13,11 @@ supports. The first new adapter is **Telegram**.
 
 ## Where Shitsuji is today
 
-`Channel` has `start`, `stop`, `send(destination, text)` and `onMessage`. `ChannelManager` builds channels with
-a hard-coded `switch`. Replies are plain strings; the webhook channel's `send` only prints
-([bug 5](../00-current-state.md#bugs-and-gaps-found)). Each channel is wired to the agent by hand in `index.ts`.
+Until S30, `Channel` had `start`, `stop`, `send(destination, text)` and `onMessage`, replies were plain strings,
+and the webhook channel's `send` only printed ([bug 5](../00-current-state.md#bugs-and-gaps-found)). S30
+replaced that with the rich `ChannelAdapter` port and a `MessageRenderer`: the webhook answers its POST with
+the turn's reply, the API hands its messages over as `InboundMessage` (its replies still travel on
+`/api/events`), and plugins fill a `ChannelRegistry`. The gateway, pairing and Telegram follow in S31–S33.
 
 ## Inspiration
 
@@ -110,10 +112,10 @@ class ChannelGateway implements InboundSink {
 
 | File | Change |
 |------|--------|
-| `channels/base.ts` | → `ports/ChannelAdapter.ts` (richer); `BaseChannel` becomes `BaseChannelAdapter` (template method for start/stop/errors) |
-| `channels/index.ts` | `ChannelManager` → `ChannelRegistry` filled by plugins |
-| `channels/CLIChannel.ts` | Kept as an adapter, renders choices and approvals as numbered prompts |
-| `channels/WebhookChannel.ts` | Becomes an inbound trigger for [F16](F16-scheduler-and-routines.md), with signed requests and a real response path |
+| `channels/base.ts` | → `ports/ChannelAdapter.ts` (richer); `BaseChannel` becomes `BaseChannelAdapter` (template method for start/stop) |
+| `channels/index.ts` | `ChannelManager` → `ChannelRegistry` filled by plugins (S30) |
+| `channels/CLIChannel.ts` | Removed with decision Q4; the TUI is the terminal interface |
+| `channels/WebhookChannel.ts` | `adapters/channels/WebhookChannelAdapter.ts`: answers its POST with the reply now; signed requests and a real trigger for [F16](F16-scheduler-and-routines.md) come later |
 
 ## Acceptance criteria
 
