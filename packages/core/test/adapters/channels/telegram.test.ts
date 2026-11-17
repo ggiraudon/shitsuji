@@ -127,6 +127,7 @@ describe('TelegramChannelAdapter (S32)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 5,
       text: '/start ABCD2345',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -184,6 +185,7 @@ describe('TelegramChannelAdapter: attachments (S33)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 7,
       text: 'Here is the report.',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -212,6 +214,7 @@ describe('TelegramChannelAdapter: attachments (S33)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 8,
       text: 'Look at this',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -237,6 +240,7 @@ describe('TelegramChannelAdapter: attachments (S33)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 9,
       text: '',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -261,6 +265,7 @@ describe('TelegramChannelAdapter: attachments (S33)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 10,
       text: 'The report is attached.',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -327,5 +332,38 @@ describe('TelegramChannelAdapter: files sent back (S33)', () => {
     expect(receipt.delivered).toBe(true);
     expect(transport.sent).toEqual([{ chatId: '42', html: 'The file is gone.' }]);
     expect(transport.documents).toEqual([]);
+  });
+});
+
+describe('TelegramChannelAdapter: private chats only (#38)', () => {
+  it('ignores a group message, so it downloads nothing and starts no turn', async () => {
+    const { transport, received } = await setupFiles();
+
+    transport.receive({
+      chatId: '-1001234567890',
+      chatType: 'group',
+      messageId: 11,
+      text: 'hello bot',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+      attachment: {
+        kind: 'document',
+        fileId: 'group-file',
+        name: 'from-group.pdf',
+        mediaType: 'application/pdf',
+      },
+    });
+    transport.receive({
+      chatId: '42',
+      chatType: 'private',
+      messageId: 12,
+      text: 'Hello from the owner',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+
+    await until(() => received.length === 1);
+
+    expect(received[0]).toMatchObject({ chatId: '42', text: 'Hello from the owner' });
+    expect(transport.downloads).toEqual([]);
+    expect(transport.sent).toEqual([]);
   });
 });

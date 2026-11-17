@@ -126,6 +126,13 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
 
   private async onMessage(message: TelegramIncoming): Promise<void> {
     if (!this.sink) return;
+    // Pairing binds a chat; on Telegram a group would let every member act as the owner (F06, #38).
+    if (message.chatType !== 'private') {
+      this.log.debug('Ignoring a Telegram message from a non-private chat', {
+        chatType: message.chatType,
+      });
+      return;
+    }
     try {
       if (message.attachment?.kind === 'voice') {
         // Keep the file for F23, but do not start a turn the agent cannot hear.

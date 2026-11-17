@@ -103,7 +103,8 @@ class ChannelGateway implements InboundSink {
 
 - **Binding and pairing.** A new Telegram chat must be paired once: the web UI shows a code, you send
   `/start <code>` to the bot. Messages from unpaired chats are ignored. This is the access control for chat
-  channels.
+  channels. Only **private** chats are accepted: a group or channel message is dropped by the Telegram
+  adapter, because pairing a chat would otherwise let every member act as the owner (#38).
 - **Reply routing.** A reply to a task's message goes to that task's session; anything else goes to the main
   chat session ([F15](F15-tasks-and-subagents.md)).
 - **Attachments** are stored in `<dataDir>/handoff` (decision T2) and the turn is told the absolute paths.

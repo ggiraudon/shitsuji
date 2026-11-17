@@ -4,6 +4,8 @@ import type { Logger } from '../../ports/Logger.js';
 /** A text message as the adapter needs it, independent of grammY's update types. */
 export interface TelegramIncoming {
   chatId: string;
+  /** `private`, `group`, `supergroup` or `channel`; the adapter accepts only private chats. */
+  chatType: string;
   messageId: number;
   text: string;
   receivedAt: Date;
@@ -172,11 +174,12 @@ export class GrammyTelegramTransport implements TelegramTransport {
 
 /** The parts every message update shares. */
 function baseOf(
-  ctx: { chat: { id: number }; message: { message_id: number; date: number } },
+  ctx: { chat: { id: number; type: string }; message: { message_id: number; date: number } },
   text: string,
 ): TelegramIncoming {
   return {
     chatId: String(ctx.chat.id),
+    chatType: ctx.chat.type,
     messageId: ctx.message.message_id,
     text,
     receivedAt: new Date(ctx.message.date * 1000),

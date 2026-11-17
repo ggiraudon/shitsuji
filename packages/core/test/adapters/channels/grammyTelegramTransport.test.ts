@@ -136,10 +136,25 @@ describe('GrammyTelegramTransport (S32)', () => {
 
     expect(received[0]).toMatchObject({
       chatId: '42',
+      chatType: 'private',
       messageId: 5,
       text: '/start ABCD2345',
     });
     expect(received[0]!.receivedAt).toEqual(new Date(1767225600 * 1000));
+  });
+
+  it('carries the chat type, so a group can be ignored (#38)', async () => {
+    const { transport, bot } = setup();
+    const received: TelegramIncoming[] = [];
+    transport.register((message) => received.push(message));
+
+    await bot.handleUpdate(fixture('update-group.json'));
+
+    expect(received[0]).toMatchObject({
+      chatId: '-1001234567890',
+      chatType: 'group',
+      text: 'hello bot',
+    });
   });
 
   it('downloads a file the owner sent', async () => {
