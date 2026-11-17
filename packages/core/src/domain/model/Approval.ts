@@ -75,6 +75,9 @@ export class Approval {
   get turnId(): TurnId {
     return this.props.turnId;
   }
+  get sessionId(): SessionId {
+    return this.props.sessionId;
+  }
   get tool(): string {
     return this.props.tool;
   }

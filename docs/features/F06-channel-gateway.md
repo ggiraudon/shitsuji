@@ -128,6 +128,8 @@ buttons, task routing and attachments wait for F11 and S33.
   rules never cross (a link's label is rendered inside the anchor), and if Telegram still refuses a
   chunk's HTML, the same chunk is resent as plain text, so odd Markdown never loses a reply (#41).
 - Inline keyboards for approvals and choices; callback data carries only an opaque ID.
+  *(S37: an approval card's buttons call back `y:<id>` / `n:<id>`, so the data names only the decision
+  and the approval, never the action; a typed yes or no is read on its own by the trust model.)*
 - Progress: one "working…" message edited in place, removed when the turn ends.
 - Files: documents, photos and voice notes are downloaded into the handoff folder; sent files go back as
   documents. Voice notes are stored for [F23](F23-voice.md), which answers that it cannot listen yet.

@@ -12,7 +12,7 @@ import type {
 import { BaseChannelAdapter } from '../../ports/ChannelAdapter.js';
 import type { HandoffStore } from '../files/HandoffStore.js';
 import type { TelegramIncoming, TelegramTransport } from './TelegramTransport.js';
-import { TelegramRenderer } from './TelegramRenderer.js';
+import { escapeHtml, TelegramRenderer } from './TelegramRenderer.js';
 
 export interface TelegramAdapterOptions {
   /** Where attachments are stored; without it, files are skipped with a warning. */
@@ -30,7 +30,7 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
   override readonly requiresPairing = true;
   readonly capabilities: ChannelCapabilities = {
     markdown: 'full',
-    buttons: false,
+    buttons: true,
     files: true,
     images: false,
     voice: false,
@@ -69,9 +69,12 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
     const files = message.parts.filter(
       (part): part is Extract<OutboundPart, { kind: 'file' }> => part.kind === 'file',
     );
+    const approvals = message.parts.filter(
+      (part): part is Extract<OutboundPart, { kind: 'approval' }> => part.kind === 'approval',
+    );
     const textMessage: OutboundMessage = {
       ...message,
-      parts: message.parts.filter((part) => part.kind !== 'file'),
+      parts: message.parts.filter((part) => part.kind !== 'file' && part.kind !== 'approval'),
     };
     const { chunks, degraded } = this.renderer.render(textMessage);
     if (degraded.length) {
@@ -80,6 +83,17 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
     let first: number | undefined;
     for (const chunk of chunks) {
       const messageId = await this.transport.sendMessage(target.chatId, chunk.html, chunk.plain);
+      first ??= messageId;
+    }
+    for (const part of approvals) {
+      const messageId = await this.transport.sendApproval(
+        target.chatId,
+        `🔐 <b>Approval needed</b>\n${escapeHtml(part.summary)}`,
+        [
+          { text: part.actionLabel, data: `y:${part.approvalId}` },
+          { text: 'Decline', data: `n:${part.approvalId}` },
+        ],
+      );
       first ??= messageId;
     }
     for (const part of files) {
@@ -134,6 +148,10 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
       return;
     }
     try {
+      if (message.callback) {
+        await this.onCallback(message, message.callback);
+        return;
+      }
       // Ask the gateway before downloading: an unpaired chat must not fill the handoff folder (#44).
       const accepted =
         message.attachment && this.sink.accepts
@@ -167,6 +185,47 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
       this.log.error('Telegram message failed', {
         error: { name: (error as Error)?.name, message: (error as Error)?.message },
       });
+    }
+  }
+
+  /** A button press on an approval card: the gateway answers it, then the card is updated (S37). */
+  private async onCallback(
+    message: TelegramIncoming,
+    callback: NonNullable<TelegramIncoming['callback']>,
+  ): Promise<void> {
+    if (!this.sink) return;
+    try {
+      const result = await this.sink.receive({
+        channel: this.id,
+        chatId: message.chatId,
+        text: '',
+        externalId: String(message.messageId),
+        receivedAt: message.receivedAt,
+        callback: {
+          id: callback.id,
+          data: callback.data,
+          ...(callback.messageId !== undefined && { messageId: String(callback.messageId) }),
+        },
+      });
+      const reason = result.kind === 'replied' ? result.reason : undefined;
+      const approved = reason === 'approved';
+      const declined = reason === 'declined';
+      await this.transport.answerCallback(
+        callback.id,
+        approved ? 'Approved.' : declined ? 'Declined.' : 'This card is no longer open.',
+      );
+      if (callback.messageId !== undefined && (approved || declined)) {
+        await this.transport.editMessage(
+          message.chatId,
+          callback.messageId,
+          approved ? '✅ Approved.' : '❌ Declined.',
+        );
+      }
+    } catch (error) {
+      this.log.error('Telegram button press failed', {
+        error: { name: (error as Error)?.name, message: (error as Error)?.message },
+      });
+      await this.transport.answerCallback(callback.id, 'Something went wrong.').catch(() => {});
     }
   }
 

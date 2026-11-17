@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ManualClock } from '../../src/adapters/clock/SystemClock.js';
+import { InProcessEventBus } from '../../src/adapters/events/InProcessEventBus.js';
 import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import {
@@ -8,14 +9,17 @@ import {
 } from '../../src/application/channels/ChannelGateway.js';
 import { ChannelRegistry } from '../../src/application/channels/ChannelRegistry.js';
 import { PairingService } from '../../src/application/channels/PairingService.js';
+import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
 import type { Submitted } from '../../src/application/runtime/MessageIntake.js';
 import {
   asId,
   newId,
+  type ApprovalId,
   type OwnerId,
   type SessionId,
   type TurnId,
 } from '../../src/domain/model/ids.js';
+import { Approval } from '../../src/domain/model/Approval.js';
 import { Session } from '../../src/domain/model/Session.js';
 import { Turn } from '../../src/domain/model/Turn.js';
 import type {
@@ -32,6 +36,10 @@ async function setup(
     requiresPairing?: boolean;
     stopResult?: boolean;
     newSession?: SessionId;
+    readTypedApproval?: (
+      text: string,
+      approval: Approval,
+    ) => Promise<'approve' | 'decline' | 'unclear'>;
   } = {},
 ) {
   const repos = new InMemoryRepositories();
@@ -69,6 +77,12 @@ async function setup(
     },
   };
   const replies: { channel: string; chatId: string; text: string; intent: OutboundIntent }[] = [];
+  const approvals = new ApprovalService({
+    approvals: repos.approvals,
+    events: new InProcessEventBus(new MemoryLogger(), clock),
+    clock,
+    log: new MemoryLogger(),
+  });
   const gateway = new ChannelGateway({
     agent,
     bindings: repos.bindings,
@@ -79,6 +93,8 @@ async function setup(
     clock,
     log: new MemoryLogger(),
     version: '0.1.0',
+    approvals,
+    ...(options.readTypedApproval && { readTypedApproval: options.readTypedApproval }),
     reply: async (channelId, chatId, text, intent) => {
       replies.push({ channel: channelId, chatId, text, intent });
     },
@@ -91,7 +107,19 @@ async function setup(
       receivedAt: clock.now(),
       ...(attachments && { attachments }),
     } satisfies InboundMessage);
-  return { gateway, channel, receive, submitted, replies, pairing, repos, session, clock, calls };
+  return {
+    gateway,
+    channel,
+    receive,
+    submitted,
+    replies,
+    pairing,
+    repos,
+    session,
+    clock,
+    calls,
+    approvals,
+  };
 }
 
 describe('ChannelGateway: pairing (S31)', () => {
@@ -297,5 +325,128 @@ describe('ChannelGateway: which chats may store files (#44)', () => {
     const { gateway } = await setup({ requiresPairing: false });
 
     expect(await gateway.accepts({ channel: 'test', chatId: 'anyone' })).toBe(true);
+  });
+});
+
+describe('ChannelGateway: approval buttons (S37)', () => {
+  const pending = async (repos: InMemoryRepositories, sessionId: SessionId, id = 'approval-1') => {
+    const approval = Approval.request({
+      id: asId<ApprovalId>(id),
+      ownerId: OWNER,
+      turnId: asId<TurnId>('turn-1'),
+      sessionId,
+      tool: 'test.notify',
+      effect: 'external',
+      target: 'core',
+      actionHash: 'a'.repeat(64),
+      arguments: { text: 'Hello' },
+      summary: 'test.notify (external)',
+      createdAt: new Date('2026-03-01T10:00:00Z'),
+    });
+    await repos.approvals.insert(approval);
+    return approval;
+  };
+
+  const press = (gateway: ChannelGateway, data: string, chatId = 'chat-1') =>
+    gateway.receive({
+      channel: 'test',
+      chatId,
+      text: '',
+      receivedAt: new Date('2026-03-01T10:00:00Z'),
+      callback: { id: 'cb-1', data, messageId: '55' },
+    });
+
+  it('approves with y:<id> and declines with n:<id>, once', async () => {
+    const { gateway, repos, session } = await setup({ requiresPairing: false });
+    await pending(repos, session.id, 'approval-y');
+    await pending(repos, session.id, 'approval-n');
+
+    expect(await press(gateway, 'y:approval-y')).toEqual({ kind: 'replied', reason: 'approved' });
+    // Pressing again is harmless: the card reports the state that won.
+    expect(await press(gateway, 'y:approval-y')).toEqual({
+      kind: 'replied',
+      reason: 'approved',
+    });
+    expect(await press(gateway, 'n:approval-n')).toEqual({ kind: 'replied', reason: 'declined' });
+
+    expect((await repos.approvals.get(asId<ApprovalId>('approval-y')))!.status).toBe('approved');
+    expect((await repos.approvals.get(asId<ApprovalId>('approval-n')))!.status).toBe('declined');
+  });
+
+  it('ignores malformed data and an unknown id', async () => {
+    const { gateway } = await setup({ requiresPairing: false });
+
+    expect(await press(gateway, 'open-everything')).toEqual({
+      kind: 'ignored',
+      reason: 'unknown callback',
+    });
+    expect(await press(gateway, 'y:missing')).toEqual({
+      kind: 'ignored',
+      reason: 'approval not found',
+    });
+  });
+
+  it('ignores a button press from an unpaired chat', async () => {
+    const { gateway, repos, session } = await setup({ requiresPairing: true });
+    await pending(repos, session.id, 'approval-p');
+
+    expect(await press(gateway, 'y:approval-p')).toEqual({ kind: 'ignored', reason: 'unpaired' });
+    expect((await repos.approvals.get(asId<ApprovalId>('approval-p')))!.status).toBe('pending');
+  });
+});
+
+describe('ChannelGateway: typed approval answers (S37)', () => {
+  const seedCard = async (repos: InMemoryRepositories, sessionId: SessionId, id = 'approval-t') => {
+    const approval = Approval.request({
+      id: asId<ApprovalId>(id),
+      ownerId: OWNER,
+      turnId: asId<TurnId>('turn-1'),
+      sessionId,
+      tool: 'test.notify',
+      effect: 'external',
+      target: 'core',
+      actionHash: 'a'.repeat(64),
+      arguments: {},
+      summary: 'test.notify (external)',
+      createdAt: new Date('2026-03-01T10:00:00Z'),
+    });
+    await repos.approvals.insert(approval);
+    return approval;
+  };
+
+  it('treats an unconditional typed yes as an approval', async () => {
+    const { receive, repos, session, replies } = await setup({
+      requiresPairing: false,
+      readTypedApproval: async () => 'approve',
+    });
+    const card = await seedCard(repos, session.id);
+
+    expect(await receive('Yes, go ahead.')).toEqual({ kind: 'replied', reason: 'approved' });
+    expect((await repos.approvals.get(card.id))!.status).toBe('approved');
+    expect(replies.at(-1)!.text).toBe('Approved.');
+  });
+
+  it('does not approve "yes, but to Bob": it becomes an ordinary message', async () => {
+    const { receive, repos, session, submitted } = await setup({
+      requiresPairing: false,
+      readTypedApproval: async () => 'unclear',
+    });
+    const card = await seedCard(repos, session.id);
+
+    const result = await receive('Yes, but send it to Bob instead.');
+
+    expect(result.kind).toBe('turn');
+    expect(submitted[0]!.text).toBe('Yes, but send it to Bob instead.');
+    expect((await repos.approvals.get(card.id))!.status).toBe('pending');
+  });
+
+  it('leaves commands and ordinary messages alone when no card is open', async () => {
+    const { receive, submitted } = await setup({
+      requiresPairing: false,
+      readTypedApproval: async () => 'approve',
+    });
+
+    expect((await receive('Good evening')).kind).toBe('turn');
+    expect(submitted).toHaveLength(1);
   });
 });

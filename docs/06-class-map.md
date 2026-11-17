@@ -598,6 +598,9 @@ classDiagram
   class QuoteVerifier {
     +verify(quote, authority) bool
   }
+  class TypedApprovalReader {
+    +read(text, approval) Answer
+  }
   class ApprovalService {
     +request(action, signal) Approval
     +resolve(id, answer)
@@ -643,6 +646,7 @@ classDiagram
   TrustService ..> Decision
   TrustService --> QuoteVerifier
   TrustJudge --> ModelRouter : purpose trust
+  TypedApprovalReader --> ModelRouter : purpose trust
   ApprovalService --> ActionRequest
   SecretStore <|.. PostgresSecretStore
   SecretBroker --> SecretStore

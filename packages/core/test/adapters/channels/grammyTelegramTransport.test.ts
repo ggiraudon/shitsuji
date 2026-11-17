@@ -266,3 +266,53 @@ describe('GrammyTelegramTransport: HTML rejected (#41)', () => {
     expect(calls.filter((call) => call.url.endsWith('/sendMessage'))).toHaveLength(1);
   });
 });
+
+describe('GrammyTelegramTransport: approval buttons (S37)', () => {
+  it('maps a button press to a callback', async () => {
+    const { transport, bot } = setup();
+    const received: TelegramIncoming[] = [];
+    transport.register((message) => received.push(message));
+
+    await bot.handleUpdate(fixture('update-callback.json'));
+
+    expect(received[0]).toMatchObject({
+      chatId: '42',
+      chatType: 'private',
+      text: '',
+      callback: { id: 'cb-1', data: 'y:approval-1', messageId: 55 },
+    });
+  });
+
+  it('sends two inline buttons whose data is only the decision and the opaque id', async () => {
+    const { transport, calls } = setup();
+
+    const id = await transport.sendApproval('42', 'Approve sending the report?', [
+      { text: 'Approve', data: 'y:approval-1' },
+      { text: 'Decline', data: 'n:approval-1' },
+    ]);
+
+    expect(id).toBe(77);
+    const call = calls.find((c) => c.url.endsWith('/sendMessage'))!;
+    expect(call.body).toMatchObject({
+      chat_id: '42',
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: 'Approve', callback_data: 'y:approval-1' },
+            { text: 'Decline', callback_data: 'n:approval-1' },
+          ],
+        ],
+      },
+    });
+  });
+
+  it('answers a button press so Telegram stops the spinner', async () => {
+    const { transport, calls } = setup();
+
+    await transport.answerCallback('cb-1', 'Approved.');
+
+    const call = calls.find((c) => c.url.endsWith('/answerCallbackQuery'))!;
+    expect(call.body).toMatchObject({ callback_query_id: 'cb-1', text: 'Approved.' });
+  });
+});

@@ -140,6 +140,11 @@ export class ApprovalService {
     return next;
   }
 
+  /** Every pending card, newest first (S37). */
+  async listOpen(): Promise<Approval[]> {
+    return this.deps.approvals.list({ status: 'pending' });
+  }
+
   /**
    * An answer already recorded for this exact action in this turn, if any (F11's fence): asking
    * twice for the same thing in one request would only annoy the owner.

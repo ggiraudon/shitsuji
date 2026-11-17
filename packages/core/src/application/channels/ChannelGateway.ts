@@ -1,5 +1,10 @@
 import type { OwnerId, SessionId } from '../../domain/model/ids.js';
+import { asId, type ApprovalId } from '../../domain/model/ids.js';
+import { NotFound } from '../../domain/errors.js';
 import type { SessionKind } from '../../domain/model/Session.js';
+import type { ApprovalService } from '../trust/ApprovalService.js';
+import type { TypedAnswer } from '../trust/TypedApprovalReader.js';
+import type { Approval } from '../../domain/model/Approval.js';
 import type { ChannelBinding, ChannelBindingStore } from '../../ports/ChannelBindingStore.js';
 import type {
   InboundAttachment,
@@ -35,6 +40,10 @@ export interface ChannelGatewayDeps {
   clock: Clock;
   log: Logger;
   version: string;
+  /** Cards waiting for the owner, answered by a button (S37). */
+  approvals?: ApprovalService;
+  /** Reads a typed reply to an open card; only an unconditional yes approves (S37). */
+  readTypedApproval?: (text: string, approval: Approval) => Promise<TypedAnswer>;
   /** Answers directly through the channel adapter that received the message. */
   reply: (channel: string, chatId: string, text: string, intent: OutboundIntent) => Promise<void>;
 }
@@ -60,12 +69,24 @@ export class ChannelGateway {
   }
 
   async receive(message: InboundMessage): Promise<InboundResult> {
-    const text = withAttachments(message.text.trim(), message.attachments);
-    if (!text) return { kind: 'ignored', reason: 'empty message' };
     const binding = await this.deps.bindings.get(message.channel, message.chatId);
     const adapter = this.deps.channels.get(message.channel);
+    const paired = !adapter?.requiresPairing || Boolean(binding?.verifiedAt);
 
-    if (adapter?.requiresPairing && !binding?.verifiedAt) {
+    if (message.callback) {
+      if (!paired) {
+        this.deps.log.warn('Ignoring a button press from an unpaired chat', {
+          channel: message.channel,
+        });
+        return { kind: 'ignored', reason: 'unpaired' };
+      }
+      return this.callback(message);
+    }
+
+    const text = withAttachments(message.text.trim(), message.attachments);
+    if (!text) return { kind: 'ignored', reason: 'empty message' };
+
+    if (!paired) {
       if (/^\/start(\s|$)/i.test(text)) return this.pair(message, text);
       this.deps.log.warn('Ignoring a message from an unpaired chat', {
         channel: message.channel,
@@ -76,12 +97,61 @@ export class ChannelGateway {
     const command = commandOf(text);
     if (command) return this.command(message, command, binding);
 
+    // A typed answer to an open card is read on its own; anything but an unconditional yes or no
+    // falls through as an ordinary message (S37).
+    const typed = await this.typedAnswer(message, text, binding);
+    if (typed) return typed;
+
     const submitted = await this.deps.agent.submit(text, {
       ...(binding?.sessionId && { sessionId: binding.sessionId }),
       channel: message.channel,
       replyChannel: `${message.channel}:${message.chatId}`,
     });
     return { kind: 'turn', ...submitted };
+  }
+
+  /** A typed yes or no for the chat's open card; anything else is not an approval (S37). */
+  private async typedAnswer(
+    message: InboundMessage,
+    text: string,
+    binding: ChannelBinding | undefined,
+  ): Promise<InboundResult | undefined> {
+    if (!this.deps.approvals || !this.deps.readTypedApproval) return undefined;
+    const pending = await this.pendingFor(binding);
+    if (!pending) return undefined;
+    const answer = await this.deps.readTypedApproval(text, pending);
+    if (answer === 'unclear') return undefined;
+    await this.deps.approvals.resolve(pending.id, answer);
+    await this.answer(message, answer === 'approve' ? 'Approved.' : 'Declined.', 'final');
+    return { kind: 'replied', reason: answer === 'approve' ? 'approved' : 'declined' };
+  }
+
+  /** The newest open card for this chat's session; with one session, any pending card will do. */
+  private async pendingFor(binding: ChannelBinding | undefined): Promise<Approval | undefined> {
+    if (!this.deps.approvals) return undefined;
+    const open = await this.deps.approvals.listOpen();
+    const mine = binding?.sessionId ? open.filter((a) => a.sessionId === binding.sessionId) : open;
+    return mine[0];
+  }
+
+  /** A button press on an approval card: `y:<id>` or `n:<id>` (S37). */
+  private async callback(message: InboundMessage): Promise<InboundResult> {
+    const match = /^([yn]):([A-Za-z0-9_-]{1,64})$/.exec(message.callback?.data ?? '');
+    if (!match || !this.deps.approvals) {
+      return { kind: 'ignored', reason: 'unknown callback' };
+    }
+    try {
+      const approval = await this.deps.approvals.resolve(
+        asId<ApprovalId>(match[2]!),
+        match[1] === 'y' ? 'approve' : 'decline',
+      );
+      if (approval.status === 'approved') return { kind: 'replied', reason: 'approved' };
+      if (approval.status === 'declined') return { kind: 'replied', reason: 'declined' };
+      return { kind: 'ignored', reason: 'approval not open' };
+    } catch (error) {
+      if (error instanceof NotFound) return { kind: 'ignored', reason: 'approval not found' };
+      throw error;
+    }
   }
 
   /** `/stop`, `/status`, `/new` and `/new confirm` answered here, without a model call. */

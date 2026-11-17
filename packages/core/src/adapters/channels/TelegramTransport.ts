@@ -11,6 +11,22 @@ export interface TelegramIncoming {
   receivedAt: Date;
   /** A document, photo or voice note, downloaded when the adapter stores it. */
   attachment?: TelegramAttachment;
+  /** A button press on an approval card (S37). */
+  callback?: TelegramCallback;
+}
+
+/** A press on an inline keyboard button; `data` is an opaque approval id plus the decision. */
+export interface TelegramCallback {
+  /** Telegram's callback id, for the answerCallbackQuery toast. */
+  id: string;
+  data: string;
+  /** The card's message id, so it can be edited once answered. */
+  messageId?: number;
+}
+
+export interface TelegramButton {
+  text: string;
+  data: string;
 }
 
 export interface TelegramAttachment {
@@ -36,6 +52,10 @@ export interface TelegramTransport {
   editMessage(chatId: string, messageId: number, html: string): Promise<void>;
   deleteMessage(chatId: string, messageId: number): Promise<void>;
   sendTyping(chatId: string): Promise<void>;
+  /** Sends a card with inline buttons; an approval's data is `y:<id>` or `n:<id>` (S37). */
+  sendApproval(chatId: string, html: string, buttons: readonly TelegramButton[]): Promise<number>;
+  /** Answers a button press with a short toast, so Telegram stops the spinner. */
+  answerCallback(callbackId: string, text: string): Promise<void>;
   /** Downloads a file the owner sent. */
   downloadFile(fileId: string): Promise<Uint8Array>;
   /** Sends a file as a Telegram document and returns its Telegram id. */
@@ -107,13 +127,30 @@ export class GrammyTelegramTransport implements TelegramTransport {
         },
       });
     });
+    this.bot.on('callback_query:data', (ctx) => {
+      const callback = ctx.callbackQuery;
+      const card = callback.message;
+      if (!card) return;
+      onMessage({
+        chatId: String(card.chat.id),
+        chatType: card.chat.type,
+        messageId: card.message_id,
+        text: '',
+        receivedAt: new Date(card.date * 1000),
+        callback: {
+          id: callback.id,
+          data: callback.data,
+          messageId: card.message_id,
+        },
+      });
+    });
   }
 
   async start(onMessage: (message: TelegramIncoming) => void): Promise<void> {
     this.register(onMessage);
     await new Promise<void>((resolve, reject) => {
       this.running = this.bot.start({
-        allowed_updates: ['message'],
+        allowed_updates: ['message', 'callback_query'],
         onStart: () => resolve(),
       });
       this.running.catch(reject);
@@ -159,6 +196,27 @@ export class GrammyTelegramTransport implements TelegramTransport {
 
   async sendTyping(chatId: string): Promise<void> {
     await this.bot.api.sendChatAction(chatId, 'typing');
+  }
+
+  async sendApproval(
+    chatId: string,
+    html: string,
+    buttons: readonly TelegramButton[],
+  ): Promise<number> {
+    const message = await this.bot.api.sendMessage(chatId, html, {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+      reply_markup: {
+        inline_keyboard: [
+          buttons.map((button) => ({ text: button.text, callback_data: button.data })),
+        ],
+      },
+    });
+    return message.message_id;
+  }
+
+  async answerCallback(callbackId: string, text: string): Promise<void> {
+    await this.bot.api.answerCallbackQuery(callbackId, { text });
   }
 
   async downloadFile(fileId: string): Promise<Uint8Array> {

@@ -20,6 +20,13 @@ class FakeTelegram implements TelegramTransport {
   readonly typed: string[] = [];
   readonly downloads: string[] = [];
   readonly documents: { chatId: string; name: string; bytes: Uint8Array; caption?: string }[] = [];
+  readonly approvals: {
+    chatId: string;
+    html: string;
+    buttons: { text: string; data: string }[];
+  }[] = [];
+  readonly answered: { id: string; text: string }[] = [];
+  readonly edits: { chatId: string; messageId: number; html: string }[] = [];
   started = 0;
   stopped = 0;
   failDownload = false;
@@ -37,7 +44,9 @@ class FakeTelegram implements TelegramTransport {
     this.sent.push({ chatId, html, plain });
     return this.sent.length;
   }
-  async editMessage(): Promise<void> {}
+  async editMessage(chatId: string, messageId: number, html: string): Promise<void> {
+    this.edits.push({ chatId, messageId, html });
+  }
   async deleteMessage(chatId: string, messageId: number): Promise<void> {
     this.deleted.push({ chatId, messageId });
   }
@@ -57,6 +66,17 @@ class FakeTelegram implements TelegramTransport {
   ): Promise<number> {
     this.documents.push({ chatId, name, bytes, ...(caption && { caption }) });
     return 100 + this.documents.length;
+  }
+  async sendApproval(
+    chatId: string,
+    html: string,
+    buttons: readonly { text: string; data: string }[],
+  ): Promise<number> {
+    this.approvals.push({ chatId, html, buttons: [...buttons] });
+    return 200 + this.approvals.length;
+  }
+  async answerCallback(id: string, text: string): Promise<void> {
+    this.answered.push({ id, text });
   }
   receive(message: TelegramIncoming): void {
     this.handler?.(message);
@@ -423,5 +443,90 @@ describe('TelegramChannelAdapter: pairing before storing (#44)', () => {
     expect(transport.sent).toEqual([]);
     expect(received).toEqual([]);
     expect(await fs.readdir(dir)).toEqual([]);
+  });
+});
+
+describe('TelegramChannelAdapter: approval cards (S37)', () => {
+  it('sends an approval card with Approve and Decline buttons', async () => {
+    const { adapter, transport } = await setupFiles();
+
+    const receipt = await adapter.deliver(
+      { chatId: '42' },
+      {
+        intent: 'question',
+        parts: [
+          {
+            kind: 'approval',
+            approvalId: 'a1b2c3',
+            summary: 'test.notify (external) {"text":"Hi"}',
+            actionLabel: 'Approve',
+          },
+        ],
+      },
+    );
+
+    expect(receipt).toEqual({ delivered: true, externalId: '201' });
+    expect(transport.approvals).toHaveLength(1);
+    expect(transport.approvals[0]).toMatchObject({
+      chatId: '42',
+      buttons: [
+        { text: 'Approve', data: 'y:a1b2c3' },
+        { text: 'Decline', data: 'n:a1b2c3' },
+      ],
+    });
+    expect(transport.approvals[0]!.html).toContain('Approval needed');
+    expect(transport.approvals[0]!.html).toContain('test.notify');
+  });
+
+  it('answers a button press, then updates the card', async () => {
+    const transport = new FakeTelegram();
+    const adapter = new TelegramChannelAdapter(transport, new MemoryLogger());
+    const received: InboundMessage[] = [];
+    await adapter.start({
+      receive: async (message) => {
+        received.push(message);
+        return { kind: 'replied', reason: 'approved' };
+      },
+    });
+
+    transport.receive({
+      chatId: '42',
+      chatType: 'private',
+      messageId: 55,
+      text: '',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+      callback: { id: 'cb-1', data: 'y:a1b2c3', messageId: 55 },
+    });
+
+    await until(() => transport.answered.length === 1);
+    expect(received[0]).toMatchObject({
+      chatId: '42',
+      text: '',
+      callback: { id: 'cb-1', data: 'y:a1b2c3', messageId: '55' },
+    });
+    expect(transport.answered[0]).toEqual({ id: 'cb-1', text: 'Approved.' });
+    expect(transport.edits[0]).toMatchObject({ chatId: '42', messageId: 55 });
+    expect(transport.edits[0]!.html).toContain('Approved.');
+  });
+
+  it('says the card is no longer open when the answer changes nothing', async () => {
+    const transport = new FakeTelegram();
+    const adapter = new TelegramChannelAdapter(transport, new MemoryLogger());
+    await adapter.start({
+      receive: async () => ({ kind: 'ignored', reason: 'approval not open' }),
+    });
+
+    transport.receive({
+      chatId: '42',
+      chatType: 'private',
+      messageId: 55,
+      text: '',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+      callback: { id: 'cb-2', data: 'n:a1b2c3', messageId: 55 },
+    });
+
+    await until(() => transport.answered.length === 1);
+    expect(transport.answered[0]).toEqual({ id: 'cb-2', text: 'This card is no longer open.' });
+    expect(transport.edits).toEqual([]);
   });
 });
