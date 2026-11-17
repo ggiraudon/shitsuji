@@ -51,6 +51,22 @@ export interface ShitsujiEvents {
   'tool.called': { sessionId: string; toolName: string; toolCallId: string };
   'tool.result': { sessionId: string; toolName: string; toolCallId: string; success: boolean };
   'tool.error': { sessionId: string; toolName: string; toolCallId: string; error: string };
+  /** An action is waiting for the owner (F11, S36). */
+  'approval.requested': {
+    approvalId: string;
+    turnId: string;
+    sessionId: string;
+    tool: string;
+    effect: string;
+    summary: string;
+    actionHash: string;
+  };
+  /** An approval was approved, declined, expired, executed or became uncertain. */
+  'approval.resolved': {
+    approvalId: string;
+    turnId: string;
+    status: 'approved' | 'declined' | 'expired' | 'executed' | 'uncertain';
+  };
 }
 
 export type EventName = keyof ShitsujiEvents;

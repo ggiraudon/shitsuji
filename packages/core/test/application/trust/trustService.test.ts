@@ -14,7 +14,7 @@ import {
   type AuthoritySource,
 } from '../../../src/application/trust/TrustService.js';
 import type { Message } from '../../../src/domain/model/Message.js';
-import { asId, type MessageId } from '../../../src/domain/model/ids.js';
+import { asId, type MessageId, type OwnerId } from '../../../src/domain/model/ids.js';
 import { ScriptedProvider, routerFor, testServices } from '../../helpers.js';
 
 const fixtureDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures/trust');
@@ -60,6 +60,7 @@ function setup(
   );
   const service = new TrustService({
     engine: options.engine ?? new PolicyEngine(),
+    ownerId: asId<OwnerId>('owner'),
     authority: options.source ?? sourceOf(options.authority ?? owner),
     ...(options.withJudge !== false && {
       judge: new TrustJudge({ models: routerFor(provider), log: services.log, timeoutMs: 2_000 }),
@@ -141,6 +142,7 @@ describe('TrustService (S35, F11)', () => {
     const services = testServices();
     const service = new TrustService({
       engine: new PolicyEngine(),
+      ownerId: asId<OwnerId>('owner'),
       authority: {
         forTurn: async () => {
           throw new Error('database down');
@@ -198,6 +200,7 @@ describe('TrustService (S35, F11)', () => {
       engine: new PolicyEngine(),
       authority: new SessionAuthority(repos.messages),
       judge: new TrustJudge({ models: routerFor(provider), log: services.log }),
+      ownerId: asId<OwnerId>('owner'),
       log: services.log,
     });
 

@@ -1,10 +1,11 @@
 import { serializeError } from '../../domain/errors.js';
-import { asId, type SessionId } from '../../domain/model/ids.js';
+import { asId, type OwnerId, type SessionId, type TurnId } from '../../domain/model/ids.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { MessageRepository } from '../../ports/Repositories.js';
 import type { TrustBasis, TrustDecision } from '../../ports/Tool.js';
 import { AuthorityResolver, type Authority } from './Authority.js';
 import type { ActionRequest } from './ActionRequest.js';
+import type { ApprovalService } from './ApprovalService.js';
 import type { PolicyEngine } from './PolicyEngine.js';
 import { QuoteVerifier } from './QuoteVerifier.js';
 import type { StandingRule } from './StandingRule.js';
@@ -39,6 +40,9 @@ export interface TrustServiceDeps {
   engine: PolicyEngine;
   authority: AuthoritySource;
   judge?: TrustJudge;
+  /** Asks the owner when the policy or the judge says ask (F11, S36). */
+  approvals?: ApprovalService;
+  ownerId: OwnerId;
   log: Logger;
 }
 
@@ -71,10 +75,69 @@ export class TrustService implements TrustPolicy {
     }
 
     const decided = this.deps.engine.decide(request, authority.rules);
-    if (decided.verdict !== 'judge') return this.record(request, decided);
+    const final =
+      decided.verdict === 'judge' ? await this.judge(request, authority, decided, check) : decided;
+    return this.record(request, await this.askOwnerIfNeeded(final, request, check));
+  }
 
-    const judged = await this.judge(request, authority, decided, check);
-    return this.record(request, judged);
+  /**
+   * An `ask` verdict becomes a durable card and a wait (F11, S36). A yes allows this exact action; a
+   * no or an expiry refuses it; any failure to ask refuses rather than running unasked.
+   */
+  private async askOwnerIfNeeded(
+    decision: TrustDecision,
+    request: ActionRequest,
+    check: TrustCheck,
+  ): Promise<TrustDecision> {
+    if (decision.verdict !== 'ask' || !this.deps.approvals) return decision;
+    let approval;
+    try {
+      approval = await this.deps.approvals.request(
+        {
+          ownerId: this.deps.ownerId,
+          turnId: asId<TurnId>(check.turnId),
+          sessionId: asId<SessionId>(check.sessionId),
+          action: request,
+          ...(decision.reason && { reason: decision.reason }),
+        },
+        check.signal,
+      );
+    } catch (error) {
+      this.deps.log.error('Could not ask the owner to approve an action', {
+        tool: request.tool,
+        error: serializeError(error),
+      });
+      return {
+        verdict: 'ask',
+        basis: none,
+        reason: 'The owner could not be asked for an approval, so the action cannot run.',
+        actionHash: request.hash,
+      };
+    }
+
+    switch (approval.status) {
+      case 'approved':
+        return {
+          verdict: 'allow',
+          basis: { kind: 'owner', detail: 'the owner approved this exact action' },
+          actionHash: request.hash,
+          approvalId: approval.id,
+        };
+      case 'declined':
+        return {
+          verdict: 'deny',
+          basis: none,
+          reason: 'The owner declined this action.',
+          actionHash: request.hash,
+        };
+      default:
+        return {
+          verdict: 'deny',
+          basis: none,
+          reason: 'The approval expired before the owner answered, so the action did not run.',
+          actionHash: request.hash,
+        };
+    }
   }
 
   private async judge(
