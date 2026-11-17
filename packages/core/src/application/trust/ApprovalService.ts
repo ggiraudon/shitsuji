@@ -146,12 +146,15 @@ export class ApprovalService {
   }
 
   /**
-   * An answer already recorded for this exact action in this turn, if any (F11's fence): asking
-   * twice for the same thing in one request would only annoy the owner.
+   * A decline already recorded for this exact action in this turn, if any (F11's fence): the owner
+   * said no once, so the agent is not allowed to ask the same thing again in the same request.
+   *
+   * Only a refusal is reused. An `approved` card is never reused: if its `finish()` failed the action
+   * may already have run, and an `executed` one certainly has. Those need a fresh question.
    */
-  async decidedFor(turnId: TurnId, actionHash: string): Promise<Approval | undefined> {
+  async declinedFor(turnId: TurnId, actionHash: string): Promise<Approval | undefined> {
     const inTurn = await this.deps.approvals.list({ turnId });
-    return inTurn.find((a) => a.actionHash === actionHash && a.status !== 'pending');
+    return inTurn.find((a) => a.actionHash === actionHash && a.status === 'declined');
   }
 
   private async load(id: ApprovalId): Promise<Approval> {
