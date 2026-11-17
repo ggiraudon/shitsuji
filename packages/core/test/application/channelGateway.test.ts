@@ -449,4 +449,35 @@ describe('ChannelGateway: typed approval answers (S37)', () => {
     expect((await receive('Good evening')).kind).toBe('turn');
     expect(submitted).toHaveLength(1);
   });
+
+  it('asks the owner to use the buttons when two cards wait in the same session (#51)', async () => {
+    const { receive, repos, session, replies } = await setup({
+      requiresPairing: false,
+      readTypedApproval: async () => 'approve',
+    });
+    const first = await seedCard(repos, session.id, 'approval-a');
+    const second = await seedCard(repos, session.id, 'approval-b');
+
+    expect(await receive('Yes, go ahead.')).toEqual({
+      kind: 'replied',
+      reason: 'approval-ambiguous',
+    });
+    expect(replies.at(-1)!.text).toMatch(/Use the buttons on the card you mean/);
+    expect((await repos.approvals.get(first.id))!.status).toBe('pending');
+    expect((await repos.approvals.get(second.id))!.status).toBe('pending');
+  });
+
+  it('never resolves a card from another session with a typed answer (#51)', async () => {
+    const { receive, repos, submitted } = await setup({
+      requiresPairing: false,
+      readTypedApproval: async () => 'approve',
+    });
+    const elsewhere = await seedCard(repos, asId<SessionId>('other-session'), 'approval-o');
+
+    const result = await receive('Yes, go ahead.');
+
+    expect(result.kind).toBe('turn');
+    expect(submitted[0]!.text).toBe('Yes, go ahead.');
+    expect((await repos.approvals.get(elsewhere.id))!.status).toBe('pending');
+  });
 });

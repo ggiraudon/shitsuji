@@ -112,7 +112,10 @@ export interface InboundMessage {
 export type InboundResult =
   | { kind: 'turn'; sessionId: SessionId; turnId: TurnId; steered: boolean }
   /** The gateway answered itself (pairing, a command, an approval): no turn ran. */
-  | { kind: 'replied'; reason: 'paired' | 'command' | 'approved' | 'declined' }
+  | {
+      kind: 'replied';
+      reason: 'paired' | 'command' | 'approved' | 'declined' | 'approval-ambiguous';
+    }
   /** Nothing happened: an unpaired chat, or a message with no text. */
   | { kind: 'ignored'; reason: string };
 
