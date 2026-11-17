@@ -1,0 +1,10 @@
+{
+  "update_id": 100000005,
+  "message": {
+    "message_id": 11,
+    "from": { "id": 77, "is_bot": false, "first_name": "Someone" },
+    "chat": { "id": -1001234567890, "title": "Team", "type": "group" },
+    "date": 1767225600,
+    "text": "hello bot"
+  }
+}

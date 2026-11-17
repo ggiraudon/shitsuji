@@ -78,8 +78,8 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
       this.log.debug('Telegram degraded message parts to text', { parts: degraded });
     }
     let first: number | undefined;
-    for (const html of chunks) {
-      const messageId = await this.transport.sendMessage(target.chatId, html);
+    for (const chunk of chunks) {
+      const messageId = await this.transport.sendMessage(target.chatId, chunk.html, chunk.plain);
       first ??= messageId;
     }
     for (const part of files) {
@@ -115,7 +115,7 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
     if (this.working.has(target.chatId)) return;
     try {
       await this.transport.sendTyping(target.chatId);
-      const messageId = await this.transport.sendMessage(target.chatId, 'Working…');
+      const messageId = await this.transport.sendMessage(target.chatId, 'Working…', 'Working…');
       this.working.set(target.chatId, messageId);
     } catch (error) {
       this.log.warn('Could not show Telegram typing', {
@@ -126,14 +126,35 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
 
   private async onMessage(message: TelegramIncoming): Promise<void> {
     if (!this.sink) return;
+    // Pairing binds a chat; on Telegram a group would let every member act as the owner (F06, #38).
+    if (message.chatType !== 'private') {
+      this.log.debug('Ignoring a Telegram message from a non-private chat', {
+        chatType: message.chatType,
+      });
+      return;
+    }
     try {
+      // Ask the gateway before downloading: an unpaired chat must not fill the handoff folder (#44).
+      const accepted =
+        message.attachment && this.sink.accepts
+          ? await this.sink.accepts({ channel: this.id, chatId: message.chatId })
+          : true;
       if (message.attachment?.kind === 'voice') {
+        if (!accepted) {
+          this.log.debug('Ignoring a voice note from a chat that cannot start a turn');
+          return;
+        }
         // Keep the file for F23, but do not start a turn the agent cannot hear.
         await this.storeAttachment(message);
-        await this.transport.sendMessage(message.chatId, "I can't listen to voice notes yet.");
+        await this.transport.sendMessage(
+          message.chatId,
+          "I can't listen to voice notes yet.",
+          "I can't listen to voice notes yet.",
+        );
         return;
       }
-      const attachment = message.attachment ? await this.storeAttachment(message) : undefined;
+      const attachment =
+        message.attachment && accepted ? await this.storeAttachment(message) : undefined;
       await this.sink.receive({
         channel: this.id,
         chatId: message.chatId,

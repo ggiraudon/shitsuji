@@ -1,9 +1,11 @@
-import { type Bot, InputFile } from 'grammy';
+import { GrammyError, type Bot, InputFile } from 'grammy';
 import type { Logger } from '../../ports/Logger.js';
 
 /** A text message as the adapter needs it, independent of grammY's update types. */
 export interface TelegramIncoming {
   chatId: string;
+  /** `private`, `group`, `supergroup` or `channel`; the adapter accepts only private chats. */
+  chatType: string;
   messageId: number;
   text: string;
   receivedAt: Date;
@@ -26,8 +28,11 @@ export interface TelegramAttachment {
 export interface TelegramTransport {
   start(onMessage: (message: TelegramIncoming) => void): Promise<void>;
   stop(): Promise<void>;
-  /** Sends an HTML message and returns its Telegram id. */
-  sendMessage(chatId: string, html: string): Promise<number>;
+  /**
+   * Sends a message and returns its Telegram id. `plain` is the same chunk as the original Markdown,
+   * sent without `parse_mode` when Telegram rejects the HTML (#41).
+   */
+  sendMessage(chatId: string, html: string, plain: string): Promise<number>;
   editMessage(chatId: string, messageId: number, html: string): Promise<void>;
   deleteMessage(chatId: string, messageId: number): Promise<void>;
   sendTyping(chatId: string): Promise<void>;
@@ -123,12 +128,22 @@ export class GrammyTelegramTransport implements TelegramTransport {
     this.log.info('Telegram channel stopped');
   }
 
-  async sendMessage(chatId: string, html: string): Promise<number> {
-    const message = await this.bot.api.sendMessage(chatId, html, {
-      parse_mode: 'HTML',
-      link_preview_options: { is_disabled: true },
-    });
-    return message.message_id;
+  async sendMessage(chatId: string, html: string, plain: string): Promise<number> {
+    try {
+      const message = await this.bot.api.sendMessage(chatId, html, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+      });
+      return message.message_id;
+    } catch (error) {
+      if (!isParseError(error)) throw error;
+      // Odd Markdown can render to HTML Telegram refuses; the owner still gets the reply (#41).
+      this.log.warn('Telegram rejected the message HTML; sending it as plain text');
+      const message = await this.bot.api.sendMessage(chatId, plain, {
+        link_preview_options: { is_disabled: true },
+      });
+      return message.message_id;
+    }
   }
 
   async editMessage(chatId: string, messageId: number, html: string): Promise<void> {
@@ -170,13 +185,23 @@ export class GrammyTelegramTransport implements TelegramTransport {
   }
 }
 
+/** True when Telegram refused the message because it could not parse its HTML. */
+function isParseError(error: unknown): boolean {
+  return (
+    error instanceof GrammyError &&
+    error.error_code === 400 &&
+    /can't parse entities/i.test(error.description)
+  );
+}
+
 /** The parts every message update shares. */
 function baseOf(
-  ctx: { chat: { id: number }; message: { message_id: number; date: number } },
+  ctx: { chat: { id: number; type: string }; message: { message_id: number; date: number } },
   text: string,
 ): TelegramIncoming {
   return {
     chatId: String(ctx.chat.id),
+    chatType: ctx.chat.type,
     messageId: ctx.message.message_id,
     text,
     receivedAt: new Date(ctx.message.date * 1000),

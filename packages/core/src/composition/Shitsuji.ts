@@ -123,6 +123,7 @@ export class Shitsuji {
     for (const channel of this.channels.all()) {
       await channel.start({
         receive: (message) => this.gateway!.receive(message),
+        accepts: (chat) => this.gateway!.accepts(chat),
       });
       this.started.push(channel);
     }

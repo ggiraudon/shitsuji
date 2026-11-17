@@ -141,6 +141,11 @@ export class TestChannel extends BaseChannelAdapter {
       receivedAt: new Date(),
     });
   }
+
+  /** Asks the sink as an adapter does before storing a file (F06, #44). */
+  accepted(chatId: string): Promise<boolean | undefined> {
+    return this.sink?.accepts?.({ channel: this.id, chatId }) ?? Promise.resolve(undefined);
+  }
 }
 
 export const until = async (check: () => boolean | Promise<boolean>, timeoutMs = 1000) => {

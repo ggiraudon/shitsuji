@@ -115,8 +115,19 @@ export type InboundResult =
   | { kind: 'ignored'; reason: string };
 
 /** The one way an adapter hands a message to the core. */
+/** The chat an adapter may ask about before it stores a file (F06, #44). */
+export interface InboundChat {
+  channel: ChannelId;
+  chatId: string;
+}
+
 export interface InboundSink {
   receive(message: InboundMessage): Promise<InboundResult>;
+  /**
+   * True when this chat may start a turn. An adapter checks it before downloading an attachment or
+   * answering a voice note, so an unpaired chat cannot fill the disk (F06, #44).
+   */
+  accepts?(chat: InboundChat): Promise<boolean>;
 }
 
 /**

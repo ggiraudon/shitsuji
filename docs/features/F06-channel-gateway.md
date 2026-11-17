@@ -103,11 +103,14 @@ class ChannelGateway implements InboundSink {
 
 - **Binding and pairing.** A new Telegram chat must be paired once: the web UI shows a code, you send
   `/start <code>` to the bot. Messages from unpaired chats are ignored. This is the access control for chat
-  channels.
+  channels. Only **private** chats are accepted: a group or channel message is dropped by the Telegram
+  adapter, because pairing a chat would otherwise let every member act as the owner (#38).
 - **Reply routing.** A reply to a task's message goes to that task's session; anything else goes to the main
   chat session ([F15](F15-tasks-and-subagents.md)).
 - **Attachments** are stored in `<dataDir>/handoff` (decision T2) and the turn is told the absolute paths.
   The file tools may read that folder but never write it; until F08 the workspace container can take it over.
+  An adapter asks the gateway (`accepts`) before downloading, so an unpaired chat stores nothing and gets
+  no voice-note answer (#44).
 - **Files back.** A tool result can carry `files` (the `workspace.send` tool does); the turn publishes them on
   `turn.status` and the reply reaches the channel as file parts, which Telegram sends as documents (the tool
   refuses files above 48 MB, keeping under Telegram's 50 MB bot limit).
@@ -121,7 +124,9 @@ buttons, task routing and attachments wait for F11 and S33.
 ### Telegram adapter
 
 - Library: grammY. Long polling by default (no public URL needed); webhook mode when a proxy and domain exist.
-- Markdown → Telegram MarkdownV2 or HTML, with escaping; long replies split at paragraph breaks.
+- Markdown → Telegram MarkdownV2 or HTML, with escaping; long replies split at paragraph breaks. Inline
+  rules never cross (a link's label is rendered inside the anchor), and if Telegram still refuses a
+  chunk's HTML, the same chunk is resent as plain text, so odd Markdown never loses a reply (#41).
 - Inline keyboards for approvals and choices; callback data carries only an opaque ID.
 - Progress: one "working…" message edited in place, removed when the turn ends.
 - Files: documents, photos and voice notes are downloaded into the handoff folder; sent files go back as

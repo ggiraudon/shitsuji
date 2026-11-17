@@ -39,6 +39,21 @@ describe('Telegram HTML', () => {
     expect(html).not.toContain('<a');
     expect(html).toContain('javascript:alert(1)');
   });
+
+  it('never lets a link and a bold run cross (#41)', () => {
+    const html = toTelegramHtml('[a **b](https://x.y) c**');
+
+    // The bold run has no closing marker inside the label, so it stays literal; what matters is
+    // that its dangling `**` cannot close after the anchor.
+    expect(html).toBe('<a href="https://x.y">a **b</a> c**');
+    expect(html).not.toContain('</a> c</b>');
+  });
+
+  it('keeps a bold run around a link outside the anchor', () => {
+    const html = toTelegramHtml('Read **[the note](https://x.y)** tonight.');
+
+    expect(html).toBe('Read <b><a href="https://x.y">the note</a></b> tonight.');
+  });
 });
 
 describe('TelegramRenderer', () => {
@@ -63,10 +78,10 @@ describe('TelegramRenderer', () => {
 
     const rendered = new TelegramRenderer().render(message);
 
-    expect(rendered.chunks.join('\n')).toContain('1. Yes');
-    expect(rendered.chunks.join('\n')).toContain('Send it?');
-    expect(rendered.chunks.join('\n')).toContain('[file: report.pdf]');
-    expect(rendered.chunks.join('\n')).toContain('[image: shot.png]');
+    expect(rendered.chunks.map((chunk) => chunk.html).join('\n')).toContain('1. Yes');
+    expect(rendered.chunks.map((chunk) => chunk.html).join('\n')).toContain('Send it?');
+    expect(rendered.chunks.map((chunk) => chunk.html).join('\n')).toContain('[file: report.pdf]');
+    expect(rendered.chunks.map((chunk) => chunk.html).join('\n')).toContain('[image: shot.png]');
     expect(rendered.degraded).toEqual(['choices', 'approval', 'file', 'image']);
   });
 
@@ -75,8 +90,8 @@ describe('TelegramRenderer', () => {
     const rendered = new TelegramRenderer().render(text(paragraphs.join('\n\n')));
 
     expect(rendered.chunks.length).toBeGreaterThan(1);
-    for (const chunk of rendered.chunks) expect(chunk.length).toBeLessThanOrEqual(3800);
-    expect(rendered.chunks.join('\n')).toContain('Paragraph 5');
+    for (const chunk of rendered.chunks) expect(chunk.html.length).toBeLessThanOrEqual(3800);
+    expect(rendered.chunks.map((chunk) => chunk.html).join('\n')).toContain('Paragraph 5');
   });
 
   it('hard-splits a single very long line', () => {

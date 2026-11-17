@@ -3,9 +3,16 @@ import type { OutboundMessage, OutboundPart } from '../../ports/ChannelAdapter.j
 /** Telegram's limit is 4096 characters; stay well under it so rendered HTML also fits. */
 const DEFAULT_MAX_MARKDOWN = 3800;
 
+export interface TelegramChunk {
+  /** The chunk as Telegram HTML. */
+  html: string;
+  /** The same chunk as the original Markdown, for the plain-text fallback (#41). */
+  plain: string;
+}
+
 export interface RenderedTelegram {
-  /** One HTML chunk per message to send, in order. */
-  chunks: string[];
+  /** One chunk per message to send, in order. */
+  chunks: TelegramChunk[];
   /** Parts the channel could not show as intended, already degraded to text. */
   degraded: OutboundPart['kind'][];
 }
@@ -25,7 +32,10 @@ export class TelegramRenderer {
       .filter(Boolean)
       .join('\n\n');
     return {
-      chunks: splitMarkdown(markdown, this.maxMarkdown).map(toTelegramHtml).filter(Boolean),
+      chunks: splitMarkdown(markdown, this.maxMarkdown).map((plain) => ({
+        html: toTelegramHtml(plain),
+        plain,
+      })),
       degraded,
     };
   }
@@ -75,21 +85,36 @@ export function toTelegramHtml(markdown: string): string {
 }
 
 function inlineToHtml(text: string): string {
-  const codes: string[] = [];
+  const protectedParts: string[] = [];
   const placeholder = '\uE000';
-  const withoutCode = text.replace(/`([^`\n]+)`/g, (_, code: string) => {
-    codes.push(`<code>${escapeHtml(code)}</code>`);
-    return `${placeholder}CODE${codes.length - 1}${placeholder}`;
-  });
-  let html = escapeHtml(withoutCode);
-  html = html.replace(
-    /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
-    (_, label: string, url: string) => `<a href="${url.replaceAll('"', '&quot;')}">${label}</a>`,
+  const protect = (html: string) => {
+    protectedParts.push(html);
+    return `${placeholder}${protectedParts.length - 1}${placeholder}`;
+  };
+  let withoutCode = text.replace(/`([^`\n]+)`/g, (_, code: string) =>
+    protect(`<code>${escapeHtml(code)}</code>`),
   );
+  // Links are protected before emphasis, so a bold run inside a label can never close outside the
+  // anchor: that crossing produced invalid HTML Telegram rejects (#41).
+  withoutCode = withoutCode.replace(
+    /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_, label: string, url: string) =>
+      protect(`<a href="${escapeHtml(url).replaceAll('"', '&quot;')}">${formatInline(label)}</a>`),
+  );
+  const html = formatInline(withoutCode);
+  return html.replace(
+    /\uE000(\d+)\uE000/g,
+    (_, index: string) => protectedParts[Number(index)] ?? '',
+  );
+}
+
+/** Escapes text and applies the inline rules that never introduce links. */
+function formatInline(text: string): string {
+  let html = escapeHtml(text);
   html = html.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
   html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<i>$2</i>');
   html = html.replace(/^#{1,6}\s+(.+)$/gm, '<b>$1</b>');
-  return html.replace(/\uE000CODE(\d+)\uE000/g, (_, index: string) => codes[Number(index)] ?? '');
+  return html;
 }
 
 /** Splits Markdown at paragraph breaks, then lines, then hard, so no chunk exceeds `max`. */

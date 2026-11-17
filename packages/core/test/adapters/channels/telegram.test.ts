@@ -15,7 +15,7 @@ import { describeChannelContract } from '../../contracts/channel.contract.js';
 import { until } from '../../helpers.js';
 
 class FakeTelegram implements TelegramTransport {
-  readonly sent: { chatId: string; html: string }[] = [];
+  readonly sent: { chatId: string; html: string; plain: string }[] = [];
   readonly deleted: { chatId: string; messageId: number }[] = [];
   readonly typed: string[] = [];
   readonly downloads: string[] = [];
@@ -33,8 +33,8 @@ class FakeTelegram implements TelegramTransport {
     this.stopped++;
     this.handler = undefined;
   }
-  async sendMessage(chatId: string, html: string): Promise<number> {
-    this.sent.push({ chatId, html });
+  async sendMessage(chatId: string, html: string, plain: string): Promise<number> {
+    this.sent.push({ chatId, html, plain });
     return this.sent.length;
   }
   async editMessage(): Promise<void> {}
@@ -91,7 +91,7 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) await fs.rm(dir, { recursive: true, force: true });
 });
 
-async function setupFiles() {
+async function setupFiles(accepts = true) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'shitsuji-telegram-'));
   dirs.push(dir);
   const transport = new FakeTelegram();
@@ -100,6 +100,7 @@ async function setupFiles() {
   });
   const received: InboundMessage[] = [];
   await adapter.start({
+    accepts: async () => accepts,
     receive: async (message) => {
       received.push(message);
       return {
@@ -127,6 +128,7 @@ describe('TelegramChannelAdapter (S32)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 5,
       text: '/start ABCD2345',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -147,7 +149,9 @@ describe('TelegramChannelAdapter (S32)', () => {
     const receipt = await adapter.deliver({ chatId: '42' }, reply('**Hi** <there>'));
 
     expect(receipt).toEqual({ delivered: true, externalId: '1' });
-    expect(transport.sent).toEqual([{ chatId: '42', html: '<b>Hi</b> &lt;there&gt;' }]);
+    expect(transport.sent).toEqual([
+      { chatId: '42', html: '<b>Hi</b> &lt;there&gt;', plain: '**Hi** <there>' },
+    ]);
   });
 
   it('splits a long reply into several messages', async () => {
@@ -164,12 +168,12 @@ describe('TelegramChannelAdapter (S32)', () => {
     await adapter.typing({ chatId: '42' });
     await adapter.typing({ chatId: '42' }); // already showing: no second message
     expect(transport.typed).toEqual(['42']);
-    expect(transport.sent).toEqual([{ chatId: '42', html: 'Working…' }]);
+    expect(transport.sent).toEqual([{ chatId: '42', html: 'Working…', plain: 'Working…' }]);
 
     await adapter.deliver({ chatId: '42' }, reply('Done.'));
 
     expect(transport.deleted).toEqual([{ chatId: '42', messageId: 1 }]);
-    expect(transport.sent.at(-1)).toEqual({ chatId: '42', html: 'Done.' });
+    expect(transport.sent.at(-1)).toEqual({ chatId: '42', html: 'Done.', plain: 'Done.' });
   });
 });
 
@@ -184,6 +188,7 @@ describe('TelegramChannelAdapter: attachments (S33)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 7,
       text: 'Here is the report.',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -212,6 +217,7 @@ describe('TelegramChannelAdapter: attachments (S33)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 8,
       text: 'Look at this',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -237,6 +243,7 @@ describe('TelegramChannelAdapter: attachments (S33)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 9,
       text: '',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -261,6 +268,7 @@ describe('TelegramChannelAdapter: attachments (S33)', () => {
 
     transport.receive({
       chatId: '42',
+      chatType: 'private',
       messageId: 10,
       text: 'The report is attached.',
       receivedAt: new Date('2026-01-01T00:00:00Z'),
@@ -300,7 +308,9 @@ describe('TelegramChannelAdapter: files sent back (S33)', () => {
     );
 
     expect(receipt).toEqual({ delivered: true, externalId: '1' });
-    expect(transport.sent).toEqual([{ chatId: '42', html: 'Here is the report.' }]);
+    expect(transport.sent).toEqual([
+      { chatId: '42', html: 'Here is the report.', plain: 'Here is the report.' },
+    ]);
     expect(transport.documents).toHaveLength(1);
     expect(transport.documents[0]).toMatchObject({
       chatId: '42',
@@ -325,7 +335,93 @@ describe('TelegramChannelAdapter: files sent back (S33)', () => {
     );
 
     expect(receipt.delivered).toBe(true);
-    expect(transport.sent).toEqual([{ chatId: '42', html: 'The file is gone.' }]);
+    expect(transport.sent).toEqual([
+      { chatId: '42', html: 'The file is gone.', plain: 'The file is gone.' },
+    ]);
     expect(transport.documents).toEqual([]);
+  });
+});
+
+describe('TelegramChannelAdapter: private chats only (#38)', () => {
+  it('ignores a group message, so it downloads nothing and starts no turn', async () => {
+    const { transport, received } = await setupFiles();
+
+    transport.receive({
+      chatId: '-1001234567890',
+      chatType: 'group',
+      messageId: 11,
+      text: 'hello bot',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+      attachment: {
+        kind: 'document',
+        fileId: 'group-file',
+        name: 'from-group.pdf',
+        mediaType: 'application/pdf',
+      },
+    });
+    transport.receive({
+      chatId: '42',
+      chatType: 'private',
+      messageId: 12,
+      text: 'Hello from the owner',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+    });
+
+    await until(() => received.length === 1);
+
+    expect(received[0]).toMatchObject({ chatId: '42', text: 'Hello from the owner' });
+    expect(transport.downloads).toEqual([]);
+    expect(transport.sent).toEqual([]);
+  });
+});
+
+describe('TelegramChannelAdapter: pairing before storing (#44)', () => {
+  it('downloads nothing for an unpaired chat', async () => {
+    const { transport, received, dir } = await setupFiles(false);
+
+    transport.receive({
+      chatId: '42',
+      chatType: 'private',
+      messageId: 20,
+      text: 'Here is the report.',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+      attachment: {
+        kind: 'document',
+        fileId: 'file-9',
+        name: 'report.pdf',
+        mediaType: 'application/pdf',
+      },
+    });
+
+    await until(() => received.length === 1);
+    expect(received[0]).toMatchObject({ chatId: '42', text: 'Here is the report.' });
+    expect(received[0]!.attachments).toBeUndefined();
+    expect(transport.downloads).toEqual([]);
+    expect(await fs.readdir(dir)).toEqual([]);
+  });
+
+  it('does not store or answer a voice note from an unpaired chat', async () => {
+    const { transport, received, dir } = await setupFiles(false);
+
+    transport.receive({
+      chatId: '42',
+      chatType: 'private',
+      messageId: 21,
+      text: '',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+      attachment: {
+        kind: 'voice',
+        fileId: 'voice-9',
+        name: 'voice-abc.ogg',
+        mediaType: 'audio/ogg',
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(transport.downloads).toEqual([]);
+    expect(transport.sent).toEqual([]);
+    expect(received).toEqual([]);
+    expect(await fs.readdir(dir)).toEqual([]);
   });
 });
