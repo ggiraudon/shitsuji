@@ -13,7 +13,8 @@ import type { ChannelBindingStore } from '../ports/ChannelBindingStore.js';
 import type { Clock } from '../ports/Clock.js';
 import type { EventBus } from '../ports/EventBus.js';
 import type { Logger } from '../ports/Logger.js';
-import type { OwnerId } from '../domain/model/ids.js';
+import type { ApprovalService } from '../application/trust/ApprovalService.js';
+import { asId, type OwnerId, type TurnId } from '../domain/model/ids.js';
 import type { Repositories } from '../ports/Repositories.js';
 
 export interface ShitsujiParts {
@@ -30,6 +31,8 @@ export interface ShitsujiParts {
   repos: Repositories;
   ownerId: OwnerId;
   clock: Clock;
+  /** Cards waiting for the owner; Telegram sends them with buttons (S37). */
+  approvals?: ApprovalService;
   /** Runs before the API and the channels open, e.g. creating the owner key they check. */
   prepare?: () => Promise<void>;
   /** Starts the HTTP API, if enabled; called once the agent runs. */
@@ -53,6 +56,7 @@ export class Shitsuji {
   readonly jobs: JobQueue;
   private readonly recovery: StartupRecovery;
   private offReplies?: () => void;
+  private offApprovals?: () => void;
   private readonly prepare?: () => Promise<void>;
   private readonly startApi?: () => Promise<RunningApi>;
   private api?: RunningApi;
@@ -62,6 +66,7 @@ export class Shitsuji {
   private readonly repos: Repositories;
   private readonly ownerId: OwnerId;
   private readonly clock: Clock;
+  private readonly approvals?: ApprovalService;
   private gateway?: ChannelGateway;
 
   constructor(parts: ShitsujiParts) {
@@ -81,6 +86,7 @@ export class Shitsuji {
     this.repos = parts.repos;
     this.ownerId = parts.ownerId;
     this.clock = parts.clock;
+    this.approvals = parts.approvals;
   }
 
   async start(): Promise<void> {
@@ -118,6 +124,7 @@ export class Shitsuji {
       clock: this.clock,
       log: this.log,
       version: this.version,
+      ...(this.approvals && { approvals: this.approvals }),
       reply: (channelId, chatId, text, intent) => this.deliverTo(channelId, chatId, text, intent),
     });
     for (const channel of this.channels.all()) {
@@ -127,6 +134,10 @@ export class Shitsuji {
       });
       this.started.push(channel);
     }
+    // Cards need the channels, so subscribe once they are running.
+    this.offApprovals = this.events.subscribe('approval.requested', (e) => {
+      void this.deliverApproval(e);
+    });
     this.events.publish('system.ready', { version: this.version });
     this.log.info('Shitsuji started', { channels: this.started.map((c) => c.id) });
   }
@@ -138,6 +149,7 @@ export class Shitsuji {
 
   async stop(): Promise<void> {
     this.offReplies?.();
+    this.offApprovals?.();
     await this.api?.close();
     this.api = undefined;
     for (const channel of [...this.started].reverse()) {
@@ -178,6 +190,44 @@ export class Shitsuji {
   ): Promise<void> {
     const { channelId, chatId } = splitReplyChannel(replyChannel);
     await this.deliverTo(channelId, chatId, text, intent, files);
+  }
+
+  /** Sends an approval card to the chat whose turn is waiting (S37). */
+  private async deliverApproval(event: {
+    approvalId: string;
+    turnId: string;
+    summary: string;
+  }): Promise<void> {
+    try {
+      const turn = await this.repos.turns.get(asId<TurnId>(event.turnId));
+      const replyChannel = turn?.toProps().replyChannel;
+      if (!replyChannel) return;
+      const { channelId, chatId } = splitReplyChannel(replyChannel);
+      const channel = this.started.find((c) => c.id === channelId);
+      if (!channel) return;
+      const receipt = await channel.deliver(
+        { chatId },
+        {
+          parts: [
+            {
+              kind: 'approval',
+              approvalId: event.approvalId,
+              summary: event.summary,
+              actionLabel: 'Approve',
+            },
+          ],
+          intent: 'question',
+        },
+      );
+      if (!receipt.delivered) {
+        this.log.warn('Approval card not delivered', {
+          channel: channelId,
+          reason: receipt.reason,
+        });
+      }
+    } catch (error) {
+      this.log.error('Approval card delivery failed', { error: serializeError(error) });
+    }
   }
 
   /** Lets a channel show a typing or "working" indicator while the turn runs. */

@@ -10,6 +10,8 @@ import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryReposito
 import { loadPluginsFromDirectory } from '../../src/composition/loadPluginsFromDirectory.js';
 import type { ShitsujiPlugin } from '../../src/ports/Plugin.js';
 import { BaseTool, type ToolOutput } from '../../src/ports/Tool.js';
+import { Turn } from '../../src/domain/model/Turn.js';
+import { asId, type SessionId, type TurnId } from '../../src/domain/model/ids.js';
 import { ScriptedProvider, TestChannel, testServices, until } from '../helpers.js';
 
 let dataDir: string;
@@ -323,4 +325,47 @@ it('registers test.notify only when a mock service is configured (S36)', async (
     plugins: [fakes([]).plugin],
   });
   expect(without.agent.getTools().map((t) => t.name)).not.toContain('test.notify');
+});
+
+it("sends an approval card to the turn's channel (S37)", async () => {
+  const { channel, plugin } = fakes(['ok']);
+  const repos = new InMemoryRepositories();
+  const shitsuji = await createShitsuji(config(), {
+    services: testServices(),
+    plugins: [plugin],
+    repos,
+  });
+  await shitsuji.start();
+
+  const turn = Turn.create({
+    id: asId<TurnId>('turn-9'),
+    sessionId: asId<SessionId>('s-1'),
+    source: 'user',
+    replyChannel: 'test:chat-42',
+    createdAt: new Date(),
+  });
+  turn.start(new Date());
+  await repos.turns.insert(turn);
+
+  shitsuji.events.publish('approval.requested', {
+    approvalId: 'a1',
+    turnId: 'turn-9',
+    sessionId: 's-1',
+    tool: 'test.notify',
+    effect: 'external',
+    summary: 'test.notify (external)',
+    actionHash: 'h'.repeat(64),
+  });
+
+  await until(() => channel.delivered.length > 0);
+  expect(channel.delivered[0]!.parts).toEqual([
+    {
+      kind: 'approval',
+      approvalId: 'a1',
+      summary: 'test.notify (external)',
+      actionLabel: 'Approve',
+    },
+  ]);
+  expect(channel.delivered[0]!.intent).toBe('question');
+  await shitsuji.stop();
 });

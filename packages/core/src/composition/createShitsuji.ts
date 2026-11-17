@@ -254,6 +254,7 @@ export async function createShitsuji(
     repos,
     ownerId: OWNER_ID,
     clock: services.clock,
+    approvals,
     prepare:
       startsApi || channels.size > 0
         ? async () => {

@@ -1,5 +1,8 @@
 import type { OwnerId, SessionId } from '../../domain/model/ids.js';
+import { asId, type ApprovalId } from '../../domain/model/ids.js';
+import { NotFound } from '../../domain/errors.js';
 import type { SessionKind } from '../../domain/model/Session.js';
+import type { ApprovalService } from '../trust/ApprovalService.js';
 import type { ChannelBinding, ChannelBindingStore } from '../../ports/ChannelBindingStore.js';
 import type {
   InboundAttachment,
@@ -35,6 +38,8 @@ export interface ChannelGatewayDeps {
   clock: Clock;
   log: Logger;
   version: string;
+  /** Cards waiting for the owner, answered by a button (S37). */
+  approvals?: ApprovalService;
   /** Answers directly through the channel adapter that received the message. */
   reply: (channel: string, chatId: string, text: string, intent: OutboundIntent) => Promise<void>;
 }
@@ -60,12 +65,24 @@ export class ChannelGateway {
   }
 
   async receive(message: InboundMessage): Promise<InboundResult> {
-    const text = withAttachments(message.text.trim(), message.attachments);
-    if (!text) return { kind: 'ignored', reason: 'empty message' };
     const binding = await this.deps.bindings.get(message.channel, message.chatId);
     const adapter = this.deps.channels.get(message.channel);
+    const paired = !adapter?.requiresPairing || Boolean(binding?.verifiedAt);
 
-    if (adapter?.requiresPairing && !binding?.verifiedAt) {
+    if (message.callback) {
+      if (!paired) {
+        this.deps.log.warn('Ignoring a button press from an unpaired chat', {
+          channel: message.channel,
+        });
+        return { kind: 'ignored', reason: 'unpaired' };
+      }
+      return this.callback(message);
+    }
+
+    const text = withAttachments(message.text.trim(), message.attachments);
+    if (!text) return { kind: 'ignored', reason: 'empty message' };
+
+    if (!paired) {
       if (/^\/start(\s|$)/i.test(text)) return this.pair(message, text);
       this.deps.log.warn('Ignoring a message from an unpaired chat', {
         channel: message.channel,
@@ -82,6 +99,26 @@ export class ChannelGateway {
       replyChannel: `${message.channel}:${message.chatId}`,
     });
     return { kind: 'turn', ...submitted };
+  }
+
+  /** A button press on an approval card: `y:<id>` or `n:<id>` (S37). */
+  private async callback(message: InboundMessage): Promise<InboundResult> {
+    const match = /^([yn]):([A-Za-z0-9_-]{1,64})$/.exec(message.callback?.data ?? '');
+    if (!match || !this.deps.approvals) {
+      return { kind: 'ignored', reason: 'unknown callback' };
+    }
+    try {
+      const approval = await this.deps.approvals.resolve(
+        asId<ApprovalId>(match[2]!),
+        match[1] === 'y' ? 'approve' : 'decline',
+      );
+      if (approval.status === 'approved') return { kind: 'replied', reason: 'approved' };
+      if (approval.status === 'declined') return { kind: 'replied', reason: 'declined' };
+      return { kind: 'ignored', reason: 'approval not open' };
+    } catch (error) {
+      if (error instanceof NotFound) return { kind: 'ignored', reason: 'approval not found' };
+      throw error;
+    }
   }
 
   /** `/stop`, `/status`, `/new` and `/new confirm` answered here, without a model call. */

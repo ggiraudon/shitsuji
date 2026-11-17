@@ -103,14 +103,16 @@ export interface InboundMessage {
   sessionId?: SessionId;
   /** Files saved in the handoff folder; the gateway tells the turn where they are. */
   attachments?: InboundAttachment[];
+  /** A press on a card's button; `data` is the channel's opaque payload (S37). */
+  callback?: { id: string; data: string; messageId?: string };
   metadata?: Record<string, unknown>;
 }
 
 /** What the runtime did with an inbound message. */
 export type InboundResult =
   | { kind: 'turn'; sessionId: SessionId; turnId: TurnId; steered: boolean }
-  /** The gateway answered itself (pairing, a command): no turn ran. */
-  | { kind: 'replied'; reason: 'paired' | 'command' }
+  /** The gateway answered itself (pairing, a command, an approval): no turn ran. */
+  | { kind: 'replied'; reason: 'paired' | 'command' | 'approved' | 'declined' }
   /** Nothing happened: an unpaired chat, or a message with no text. */
   | { kind: 'ignored'; reason: string };
 
