@@ -124,7 +124,9 @@ buttons, task routing and attachments wait for F11 and S33.
 ### Telegram adapter
 
 - Library: grammY. Long polling by default (no public URL needed); webhook mode when a proxy and domain exist.
-- Markdown → Telegram MarkdownV2 or HTML, with escaping; long replies split at paragraph breaks.
+- Markdown → Telegram MarkdownV2 or HTML, with escaping; long replies split at paragraph breaks. Inline
+  rules never cross (a link's label is rendered inside the anchor), and if Telegram still refuses a
+  chunk's HTML, the same chunk is resent as plain text, so odd Markdown never loses a reply (#41).
 - Inline keyboards for approvals and choices; callback data carries only an opaque ID.
 - Progress: one "working…" message edited in place, removed when the turn ends.
 - Files: documents, photos and voice notes are downloaded into the handoff folder; sent files go back as

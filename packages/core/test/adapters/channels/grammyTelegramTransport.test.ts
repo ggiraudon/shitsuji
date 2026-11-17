@@ -22,6 +22,12 @@ const jsonResponse = (body: unknown) =>
     headers: { 'content-type': 'application/json' },
   });
 
+const apiError = (code: number, description: string) =>
+  new Response(JSON.stringify({ ok: false, error_code: code, description }), {
+    status: code,
+    headers: { 'content-type': 'application/json' },
+  });
+
 interface Call {
   url: string;
   body?: unknown;
@@ -38,7 +44,7 @@ async function drain(body: unknown): Promise<string | undefined> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function setup() {
+function setup(options: { reject?: 'parse' | 'other' } = {}) {
   const calls: Call[] = [];
   const fetchMock: typeof fetch = async (input, init) => {
     const url = String(input);
@@ -51,11 +57,14 @@ function setup() {
           : undefined;
     const stream = body === undefined ? await drain(init?.body) : undefined;
     calls.push({ url, body, contentType, ...(stream !== undefined && { stream }) });
-    if (
-      url.endsWith('/sendMessage') ||
-      url.endsWith('/editMessageText') ||
-      url.endsWith('/sendDocument')
-    ) {
+    if (url.endsWith('/sendMessage')) {
+      if (options.reject === 'parse' && body?.parse_mode === 'HTML') {
+        return apiError(400, "Bad Request: can't parse entities: unsupported start tag at byte 0");
+      }
+      if (options.reject === 'other') return apiError(400, 'Bad Request: chat not found');
+      return jsonResponse(fixture('send-message.json'));
+    }
+    if (url.endsWith('/editMessageText') || url.endsWith('/sendDocument')) {
       return jsonResponse(fixture('send-message.json'));
     }
     if (url.endsWith('/getFile')) return jsonResponse(fixture('get-file.json'));
@@ -91,7 +100,7 @@ describe('GrammyTelegramTransport (S32)', () => {
   it('sends HTML and returns the Telegram message id', async () => {
     const { transport, calls } = setup();
 
-    const id = await transport.sendMessage('42', '<b>hi</b>');
+    const id = await transport.sendMessage('42', '<b>hi</b>', '**hi**');
 
     expect(id).toBe(77);
     const call = calls.find((c) => c.url.endsWith('/sendMessage'))!;
@@ -228,5 +237,32 @@ describe('GrammyTelegramTransport: documents (S33)', () => {
     expect(call.stream).toContain('The report');
     // grammY writes the upload filename unquoted.
     expect(call.stream).toContain('filename=report.pdf');
+  });
+});
+
+describe('GrammyTelegramTransport: HTML rejected (#41)', () => {
+  it('resends the same chunk as plain text, without parse_mode', async () => {
+    const { transport, calls } = setup({ reject: 'parse' });
+
+    const id = await transport.sendMessage('42', '<b>odd **markdown', '**odd **markdown');
+
+    expect(id).toBe(77);
+    const sends = calls.filter((call) => call.url.endsWith('/sendMessage'));
+    expect(sends).toHaveLength(2);
+    expect(sends[0]!.body).toMatchObject({ parse_mode: 'HTML' });
+    expect(sends[1]!.body).toEqual({
+      chat_id: '42',
+      text: '**odd **markdown',
+      link_preview_options: { is_disabled: true },
+    });
+  });
+
+  it('does not hide a Telegram error that is not about parsing', async () => {
+    const { transport, calls } = setup({ reject: 'other' });
+
+    await expect(transport.sendMessage('42', '<b>hi</b>', '**hi**')).rejects.toThrow(
+      /chat not found/,
+    );
+    expect(calls.filter((call) => call.url.endsWith('/sendMessage'))).toHaveLength(1);
   });
 });

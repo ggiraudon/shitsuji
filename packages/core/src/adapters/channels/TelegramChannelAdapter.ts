@@ -79,7 +79,7 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
     }
     let first: number | undefined;
     for (const chunk of chunks) {
-      const messageId = await this.transport.sendMessage(target.chatId, chunk.html);
+      const messageId = await this.transport.sendMessage(target.chatId, chunk.html, chunk.plain);
       first ??= messageId;
     }
     for (const part of files) {
@@ -115,7 +115,7 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
     if (this.working.has(target.chatId)) return;
     try {
       await this.transport.sendTyping(target.chatId);
-      const messageId = await this.transport.sendMessage(target.chatId, 'Working…');
+      const messageId = await this.transport.sendMessage(target.chatId, 'Working…', 'Working…');
       this.working.set(target.chatId, messageId);
     } catch (error) {
       this.log.warn('Could not show Telegram typing', {
@@ -146,7 +146,11 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
         }
         // Keep the file for F23, but do not start a turn the agent cannot hear.
         await this.storeAttachment(message);
-        await this.transport.sendMessage(message.chatId, "I can't listen to voice notes yet.");
+        await this.transport.sendMessage(
+          message.chatId,
+          "I can't listen to voice notes yet.",
+          "I can't listen to voice notes yet.",
+        );
         return;
       }
       const attachment =
