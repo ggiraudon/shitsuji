@@ -126,6 +126,20 @@ export class ApprovalService {
     return next;
   }
 
+  /**
+   * Expires every pending card of a session: a new owner message supersedes the question it was
+   * waiting on (#51), so the blocked turn wakes with an expired approval and ends cleanly.
+   */
+  async supersedeForSession(sessionId: SessionId, reason: string): Promise<number> {
+    const pending = await this.deps.approvals.list({ status: 'pending' });
+    let count = 0;
+    for (const approval of pending) {
+      if (approval.sessionId !== sessionId) continue;
+      if (await this.expire(approval.id, reason)) count++;
+    }
+    return count;
+  }
+
   /** Records what became of an approved action: it ran, or it may have run. */
   async finish(id: ApprovalId, succeeded: boolean): Promise<Approval | undefined> {
     const current = await this.deps.approvals.get(id);

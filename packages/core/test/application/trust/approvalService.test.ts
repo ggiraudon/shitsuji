@@ -149,4 +149,29 @@ describe('ApprovalService (S36, F11)', () => {
     const { service } = await setup();
     await expect(service.resolve(asId<ApprovalId>('missing'), 'approve')).rejects.toThrow(NotFound);
   });
+
+  it("expires a session's pending cards when a new owner message supersedes them (#51)", async () => {
+    const { service, ask, requested, repos, resolved } = await setup();
+    const first = ask();
+    await until(() => requested.length === 1);
+    const second = service.request(
+      {
+        ownerId,
+        turnId,
+        sessionId: asId<SessionId>('session-2'),
+        action,
+      },
+      new AbortController().signal,
+    );
+    await until(() => requested.length === 2);
+
+    const superseded = await service.supersedeForSession(sessionId, 'the owner sent a new message');
+
+    expect(superseded).toBe(1);
+    expect((await first).status).toBe('expired');
+    expect((await repos.approvals.get(asId<ApprovalId>(requested[0]!)))!.status).toBe('expired');
+    expect((await repos.approvals.get(asId<ApprovalId>(requested[1]!)))!.status).toBe('pending');
+    expect(resolved).toContainEqual({ approvalId: requested[0], status: 'expired' });
+    void second;
+  });
 });

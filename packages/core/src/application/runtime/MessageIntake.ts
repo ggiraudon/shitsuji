@@ -1,4 +1,6 @@
+import { serializeError } from '../../domain/errors.js';
 import { newId, type OwnerId, type SessionId, type TurnId } from '../../domain/model/ids.js';
+import type { Logger } from '../../ports/Logger.js';
 import { Session, type SessionKind } from '../../domain/model/Session.js';
 import type { Thread } from '../../domain/model/Thread.js';
 import { Turn, type TurnSource } from '../../domain/model/Turn.js';
@@ -39,6 +41,9 @@ export class MessageIntake {
       clock: Clock;
       events: EventBus;
       agentName: string;
+      log?: Logger;
+      /** Expires the session's pending approval cards; a new message supersedes them (#51). */
+      supersedeApprovals?: (sessionId: SessionId, reason: string) => Promise<number>;
     },
   ) {}
 
@@ -89,6 +94,27 @@ export class MessageIntake {
       }
       return { sessionId: session.id, turnId: turn.id, steered: !!running };
     });
+    // The message is stored; the owner has moved on, so any card waiting for them in this session
+    // is superseded. A failure here must not lose the message.
+    if (this.deps.supersedeApprovals) {
+      try {
+        const superseded = await this.deps.supersedeApprovals(
+          result.sessionId,
+          'the owner sent a new message',
+        );
+        if (superseded) {
+          this.deps.log?.info('Superseded pending approvals', {
+            sessionId: result.sessionId,
+            count: superseded,
+          });
+        }
+      } catch (error) {
+        this.deps.log?.warn('Could not supersede pending approvals', {
+          sessionId: result.sessionId,
+          error: serializeError(error),
+        });
+      }
+    }
     events.publish('message.received', { sessionId: result.sessionId, role: 'user', content });
     if (result.steered)
       events.publish('turn.steered', { turnId: result.turnId, sessionId: result.sessionId });
