@@ -7,11 +7,13 @@ import {
   type TurnId,
 } from '../../domain/model/ids.js';
 import type { Message } from '../../domain/model/Message.js';
+import { Approval, type ApprovalProps } from '../../domain/model/Approval.js';
 import { Session, type SessionKind } from '../../domain/model/Session.js';
 import type { SoulFragment, SoulRevision } from '../../domain/model/Soul.js';
 import { Thread, type ThreadStatus } from '../../domain/model/Thread.js';
 import { Turn, type TurnProps, type TurnStatus } from '../../domain/model/Turn.js';
 import type {
+  ApprovalRepository,
   MessageQuery,
   MessageRepository,
   Owner,
@@ -76,6 +78,7 @@ interface State {
   soulRevisions: { ownerId: OwnerId; revision: SoulRevision }[];
   budgetHolds: BudgetHoldRow[];
   bindings: ChannelBinding[];
+  approvals: ApprovalProps[];
 }
 
 const emptyState = (): State => ({
@@ -90,6 +93,7 @@ const emptyState = (): State => ({
   soulRevisions: [],
   budgetHolds: [],
   bindings: [],
+  approvals: [],
 });
 
 const copy = <T>(value: T): T => structuredClone(value);
@@ -430,6 +434,38 @@ export class InMemoryRepositories implements Repositories {
           (a, b) =>
             a.channel.localeCompare(b.channel) || a.externalChatId.localeCompare(b.externalChatId),
         ),
+  };
+
+  readonly approvals: ApprovalRepository = {
+    insert: async (approval) => {
+      if (this.state.approvals.some((a) => a.id === approval.id)) {
+        throw new Error(`Approval ${approval.id} already exists`);
+      }
+      this.state.approvals.push(copy(approval.toProps()));
+    },
+    get: async (id) => {
+      const row = this.state.approvals.find((a) => a.id === id);
+      return row && Approval.restore(copy(row));
+    },
+    update: async (approval, expected) => {
+      const row = this.state.approvals.find((a) => a.id === approval.id);
+      if (!row || row.status !== expected) return false;
+      this.state.approvals[this.state.approvals.indexOf(row)] = copy(approval.toProps());
+      return true;
+    },
+    list: async (query = {}) => {
+      const statuses = query.status
+        ? Array.isArray(query.status)
+          ? query.status
+          : [query.status]
+        : undefined;
+      const rows = this.state.approvals
+        .filter((a) => !query.turnId || a.turnId === query.turnId)
+        .filter((a) => !statuses || statuses.includes(a.status))
+        .map((a) => Approval.restore(copy(a)))
+        .sort((a, b) => b.toProps().createdAt.getTime() - a.toProps().createdAt.getTime());
+      return query.limit ? rows.slice(0, query.limit) : rows;
+    },
   };
 
   /** Settled spend from the usage ledger: rows with a known cost, in this currency. */

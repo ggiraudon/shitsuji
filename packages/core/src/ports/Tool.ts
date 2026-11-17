@@ -50,6 +50,8 @@ export interface TrustDecision {
   quoteRequired?: boolean;
   /** The exact action, so a receipt or an approval names it (S34). */
   actionHash?: string;
+  /** The approval this decision came from; the middleware reports how the run ended (S36). */
+  approvalId?: string;
 }
 
 /** What a running tool may use, and nothing else. */

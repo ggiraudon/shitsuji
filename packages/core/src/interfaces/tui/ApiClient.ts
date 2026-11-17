@@ -1,5 +1,7 @@
 import type {
   ActivityResponse,
+  ApprovalResponse,
+  ApprovalsResponse,
   LiveEvent,
   MessageDto,
   PairResponse,
@@ -97,6 +99,16 @@ export class ApiClient {
   /** A code that pairs a chat with you (S31). */
   pair(): Promise<PairResponse> {
     return this.request('POST', '/api/pair');
+  }
+
+  /** The cards waiting for you (S36). */
+  approvals(): Promise<ApprovalsResponse> {
+    return this.request('GET', '/api/approvals');
+  }
+
+  /** Answers a card; answering twice changes nothing the second time (S36). */
+  resolveApproval(id: string, decision: 'approve' | 'decline'): Promise<ApprovalResponse> {
+    return this.request('POST', `/api/approvals/${encodeURIComponent(id)}`, { decision });
   }
 
   /**

@@ -3,7 +3,14 @@
  * and against Postgres in integration tests, so both behave the same.
  */
 import { describe, expect, it } from 'vitest';
-import { asId, newId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
+import {
+  asId,
+  newId,
+  type ApprovalId,
+  type OwnerId,
+  type SessionId,
+} from '../../src/domain/model/ids.js';
+import { Approval } from '../../src/domain/model/Approval.js';
 import type { Message } from '../../src/domain/model/Message.js';
 import { Money } from '../../src/domain/model/Money.js';
 import { Session } from '../../src/domain/model/Session.js';
@@ -577,6 +584,62 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       await repos.messages.append(m);
       await expect(repos.messages.append(m)).rejects.toThrow();
       await expect(repos.sessions.insert(session)).rejects.toThrow();
+    });
+
+    it('stores approvals, filters them, and moves status by compare-and-set (S36)', async () => {
+      const repos = await create();
+      const { session } = await seed(repos);
+      const t = turn(session.id, 70);
+      await repos.turns.insert(t);
+
+      const approval = (id: string, createdAt: Date) =>
+        Approval.request({
+          id: asId<ApprovalId>(id),
+          ownerId: owner,
+          turnId: t.id,
+          sessionId: session.id,
+          tool: 'test.notify',
+          effect: 'external',
+          target: 'core',
+          actionHash: 'a'.repeat(64),
+          arguments: { text: 'Hello' },
+          summary: 'test.notify (external)',
+          reason: 'the owner must approve it',
+          createdAt,
+        });
+      const first = approval('a1', at(70));
+      const second = approval('a2', at(71));
+      await repos.approvals.insert(first);
+      await repos.approvals.insert(second);
+
+      const loaded = await repos.approvals.get(asId<ApprovalId>('a1'));
+      expect(loaded).toBeInstanceOf(Approval);
+      expect(loaded!.toProps()).toMatchObject({
+        tool: 'test.notify',
+        effect: 'external',
+        arguments: { text: 'Hello' },
+        summary: 'test.notify (external)',
+        reason: 'the owner must approve it',
+        status: 'pending',
+        createdAt: at(70),
+      });
+
+      // Newest first, with filters.
+      expect((await repos.approvals.list({ turnId: t.id })).map((a) => a.id)).toEqual(['a2', 'a1']);
+      expect(await repos.approvals.list({ status: 'approved' })).toEqual([]);
+      expect((await repos.approvals.list({ limit: 1 })).map((a) => a.id)).toEqual(['a2']);
+
+      // Compare-and-set: the second approve of the same approval changes nothing.
+      const approve = Approval.restore(first.toProps());
+      approve.approve(at(72));
+      expect(await repos.approvals.update(approve, 'pending')).toBe(true);
+      const again = Approval.restore(first.toProps());
+      again.approve(at(73));
+      expect(await repos.approvals.update(again, 'pending')).toBe(false);
+      expect((await repos.approvals.get(asId<ApprovalId>('a1')))!.status).toBe('approved');
+      expect(
+        (await repos.approvals.list({ status: ['pending', 'approved'] })).map((a) => a.status),
+      ).toEqual(['pending', 'approved']);
     });
   });
 }

@@ -196,6 +196,8 @@ export const shitsujiConfigSchema = z
           })
           .strict()
           .default({}),
+        /** Where `test.notify` posts (a local mock service, F11/S36). Unset: no test tool. */
+        notifyUrl: z.string().url().optional(),
       })
       .strict()
       .default({}),

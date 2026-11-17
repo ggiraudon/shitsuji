@@ -10,9 +10,17 @@ import { PairingService } from '../../src/application/channels/PairingService.js
 import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
 import { SoulService } from '../../src/application/soul/SoulService.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
+import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
-import { asId, type OwnerId, type SessionId, type TurnId } from '../../src/domain/model/ids.js';
+import {
+  asId,
+  type ApprovalId,
+  type OwnerId,
+  type SessionId,
+  type TurnId,
+} from '../../src/domain/model/ids.js';
+import { Approval } from '../../src/domain/model/Approval.js';
 import type { InboundMessage, InboundResult } from '../../src/ports/ChannelAdapter.js';
 import type { Tool } from '../../src/ports/Tool.js';
 import { createApi } from '../../src/interfaces/http/createApi.js';
@@ -69,6 +77,12 @@ async function setup(
   });
   await jobs.start();
   await agent.start();
+  const approvals = new ApprovalService({
+    approvals: repos.approvals,
+    events: services.events,
+    clock: services.clock,
+    log: services.log,
+  });
   const app = createApi({
     agent,
     repos,
@@ -76,10 +90,11 @@ async function setup(
     ownerId,
     soul,
     pairing,
+    approvals,
     ...(options.receive && { receive: options.receive }),
     verifyKey: (k) => k === 'secret',
   });
-  return { app, agent, soul };
+  return { app, agent, soul, repos, approvals };
 }
 const auth = { authorization: 'Bearer secret', 'content-type': 'application/json' };
 
@@ -276,4 +291,73 @@ describe('HTTP API', () => {
     expect((await app.request('/api/usage?since=nope', { headers: auth })).status).toBe(400);
     expect((await app.request('/api/activity')).status).toBe(401);
   });
+});
+
+it('lists open approvals and answers one, twice at most (S36)', async () => {
+  const { app, repos } = await setup();
+  const approval = Approval.request({
+    id: asId<ApprovalId>('approval-1'),
+    ownerId: asId<OwnerId>('owner'),
+    turnId: asId<TurnId>('turn-1'),
+    sessionId: asId<SessionId>('session-1'),
+    tool: 'test.notify',
+    effect: 'external',
+    target: 'core',
+    actionHash: 'a'.repeat(64),
+    arguments: { text: 'Hello' },
+    summary: 'test.notify (external) {"text":"Hello"}',
+    reason: 'the owner must approve it',
+    createdAt: new Date('2026-11-17T10:00:00Z'),
+  });
+  await repos.approvals.insert(approval);
+  const declined = Approval.request({
+    ...approval.toProps(),
+    id: asId<ApprovalId>('approval-2'),
+  });
+  declined.decline(new Date('2026-11-17T10:00:01Z'));
+  await repos.approvals.insert(declined);
+
+  const listed = await app.request('/api/approvals', { headers: auth });
+  expect(listed.status).toBe(200);
+  const { approvals } = (await listed.json()) as { approvals: { id: string; status: string }[] };
+  expect(approvals.map((a) => a.id).sort()).toEqual(['approval-1']);
+
+  const body = JSON.stringify({ decision: 'approve' });
+  const first = await app.request('/api/approvals/approval-1', {
+    method: 'POST',
+    headers: auth,
+    body,
+  });
+  expect(first.status).toBe(200);
+  expect(((await first.json()) as { approval: { status: string } }).approval.status).toBe(
+    'approved',
+  );
+
+  const second = await app.request('/api/approvals/approval-1', {
+    method: 'POST',
+    headers: auth,
+    body,
+  });
+  expect(((await second.json()) as { approval: { status: string } }).approval.status).toBe(
+    'approved',
+  );
+
+  expect(
+    (
+      await app.request('/api/approvals/missing', {
+        method: 'POST',
+        headers: auth,
+        body,
+      })
+    ).status,
+  ).toBe(404);
+  expect(
+    (
+      await app.request('/api/approvals/approval-1', {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({ decision: 'maybe' }),
+      })
+    ).status,
+  ).toBe(400);
 });

@@ -11,6 +11,7 @@ import { NodeTextFile } from '../../src/adapters/files/NodeTextFile.js';
 import { SoulService } from '../../src/application/soul/SoulService.js';
 import { PairingService } from '../../src/application/channels/PairingService.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
+import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { startApiServer, type RunningApi } from '../../src/composition/apiServer.js';
@@ -77,7 +78,21 @@ async function serve(replies: ConstructorParameters<typeof ScriptedProvider>[0])
   await jobs.start();
   await agent.start();
   running = await startApiServer(
-    { agent, repos, ...services, ownerId, soul, pairing, verifyKey: (k) => keys.verify(k) },
+    {
+      agent,
+      repos,
+      ...services,
+      ownerId,
+      soul,
+      pairing,
+      approvals: new ApprovalService({
+        approvals: repos.approvals,
+        events: services.events,
+        clock: services.clock,
+        log: services.log,
+      }),
+      verifyKey: (k) => keys.verify(k),
+    },
     { host: '127.0.0.1', port: 0 },
   );
   return { client: new ApiClient(running.url, created!), url: running.url, keys, hang, dir };

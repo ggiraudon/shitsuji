@@ -24,6 +24,7 @@ import { defaultMiddlewares } from '../application/tools/middlewares.js';
 import { ToolCatalog } from '../application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../application/tools/ToolPipeline.js';
 import { PolicyEngine } from '../application/trust/PolicyEngine.js';
+import { ApprovalService } from '../application/trust/ApprovalService.js';
 import { SessionAuthority, TrustService } from '../application/trust/TrustService.js';
 import { TrustJudge } from '../application/trust/TrustJudge.js';
 import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
@@ -37,6 +38,7 @@ import type { Repositories } from '../ports/Repositories.js';
 import type { ShitsujiPlugin } from '../ports/Plugin.js';
 import { WebhookChannelPlugin, TelegramChannelPlugin } from '../plugins/channelPlugins.js';
 import { CoreToolsPlugin } from '../plugins/coreToolsPlugin.js';
+import { TestToolsPlugin } from '../plugins/testToolsPlugin.js';
 import { WebToolsPlugin } from '../plugins/webToolsPlugin.js';
 import { AnthropicPlugin, OpenAICompatiblePlugin } from '../plugins/modelPlugins.js';
 import type { ShitsujiConfig } from './config/schema.js';
@@ -182,11 +184,20 @@ export async function createShitsuji(
   const models = new ModelRouter(providers, config.models, catalog, log);
   const chat = selectChat(models);
   log.info('Using chat model', { model: chat.ref });
+  // Cards are durable in the repository before they are shown; answering wakes the waiting turn (S36).
+  const approvals = new ApprovalService({
+    approvals: repos.approvals,
+    events,
+    clock: services.clock,
+    log,
+  });
   // The owner's words come from the session's transcript; the judge is a small model (M3).
   const trust = new TrustService({
     engine: new PolicyEngine(),
     authority: new SessionAuthority(repos.messages),
     judge: new TrustJudge({ models, log }),
+    approvals,
+    ownerId: OWNER_ID,
     log,
   });
   const tools = new ToolCatalog(plugins.tools());
@@ -198,6 +209,7 @@ export async function createShitsuji(
       turnEvents: repos.turnEvents,
       clock: services.clock,
       policy: trust,
+      approvals,
     }),
   );
   const agent = new Agent({
@@ -264,6 +276,7 @@ export async function createShitsuji(
               ownerId: OWNER_ID,
               soul,
               pairing,
+              approvals,
               verifyKey,
             },
             config.api,
@@ -303,6 +316,7 @@ function builtInPlugins(
       searxngUrl: config.tools.web.searxngUrl,
       fetchEnabled: config.tools.web.fetch.enabled,
     }),
+    ...(config.tools.notifyUrl ? [new TestToolsPlugin({ notifyUrl: config.tools.notifyUrl })] : []),
   ];
   if (withChannels && config.channels.webhook.enabled) {
     list.push(new WebhookChannelPlugin({ ...config.channels.webhook, authorize: verifyKey }));

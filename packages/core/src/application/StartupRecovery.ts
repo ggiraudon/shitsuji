@@ -1,5 +1,6 @@
 import { serializeError } from '../domain/errors.js';
 import { newId } from '../domain/model/ids.js';
+import { Approval } from '../domain/model/Approval.js';
 import type { Turn } from '../domain/model/Turn.js';
 import type { Clock } from '../ports/Clock.js';
 import type { Logger } from '../ports/Logger.js';
@@ -71,6 +72,37 @@ export class StartupRecovery {
     if (recovered.length) {
       this.log.warn('Interrupted turns marked failed', { turns: recovered.map((t) => t.id) });
     }
+    await this.recoverApprovals();
     return recovered;
+  }
+
+  /**
+   * Approvals left open by a crash (F11, S36): nobody can answer a pending one, and an approved one
+   * may already have run. Neither is retried; an approved action becomes `uncertain` so the next turn
+   * knows to check.
+   */
+  private async recoverApprovals(): Promise<void> {
+    try {
+      const open = await this.repos.approvals.list({ status: ['pending', 'approved'] });
+      if (!open.length) return;
+      let expired = 0;
+      let uncertain = 0;
+      for (const approval of open) {
+        const from = approval.status;
+        const next = Approval.restore(approval.toProps());
+        if (from === 'pending') next.expire(this.clock.now());
+        else next.uncertain(this.clock.now());
+        if (await this.repos.approvals.update(next, from)) {
+          if (from === 'pending') expired++;
+          else uncertain++;
+        }
+      }
+      if (expired) this.log.warn('Expired approvals left by the previous run', { count: expired });
+      if (uncertain) {
+        this.log.warn('Approved actions may have run before the restart', { count: uncertain });
+      }
+    } catch (error) {
+      this.log.error('Could not recover approvals', { error: serializeError(error) });
+    }
   }
 }

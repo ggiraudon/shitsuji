@@ -139,13 +139,28 @@ a verbatim substring of one owner message; a made-up or paraphrased quote become
 records `allowedBy: { kind: 'quote', detail: … }`. Approvals are still S36, so an `ask` refuses for
 now.
 
+### What S36 builds
+
+An `ask` verdict creates a durable `Approval` (pending) bound to the action's hash and shows a card:
+a live event for the TUI, `GET /api/approvals` for anything else (Telegram buttons are S37). The tool
+call waits for the owner or for the turn's Stop. A yes runs the exact action once; a no or an expiry
+refuses it; a second ask for the same action in the same turn reuses the recorded answer. What became
+of the action is recorded too: `executed` when the tool returned normally, `uncertain` when it failed,
+was stopped mid-run, or the process restarted with it approved. An `uncertain` action is never
+retried. `POST /api/approvals/:id` answers a card, and answering twice changes nothing the second
+time. `test.notify` (effect `external`, configured by `tools.notifyUrl`) posts to a local mock service,
+so the whole path can be exercised without a real email or shop.
+
 ## Changes to existing code
 
 | File | Change |
 |------|--------|
 | `application/tools/middlewares.ts` | S34: `TrustMiddleware` builds an `ActionRequest` and runs the `PolicyEngine`; `FixedTrustPolicy` is gone. S35: the check is awaited, so the service can judge |
 | `ports/Tool.ts` | S34: `TrustDecision` is a verdict (`allow`, `ask`, `judge`, `deny`) with the action hash; `TrustBasis` keeps `kind: 'rule'` for a standing rule |
-| `composition/createShitsuji.ts` | S35: builds `TrustService` with `SessionAuthority` (the message repository) and `TrustJudge` (the model router) |
+| `composition/createShitsuji.ts` | S35: builds `TrustService` with `SessionAuthority` (the message repository) and `TrustJudge` (the model router). S36: builds `ApprovalService` and passes it to trust and the pipeline |
+| `ports/Repositories.ts`, `adapters/memory`, `adapters/postgres`, `migrations/0009_approvals.sql` | S36: an `ApprovalRepository` with a compare-and-set on the status |
+| `interfaces/http`, `interfaces/tui` | S36: `GET`/`POST /api/approvals`, live approval events, and cards answered with `/approve` and `/decline` |
+| `adapters/tools/NotifyTool.ts`, `plugins/testToolsPlugin.ts` | S36: `test.notify` (effect `external`) posts to the mock service at `tools.notifyUrl`, for the whole trust path |
 
 `workspace.exec` already runs without a command allowlist: the workspace folder, and from
 [F08](F08-workspace-sandbox.md) the container, are the boundary for commands; trust covers outside

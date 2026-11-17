@@ -15,7 +15,7 @@ const colors = {
 /** One line on screen. */
 export interface Line {
   id: string;
-  kind: 'owner' | 'assistant' | 'tool' | 'note' | 'error';
+  kind: 'owner' | 'assistant' | 'tool' | 'note' | 'error' | 'approval';
   text: string;
 }
 
@@ -32,6 +32,8 @@ export type TuiClient = Pick<
   | 'usage'
   | 'activity'
   | 'pair'
+  | 'approvals'
+  | 'resolveApproval'
 >;
 
 let counter = 0;
@@ -63,10 +65,25 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
   const turn = useRef<string | null>(null);
   /** The hash of the SOUL edit shown by /soul: /soul apply confirms only that text. */
   const reviewedSoul = useRef<string | null>(null);
+  /** Cards waiting for the owner; /approve and /decline answer the newest unless given an id. */
+  const pending = useRef<{ id: string; summary: string }[]>([]);
 
   const add = useCallback((kind: Line['kind'], text: string) => {
     setLines((prev) => [...prev, { id: lineId(), kind, text }].slice(-500));
   }, []);
+
+  const showApproval = useCallback(
+    (approval: { id: string; summary: string }) => {
+      pending.current = [...pending.current.filter((a) => a.id !== approval.id), approval];
+      add('approval', `🔐 ${approval.summary}`);
+      add(
+        'note',
+        `Approve: /approve ${approval.id.slice(0, 8)} · Decline: /decline ${approval.id.slice(0, 8)}`,
+      );
+      setStatus('Waiting for your approval');
+    },
+    [add],
+  );
 
   const onEvent = useCallback(
     (e: LiveEvent) => {
@@ -113,9 +130,29 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
         case 'turn.steered':
           add('note', 'Added to the current turn.');
           break;
+        case 'approval.requested':
+          showApproval({ id: e.approvalId, summary: e.summary });
+          break;
+        case 'approval.resolved': {
+          pending.current = pending.current.filter((a) => a.id !== e.approvalId);
+          add(
+            'note',
+            e.status === 'approved'
+              ? 'Approved. Running it.'
+              : e.status === 'declined'
+                ? 'Declined.'
+                : e.status === 'expired'
+                  ? 'The approval expired.'
+                  : `The action is ${e.status}.`,
+          );
+          if (!pending.current.length && e.status !== 'executed' && e.status !== 'uncertain') {
+            setStatus('Ready');
+          }
+          break;
+        }
       }
     },
-    [add],
+    [add, showApproval],
   );
 
   useEffect(() => {
@@ -131,6 +168,15 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
           onEvent,
           () => !cancelled && setStatus('Disconnected from Shitsuji'),
         );
+        // Cards opened before the TUI connected are still waiting.
+        const { approvals } = await client.approvals();
+        if (!cancelled) {
+          for (const approval of approvals) {
+            if (approval.status === 'pending') {
+              showApproval({ id: approval.id, summary: approval.summary });
+            }
+          }
+        }
         setStatus('Ready');
       } catch (error) {
         setStatus(`Cannot connect: ${(error as Error).message}`);
@@ -140,7 +186,7 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
       cancelled = true;
       close?.();
     };
-  }, [client, onEvent]);
+  }, [client, onEvent, showApproval]);
 
   const submit = useCallback(
     async (text: string) => {
@@ -148,8 +194,24 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
       if (text === '/help') {
         return add(
           'note',
-          'Enter: send (also while working). Esc: stop. /new: new conversation. /soul: the standing instructions. /pair: pair a chat. /usage: what it cost. /activity: recent tool calls. /exit: quit.',
+          'Enter: send (also while working). Esc: stop. /new: new conversation. /soul: the standing instructions. /pair: pair a chat. /approve, /decline: answer an approval card. /usage: what it cost. /activity: recent tool calls. /exit: quit.',
         );
+      }
+      if (text.startsWith('/approve') || text.startsWith('/decline')) {
+        const decision = text.startsWith('/approve') ? 'approve' : 'decline';
+        const arg = text.split(/\s+/)[1];
+        const target = arg
+          ? pending.current.find((a) => a.id.startsWith(arg))
+          : pending.current.at(-1);
+        if (!target) return add('note', 'No approval is waiting.');
+        try {
+          const { approval } = await client.resolveApproval(target.id, decision);
+          pending.current = pending.current.filter((a) => a.id !== target.id);
+          add('note', `Approval ${approval.status}.`);
+        } catch (error) {
+          add('error', (error as Error).message);
+        }
+        return;
       }
       if (text === '/pair') {
         try {
@@ -302,7 +364,9 @@ const lineColor = (kind: Line['kind']) =>
         ? colors.error
         : kind === 'tool'
           ? colors.purple
-          : colors.dim;
+          : kind === 'approval'
+            ? colors.warning
+            : colors.dim;
 
 /** Starts the TUI; resolves when it exits. */
 export async function startTUI(client: TuiClient): Promise<void> {

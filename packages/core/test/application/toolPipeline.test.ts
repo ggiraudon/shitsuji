@@ -7,8 +7,18 @@ import {
   type TrustPolicy,
 } from '../../src/application/tools/middlewares.js';
 import { outcomeText, ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
+import { actionRequest } from '../../src/application/trust/ActionRequest.js';
+import { Approval } from '../../src/domain/model/Approval.js';
+import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
 import { PolicyEngine } from '../../src/application/trust/PolicyEngine.js';
-import { asId, type ToolCallId, type TurnId } from '../../src/domain/model/ids.js';
+import {
+  asId,
+  type ApprovalId,
+  type OwnerId,
+  type SessionId,
+  type ToolCallId,
+  type TurnId,
+} from '../../src/domain/model/ids.js';
 import {
   BaseTool,
   type Tool,
@@ -41,14 +51,34 @@ class FakeTool extends BaseTool<z.ZodObject<{ n: z.ZodNumber }>> {
 
 const setup = (
   tools: Tool[],
-  extra: { policy?: TrustPolicy; maxOutputChars?: number; redact?: RedactFn } = {},
+  extra: {
+    policy?: TrustPolicy;
+    approvals?: ApprovalService;
+    repos?: InMemoryRepositories;
+    maxOutputChars?: number;
+    redact?: RedactFn;
+  } = {},
 ) => {
   const services = testServices();
-  const repos = new InMemoryRepositories();
+  const { approvals: givenApprovals, repos: givenRepos, ...rest } = extra;
+  const repos = givenRepos ?? new InMemoryRepositories();
+  const approvals =
+    givenApprovals ??
+    new ApprovalService({
+      approvals: repos.approvals,
+      events: services.events,
+      clock: services.clock,
+      log: services.log,
+    });
   const byName = new Map(tools.map((t) => [t.name, t]));
   const pipeline = new ToolPipeline(
     { get: (n) => byName.get(n) },
-    defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock, ...extra }),
+    defaultMiddlewares({
+      turnEvents: repos.turnEvents,
+      clock: services.clock,
+      approvals,
+      ...rest,
+    }),
   );
   const controller = new AbortController();
   const ctx: ToolContext = {
@@ -63,7 +93,7 @@ const setup = (
   };
   const call = (name: string, args: Record<string, unknown>) =>
     pipeline.execute({ id: asId<ToolCallId>('c1'), name, arguments: args }, ctx);
-  return { pipeline, call, controller, repos };
+  return { pipeline, call, controller, repos, approvals };
 };
 
 describe('ToolPipeline', () => {
@@ -135,7 +165,7 @@ describe('ToolPipeline', () => {
     expect(reasons).toEqual(['failed', 'failed', 'failed', 'failed', 'repeated_failure']);
   });
 
-  it('refuses a judgement when the graph has no judge, and a payment until S36 (F11)', async () => {
+  it('refuses a judgement or an approval the graph cannot provide (F11)', async () => {
     const send = new FakeTool('mail.send', 'external');
     const pay = new FakeTool('shop.pay', 'payment');
     const { call } = setup([send, pay]);
@@ -146,7 +176,7 @@ describe('ToolPipeline', () => {
     expect(judged).toMatchObject({ kind: 'error', reason: 'denied' });
     expect(judged.content).toMatch(/No trust judge is configured/);
     expect(approved).toMatchObject({ kind: 'error', reason: 'denied' });
-    expect(approved.content).toMatch(/owner's approval.*S36/);
+    expect(approved.content).toMatch(/No approval service is configured/);
     expect(send.runs + pay.runs).toBe(0);
   });
 
@@ -266,5 +296,73 @@ describe('ToolPipeline', () => {
     expect(outcome.content.startsWith('A'.repeat(30) + '\n[…')).toBe(true);
     expect(outcome.content).toMatch(/\[… 60 characters omitted …\]/);
     expect(outcome.content.endsWith('\n' + 'B'.repeat(10))).toBe(true);
+  });
+});
+
+describe('ToolPipeline: approved actions (S36)', () => {
+  const approved = async (
+    repos: InMemoryRepositories,
+    tool: string,
+    hash: string,
+  ): Promise<Approval> => {
+    const approval = Approval.request({
+      id: asId<ApprovalId>('approval-1'),
+      ownerId: asId<OwnerId>('owner'),
+      turnId: asId<TurnId>('turn-1'),
+      sessionId: asId<SessionId>('session-1'),
+      tool,
+      effect: 'external',
+      target: 'core',
+      actionHash: hash,
+      arguments: { n: 1 },
+      summary: `${tool} (external)`,
+      createdAt: new Date('2026-11-17T10:00:00Z'),
+    });
+    approval.approve(new Date('2026-11-17T10:00:01Z'));
+    await repos.approvals.insert(approval);
+    return approval;
+  };
+
+  const allowWith = (approval: Approval): TrustPolicy => ({
+    decide: (request) => ({
+      verdict: 'allow',
+      basis: { kind: 'owner', detail: 'the owner approved this exact action' },
+      actionHash: request.hash,
+      approvalId: approval.id,
+    }),
+  });
+
+  const action = actionRequest({
+    tool: 'test.notify',
+    arguments: { n: 1 },
+    effect: 'external',
+    target: 'core',
+  });
+
+  it('marks an approved action executed once it ran', async () => {
+    const tool = new FakeTool('test.notify', 'external');
+    const repos = new InMemoryRepositories();
+    const approval = await approved(repos, 'test.notify', action.hash);
+    const { call } = setup([tool], { repos, policy: allowWith(approval) });
+
+    await call('test.notify', { n: 1 });
+
+    expect((await repos.approvals.get(approval.id))!.status).toBe('executed');
+    expect(tool.runs).toBe(1);
+  });
+
+  it('marks an approved action uncertain when it failed: it may have run', async () => {
+    const tool = new FakeTool('test.notify', 'external', async () => ({
+      content: 'the mock refused',
+      isError: true,
+    }));
+    const repos = new InMemoryRepositories();
+    const approval = await approved(repos, 'test.notify', action.hash);
+    const { call } = setup([tool], { repos, policy: allowWith(approval) });
+
+    const outcome = await call('test.notify', { n: 1 });
+
+    expect(outcome).toMatchObject({ kind: 'error', reason: 'tool_error' });
+    expect((await repos.approvals.get(approval.id))!.status).toBe('uncertain');
   });
 });

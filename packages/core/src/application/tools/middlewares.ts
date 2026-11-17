@@ -1,9 +1,10 @@
 import { serializeError } from '../../domain/errors.js';
-import type { TurnId } from '../../domain/model/ids.js';
+import { asId, type ApprovalId, type TurnId } from '../../domain/model/ids.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { TurnEventRepository } from '../../ports/Repositories.js';
 import { effectOf, type ToolOutcome } from '../../ports/Tool.js';
 import { actionRequest, type ActionRequest } from '../trust/ActionRequest.js';
+import type { ApprovalService } from '../trust/ApprovalService.js';
 import { PolicyOnlyTrust, type TrustPolicy } from '../trust/TrustPolicy.js';
 import type { ToolInvocation, ToolMiddleware } from './ToolPipeline.js';
 
@@ -101,7 +102,11 @@ export type { TrustPolicy };
  */
 export class TrustMiddleware implements ToolMiddleware {
   readonly name = 'trust';
-  constructor(private readonly policy: TrustPolicy) {}
+  constructor(
+    private readonly policy: TrustPolicy,
+    /** Records what became of an approved action after it ran (F11, S36). */
+    private readonly approvals?: ApprovalService,
+  ) {}
 
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const request = actionRequest({
@@ -117,12 +122,34 @@ export class TrustMiddleware implements ToolMiddleware {
     });
     if (decision.verdict === 'allow') {
       inv.trust = decision;
-      return next();
+      if (!decision.approvalId) return next();
+      let outcome: ToolOutcome;
+      try {
+        outcome = await next();
+      } catch (error) {
+        await this.finish(decision.approvalId, false, inv);
+        throw error;
+      }
+      await this.finish(decision.approvalId, outcome.kind === 'ok', inv);
+      return outcome;
     }
     const reason = decision.reason ?? fallbackReason(decision.verdict, request);
     const content = `${reason} ${pendingStep(decision.verdict)}`.trim();
     inv.trust = { ...decision, reason: content };
     return { kind: 'error', reason: 'denied', content };
+  }
+
+  /** A failed write here must not lose the tool's outcome; startup recovery reconciles it. */
+  private async finish(approvalId: string, succeeded: boolean, inv: ToolInvocation): Promise<void> {
+    try {
+      await this.approvals?.finish(asId<ApprovalId>(approvalId), succeeded);
+    } catch (error) {
+      inv.ctx.log.error('Could not record the end of an approved action', {
+        approvalId,
+        tool: inv.tool.name,
+        error: serializeError(error),
+      });
+    }
   }
 }
 
@@ -137,7 +164,8 @@ function fallbackReason(verdict: 'ask' | 'judge' | 'deny', request: ActionReques
 
 /** The step that will let an ask run; a bare policy engine has no judge at all. */
 function pendingStep(verdict: 'ask' | 'judge' | 'deny'): string {
-  if (verdict === 'ask') return 'Approvals arrive with S36 (F11), so it cannot run yet.';
+  if (verdict === 'ask')
+    return 'No approval service is configured in this graph, so it cannot run.';
   if (verdict === 'judge') return 'No trust judge is configured in this graph, so it cannot run.';
   return '';
 }
@@ -274,6 +302,8 @@ export interface DefaultPipelineDeps {
   turnEvents: TurnEventRepository;
   clock: Clock;
   policy?: TrustPolicy;
+  /** Records the end of an approved action (F11, S36). */
+  approvals?: ApprovalService;
   repeatLimit?: number;
   maxOutputChars?: number;
   /** Masks known secrets in receipt arguments (identity until F12). */
@@ -288,7 +318,7 @@ export function defaultMiddlewares(deps: DefaultPipelineDeps): ToolMiddleware[] 
     new RepeatFailureMiddleware(deps.repeatLimit),
     // The receipt sits outside trust so a refused call is in the activity log too (S29).
     new ReceiptMiddleware(deps.turnEvents, deps.clock, deps.redact),
-    new TrustMiddleware(deps.policy ?? new PolicyOnlyTrust()),
+    new TrustMiddleware(deps.policy ?? new PolicyOnlyTrust(), deps.approvals),
     new UntrustedWrapMiddleware(),
     new RedactionMiddleware(),
     new OutputLimitMiddleware(deps.maxOutputChars),

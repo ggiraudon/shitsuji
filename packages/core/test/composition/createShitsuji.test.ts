@@ -309,3 +309,18 @@ describe('loadPluginsFromDirectory', () => {
     expect(services.log.records[0]!.level).toBe('warn');
   });
 });
+
+it('registers test.notify only when a mock service is configured (S36)', async () => {
+  const { plugin } = fakes([]);
+  const shitsuji = await createShitsuji(
+    config({ tools: { notifyUrl: 'http://127.0.0.1:9999/notify' } }),
+    { services: testServices(), plugins: [plugin] },
+  );
+  expect(shitsuji.agent.getTools().map((t) => t.name)).toContain('test.notify');
+
+  const without = await createShitsuji(config(), {
+    services: testServices(),
+    plugins: [fakes([]).plugin],
+  });
+  expect(without.agent.getTools().map((t) => t.name)).not.toContain('test.notify');
+});

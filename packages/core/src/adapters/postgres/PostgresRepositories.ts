@@ -1,18 +1,21 @@
 import { sql, type Kysely, type Selectable, type Transaction as KyselyTx } from 'kysely';
 import {
   newId,
+  type ApprovalId,
   type MessageId,
   type OwnerId,
   type SessionId,
   type ThreadId,
   type TurnId,
 } from '../../domain/model/ids.js';
+import { Approval } from '../../domain/model/Approval.js';
 import type { ContentPart, Message } from '../../domain/model/Message.js';
 import { Session } from '../../domain/model/Session.js';
 import type { SoulFragment, SoulRevision } from '../../domain/model/Soul.js';
 import { Thread } from '../../domain/model/Thread.js';
 import { Turn, type TurnStatus } from '../../domain/model/Turn.js';
 import type {
+  ApprovalRepository,
   MessageRepository,
   OwnerRepository,
   Repositories,
@@ -32,6 +35,7 @@ import { assertSameCurrency, type BudgetStore } from '../../ports/BudgetStore.js
 import type { SoulStore } from '../../ports/SoulStore.js';
 import type {
   Database,
+  ApprovalsTable,
   ChannelBindingsTable,
   MessagesTable,
   SessionsTable,
@@ -101,6 +105,25 @@ const toBinding = (r: Selectable<ChannelBindingsTable>): ChannelBinding => {
   if (r.session_id) binding.sessionId = r.session_id as SessionId;
   return binding;
 };
+
+const toApproval = (r: Selectable<ApprovalsTable>) =>
+  Approval.restore({
+    id: r.id as ApprovalId,
+    ownerId: r.owner_id as OwnerId,
+    turnId: r.turn_id as TurnId,
+    sessionId: r.session_id as SessionId,
+    tool: r.tool,
+    effect: r.effect,
+    target: r.target,
+    actionHash: r.action_hash,
+    arguments: r.arguments as Record<string, unknown>,
+    summary: r.summary,
+    status: r.status,
+    ...(r.reason !== null && { reason: r.reason }),
+    createdAt: r.created_at,
+    ...(r.decided_at && { decidedAt: r.decided_at }),
+    ...(r.ended_at && { endedAt: r.ended_at }),
+  });
 
 const toFragment = (r: Selectable<SoulFragmentsTable>): SoulFragment => {
   const fragment: SoulFragment = {
@@ -678,6 +701,65 @@ export class PostgresRepositories implements Repositories {
           .orderBy('external_chat_id')
           .execute()
       ).map(toBinding),
+  };
+
+  readonly approvals: ApprovalRepository = {
+    insert: async (approval, tx) => {
+      const p = approval.toProps();
+      await this.ex(tx)
+        .insertInto('approvals')
+        .values({
+          id: p.id,
+          owner_id: p.ownerId,
+          turn_id: p.turnId,
+          session_id: p.sessionId,
+          tool: p.tool,
+          effect: p.effect,
+          target: p.target,
+          action_hash: p.actionHash,
+          arguments: JSON.stringify(p.arguments),
+          summary: p.summary,
+          reason: p.reason ?? null,
+          status: p.status,
+          created_at: p.createdAt,
+          decided_at: p.decidedAt ?? null,
+          ended_at: p.endedAt ?? null,
+        })
+        .execute();
+    },
+    get: async (id, tx) => {
+      const r = await this.ex(tx)
+        .selectFrom('approvals')
+        .selectAll()
+        .where('id', '=', id)
+        .executeTakeFirst();
+      return r && toApproval(r);
+    },
+    update: async (approval, expected, tx) => {
+      const p = approval.toProps();
+      const result = await this.ex(tx)
+        .updateTable('approvals')
+        .set({
+          status: p.status,
+          decided_at: p.decidedAt ?? null,
+          ended_at: p.endedAt ?? null,
+        })
+        .where('id', '=', p.id)
+        .where('status', '=', expected)
+        .executeTakeFirst();
+      return Number(result.numUpdatedRows) === 1;
+    },
+    list: async (query = {}, tx) => {
+      let q = this.ex(tx).selectFrom('approvals').selectAll();
+      if (query.turnId) q = q.where('turn_id', '=', query.turnId);
+      if (query.status) {
+        const statuses = Array.isArray(query.status) ? query.status : [query.status];
+        q = q.where('status', 'in', statuses);
+      }
+      q = q.orderBy('created_at', 'desc');
+      if (query.limit) q = q.limit(query.limit);
+      return (await q.execute()).map(toApproval);
+    },
   };
 }
 
