@@ -62,7 +62,7 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 - [x] **S34** Action requests and the policy engine
 - [x] **S35** Authority, the judge and quote verification
 - [x] **S36** The approval service
-- [ ] **S37** Approvals on Telegram
+- [x] **S37** Approvals on Telegram
 - [ ] **S38** The evaluation harness
 - [ ] **S39** End to end and docs
 
@@ -113,7 +113,7 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 ### [F06 — Channel gateway and Telegram](features/F06-channel-gateway.md)
 
 - [ ] Pair Telegram from the web UI; chat; approve an action with a button; get a file back.
-      *(S33: a file the agent attaches comes back as a document; the approval button needs F11.)*
+      *(S33: a file the agent attaches comes back as a document. S37: the Approve button works; pairing is through the TUI until the web UI, F07.)*
 - [x] A message from an unpaired Telegram chat starts no turn.
       *(S31 enforced it in the gateway; S32's Telegram adapter declares `requiresPairing`, so the criterion
       holds for Telegram itself.)*
@@ -284,4 +284,5 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
       with a manual clock).
 - [ ] Turning it off removes the line from the next call, and background sessions never carry it.
 - [ ] An eval scenario shows that the mood changes tone but not the facts in the answer.
+
 

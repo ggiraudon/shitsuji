@@ -151,6 +151,16 @@ retried. `POST /api/approvals/:id` answers a card, and answering twice changes n
 time. `test.notify` (effect `external`, configured by `tools.notifyUrl`) posts to a local mock service,
 so the whole path can be exercised without a real email or shop.
 
+### What S37 builds
+
+Approval cards reach Telegram as inline keyboards (Approve and Decline). A button's callback data
+carries only the decision and the approval's opaque id, never the action itself. The gateway answers
+the card, the adapter shows a toast and edits the card to say what happened; pressing again reports
+the state that won. While a card is open, a typed reply is read on its own by the trust model with
+just the card and the reply: only an unconditional yes approves, so "yes, but to Bob" is unclear and
+becomes an ordinary message instead of approving, and any error also reads as unclear. Commands run
+first, so `/stop` still works with a card open.
+
 ## Changes to existing code
 
 | File | Change |
