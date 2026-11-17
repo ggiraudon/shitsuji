@@ -90,12 +90,38 @@ export class TrustService implements TrustPolicy {
     check: TrustCheck,
   ): Promise<TrustDecision> {
     if (decision.verdict !== 'ask' || !this.deps.approvals) return decision;
+    const turnId = asId<TurnId>(check.turnId);
+    let prior;
+    try {
+      prior = await this.deps.approvals.decidedFor(turnId, request.hash);
+    } catch {
+      prior = undefined; // the fence is an optimisation; asking again is still correct
+    }
+    if (prior?.status === 'approved') {
+      return {
+        verdict: 'allow',
+        basis: {
+          kind: 'owner',
+          detail: 'the owner approved this exact action earlier in the turn',
+        },
+        actionHash: request.hash,
+        approvalId: prior.id,
+      };
+    }
+    if (prior?.status === 'declined') {
+      return {
+        verdict: 'deny',
+        basis: none,
+        reason: 'The owner declined this action earlier in the turn.',
+        actionHash: request.hash,
+      };
+    }
     let approval;
     try {
       approval = await this.deps.approvals.request(
         {
           ownerId: this.deps.ownerId,
-          turnId: asId<TurnId>(check.turnId),
+          turnId,
           sessionId: asId<SessionId>(check.sessionId),
           action: request,
           ...(decision.reason && { reason: decision.reason }),

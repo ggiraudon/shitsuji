@@ -125,3 +125,32 @@ describe('TrustService with approvals (S36, F11)', () => {
     expect((stored.arguments.body as string).length).toBeLessThan(600);
   });
 });
+
+describe('TrustService: the turn fence (F11, S36)', () => {
+  it('reuses an approval for the same action instead of asking twice in one turn', async () => {
+    const { trust, approvals, requested } = await setup();
+    const first = trust.decide(payment, check());
+    await until(() => requested.length === 1);
+    await approvals.resolve(asId<ApprovalId>(requested[0]!), 'approve');
+    expect((await first).verdict).toBe('allow');
+
+    const second = await trust.decide(payment, check());
+
+    expect(second).toMatchObject({ verdict: 'allow', basis: { kind: 'owner' } });
+    expect(requested).toHaveLength(1);
+  });
+
+  it('keeps a decline for the rest of the turn', async () => {
+    const { trust, approvals, requested } = await setup();
+    const first = trust.decide(payment, check());
+    await until(() => requested.length === 1);
+    await approvals.resolve(asId<ApprovalId>(requested[0]!), 'decline');
+    await first;
+
+    const second = await trust.decide(payment, check());
+
+    expect(second).toMatchObject({ verdict: 'deny' });
+    expect(second.reason).toMatch(/earlier in the turn/);
+    expect(requested).toHaveLength(1);
+  });
+});

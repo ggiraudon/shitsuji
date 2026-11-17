@@ -140,6 +140,15 @@ export class ApprovalService {
     return next;
   }
 
+  /**
+   * An answer already recorded for this exact action in this turn, if any (F11's fence): asking
+   * twice for the same thing in one request would only annoy the owner.
+   */
+  async decidedFor(turnId: TurnId, actionHash: string): Promise<Approval | undefined> {
+    const inTurn = await this.deps.approvals.list({ turnId });
+    return inTurn.find((a) => a.actionHash === actionHash && a.status !== 'pending');
+  }
+
   private async load(id: ApprovalId): Promise<Approval> {
     const approval = await this.deps.approvals.get(id);
     if (!approval) throw new NotFound('Approval', id);
