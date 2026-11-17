@@ -3,6 +3,7 @@ import type { SessionKind } from '../../domain/model/Session.js';
 import type { ChannelBinding, ChannelBindingStore } from '../../ports/ChannelBindingStore.js';
 import type {
   InboundAttachment,
+  InboundChat,
   InboundMessage,
   InboundResult,
   OutboundIntent,
@@ -46,6 +47,17 @@ export interface ChannelGatewayDeps {
  */
 export class ChannelGateway {
   constructor(private readonly deps: ChannelGatewayDeps) {}
+
+  /**
+   * Whether a chat may start a turn. Adapters ask before storing an attachment, so an unpaired chat
+   * cannot download files or get a voice-note reply (F06, #44).
+   */
+  async accepts(chat: InboundChat): Promise<boolean> {
+    const adapter = this.deps.channels.get(chat.channel);
+    if (!adapter?.requiresPairing) return true;
+    const binding = await this.deps.bindings.get(chat.channel, chat.chatId);
+    return Boolean(binding?.verifiedAt);
+  }
 
   async receive(message: InboundMessage): Promise<InboundResult> {
     const text = withAttachments(message.text.trim(), message.attachments);

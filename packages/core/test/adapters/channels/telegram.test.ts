@@ -91,7 +91,7 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) await fs.rm(dir, { recursive: true, force: true });
 });
 
-async function setupFiles() {
+async function setupFiles(accepts = true) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'shitsuji-telegram-'));
   dirs.push(dir);
   const transport = new FakeTelegram();
@@ -100,6 +100,7 @@ async function setupFiles() {
   });
   const received: InboundMessage[] = [];
   await adapter.start({
+    accepts: async () => accepts,
     receive: async (message) => {
       received.push(message);
       return {
@@ -365,5 +366,56 @@ describe('TelegramChannelAdapter: private chats only (#38)', () => {
     expect(received[0]).toMatchObject({ chatId: '42', text: 'Hello from the owner' });
     expect(transport.downloads).toEqual([]);
     expect(transport.sent).toEqual([]);
+  });
+});
+
+describe('TelegramChannelAdapter: pairing before storing (#44)', () => {
+  it('downloads nothing for an unpaired chat', async () => {
+    const { transport, received, dir } = await setupFiles(false);
+
+    transport.receive({
+      chatId: '42',
+      chatType: 'private',
+      messageId: 20,
+      text: 'Here is the report.',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+      attachment: {
+        kind: 'document',
+        fileId: 'file-9',
+        name: 'report.pdf',
+        mediaType: 'application/pdf',
+      },
+    });
+
+    await until(() => received.length === 1);
+    expect(received[0]).toMatchObject({ chatId: '42', text: 'Here is the report.' });
+    expect(received[0]!.attachments).toBeUndefined();
+    expect(transport.downloads).toEqual([]);
+    expect(await fs.readdir(dir)).toEqual([]);
+  });
+
+  it('does not store or answer a voice note from an unpaired chat', async () => {
+    const { transport, received, dir } = await setupFiles(false);
+
+    transport.receive({
+      chatId: '42',
+      chatType: 'private',
+      messageId: 21,
+      text: '',
+      receivedAt: new Date('2026-01-01T00:00:00Z'),
+      attachment: {
+        kind: 'voice',
+        fileId: 'voice-9',
+        name: 'voice-abc.ogg',
+        mediaType: 'audio/ogg',
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(transport.downloads).toEqual([]);
+    expect(transport.sent).toEqual([]);
+    expect(received).toEqual([]);
+    expect(await fs.readdir(dir)).toEqual([]);
   });
 });

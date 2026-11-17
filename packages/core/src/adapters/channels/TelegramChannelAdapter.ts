@@ -134,13 +134,23 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
       return;
     }
     try {
+      // Ask the gateway before downloading: an unpaired chat must not fill the handoff folder (#44).
+      const accepted =
+        message.attachment && this.sink.accepts
+          ? await this.sink.accepts({ channel: this.id, chatId: message.chatId })
+          : true;
       if (message.attachment?.kind === 'voice') {
+        if (!accepted) {
+          this.log.debug('Ignoring a voice note from a chat that cannot start a turn');
+          return;
+        }
         // Keep the file for F23, but do not start a turn the agent cannot hear.
         await this.storeAttachment(message);
         await this.transport.sendMessage(message.chatId, "I can't listen to voice notes yet.");
         return;
       }
-      const attachment = message.attachment ? await this.storeAttachment(message) : undefined;
+      const attachment =
+        message.attachment && accepted ? await this.storeAttachment(message) : undefined;
       await this.sink.receive({
         channel: this.id,
         chatId: message.chatId,

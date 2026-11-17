@@ -279,3 +279,23 @@ describe('ChannelGateway: attachments (S33)', () => {
     expect(submitted[0]!.text).toContain('/data/handoff/photo.jpg');
   });
 });
+
+describe('ChannelGateway: which chats may store files (#44)', () => {
+  it('refuses an unpaired chat and accepts it once paired', async () => {
+    const { gateway, receive, pairing } = await setup({ requiresPairing: true });
+    const chat = { channel: 'test' as const, chatId: 'chat-1' };
+
+    expect(await gateway.accepts(chat)).toBe(false);
+
+    const { code } = pairing.issue(OWNER);
+    await receive(`/start ${code}`);
+
+    expect(await gateway.accepts(chat)).toBe(true);
+  });
+
+  it('accepts every chat on a channel that needs no pairing', async () => {
+    const { gateway } = await setup({ requiresPairing: false });
+
+    expect(await gateway.accepts({ channel: 'test', chatId: 'anyone' })).toBe(true);
+  });
+});

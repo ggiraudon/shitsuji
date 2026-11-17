@@ -109,6 +109,8 @@ class ChannelGateway implements InboundSink {
   chat session ([F15](F15-tasks-and-subagents.md)).
 - **Attachments** are stored in `<dataDir>/handoff` (decision T2) and the turn is told the absolute paths.
   The file tools may read that folder but never write it; until F08 the workspace container can take it over.
+  An adapter asks the gateway (`accepts`) before downloading, so an unpaired chat stores nothing and gets
+  no voice-note answer (#44).
 - **Files back.** A tool result can carry `files` (the `workspace.send` tool does); the turn publishes them on
   `turn.status` and the reply reaches the channel as file parts, which Telegram sends as documents (the tool
   refuses files above 48 MB, keeping under Telegram's 50 MB bot limit).
