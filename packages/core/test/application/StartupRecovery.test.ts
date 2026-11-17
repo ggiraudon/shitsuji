@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { INTERRUPTED, StartupRecovery } from '../../src/application/StartupRecovery.js';
-import { asId, newId, type OwnerId } from '../../src/domain/model/ids.js';
+import { Approval } from '../../src/domain/model/Approval.js';
+import { asId, newId, type ApprovalId, type OwnerId } from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
 import { Money } from '../../src/domain/model/Money.js';
 import { Session } from '../../src/domain/model/Session.js';
@@ -82,6 +83,43 @@ describe('StartupRecovery', () => {
 
     expect((await repos.budget.heldSince(owner, new Date(0), 'USD')).isZero()).toBe(true);
     expect(services.log.records.some((r) => /budget holds/.test(r.message))).toBe(true);
+  });
+
+  it('expires unopened approvals and makes approved ones uncertain after a crash (S36)', async () => {
+    const { repos, session, turns } = await withTurns('running');
+    const services = testServices();
+    const approval = (id: string, status: 'pending' | 'approved' | 'declined') => {
+      const a = Approval.request({
+        id: asId<ApprovalId>(id),
+        ownerId: owner,
+        turnId: turns[0]!.id,
+        sessionId: session.id,
+        tool: 'test.notify',
+        effect: 'external',
+        target: 'core',
+        actionHash: 'a'.repeat(64),
+        arguments: {},
+        summary: 'test.notify (external)',
+        createdAt: new Date(),
+      });
+      if (status === 'approved') a.approve(new Date());
+      if (status === 'declined') a.decline(new Date());
+      return a;
+    };
+    for (const [id, status] of [
+      ['pending-1', 'pending'],
+      ['approved-1', 'approved'],
+      ['declined-1', 'declined'],
+    ] as const) {
+      await repos.approvals.insert(approval(id, status));
+    }
+
+    await new StartupRecovery(repos, services.clock, services.log).run();
+
+    expect((await repos.approvals.get(asId<ApprovalId>('pending-1')))!.status).toBe('expired');
+    expect((await repos.approvals.get(asId<ApprovalId>('approved-1')))!.status).toBe('uncertain');
+    expect((await repos.approvals.get(asId<ApprovalId>('declined-1')))!.status).toBe('declined');
+    expect(services.log.records.some((r) => /approval/.test(r.message))).toBe(true);
   });
 });
 
