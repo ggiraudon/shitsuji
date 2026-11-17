@@ -599,8 +599,9 @@ classDiagram
     +verify(quote, authority) bool
   }
   class ApprovalService {
-    +create(action, turn) Approval
-    +resolve(approvalId, answer)
+    +request(action, signal) Approval
+    +resolve(id, answer)
+    +finish(id, ok)
   }
   class UntrustedContent {
     +wrap(source, text) string
