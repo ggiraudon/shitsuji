@@ -134,6 +134,24 @@ export interface BudgetReservationsTable {
   ended_at: Timestamp | null;
 }
 
+export interface ApprovalsTable {
+  id: string;
+  owner_id: string;
+  turn_id: string;
+  session_id: string;
+  tool: string;
+  effect: string;
+  target: string;
+  action_hash: string;
+  arguments: Json<Record<string, unknown>>;
+  summary: string;
+  reason: string | null;
+  status: 'pending' | 'approved' | 'declined' | 'expired' | 'executed' | 'uncertain';
+  created_at: Timestamp;
+  decided_at: Timestamp | null;
+  ended_at: Timestamp | null;
+}
+
 export interface Database {
   owners: OwnersTable;
   threads: ThreadsTable;
@@ -146,4 +164,5 @@ export interface Database {
   soul_fragments: SoulFragmentsTable;
   soul_revisions: SoulRevisionsTable;
   budget_reservations: BudgetReservationsTable;
+  approvals: ApprovalsTable;
 }

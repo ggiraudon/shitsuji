@@ -212,6 +212,23 @@ describe('Postgres-only guarantees', () => {
         'created_at',
         'ended_at',
       ],
+      approvals: [
+        'id',
+        'owner_id',
+        'turn_id',
+        'session_id',
+        'tool',
+        'effect',
+        'target',
+        'action_hash',
+        'arguments',
+        'summary',
+        'reason',
+        'status',
+        'created_at',
+        'decided_at',
+        'ended_at',
+      ],
     };
     for (const [table, cols] of Object.entries(expected)) {
       for (const col of cols) expect(actual.has(`${table}.${col}`), `${table}.${col}`).toBe(true);

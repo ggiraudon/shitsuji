@@ -1,4 +1,6 @@
 import type { MessageId, OwnerId, SessionId, ThreadId, TurnId } from '../domain/model/ids.js';
+import type { Approval, ApprovalStatus } from '../domain/model/Approval.js';
+import type { ApprovalId } from '../domain/model/ids.js';
 import type { Message } from '../domain/model/Message.js';
 import type { Money } from '../domain/model/Money.js';
 import type { Session } from '../domain/model/Session.js';
@@ -106,8 +108,24 @@ export interface TurnEventQuery {
   limit?: number;
 }
 
-/** One model request: what it cost in tokens and, when the price is known, money (F03, F22). */
-export interface UsageRecord {
+/** An approval waiting for the owner, or what became of one (F11, S36). */
+export interface ApprovalQuery {
+  status?: ApprovalStatus | readonly ApprovalStatus[];
+  turnId?: TurnId;
+  /** Newest first, at most this many. */
+  limit?: number;
+}
+
+export interface ApprovalRepository {
+  insert(approval: Approval, tx?: Transaction): Promise<void>;
+  get(id: ApprovalId, tx?: Transaction): Promise<Approval | undefined>;
+  /** Compare-and-set on the status; false when someone else moved it first. */
+  update(approval: Approval, expected: ApprovalStatus, tx?: Transaction): Promise<boolean>;
+  /** Newest first. */
+  list(query?: ApprovalQuery, tx?: Transaction): Promise<Approval[]>;
+}
+
+/** One model request: what it cost in tokens and, when the price is known, money (F03, F22). */ export interface UsageRecord {
   ownerId: OwnerId;
   turnId?: TurnId;
   sessionId?: SessionId;
@@ -144,4 +162,5 @@ export interface Repositories {
   soul: SoulStore;
   budget: BudgetStore;
   bindings: ChannelBindingStore;
+  approvals: ApprovalRepository;
 }
