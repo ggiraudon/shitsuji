@@ -11,6 +11,7 @@ export type SessionId = Id<'session'>;
 export type TurnId = Id<'turn'>;
 export type MessageId = Id<'message'>;
 export type ToolCallId = Id<'tool_call'>;
+export type ApprovalId = Id<'approval'>;
 
 /** A new random ID (UUID v4). */
 export function newId<T extends Id<string>>(): T {
