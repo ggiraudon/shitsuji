@@ -224,6 +224,26 @@ describe('createShitsuji', () => {
     await shitsuji.stop();
   });
 
+  it('lets a channel ask the gateway which chats may store files (#44)', async () => {
+    const channel = new TestChannel(true);
+    const plugin: ShitsujiPlugin = {
+      manifest: { id: 'test.probe', name: 'probe', version: '1', provides: ['model', 'channel'] },
+      register(ctx) {
+        ctx.addModelProvider(new ScriptedProvider([], 'fake'));
+        ctx.addChannel(channel);
+      },
+    };
+    const shitsuji = await createShitsuji(config(), {
+      services: testServices(),
+      plugins: [plugin],
+    });
+    await shitsuji.start();
+
+    expect(await channel.accepted('chat-1')).toBe(false);
+
+    await shitsuji.stop();
+  });
+
   it('refuses Telegram enabled without a token (S32)', async () => {
     await expect(
       createShitsuji(config({ channels: { telegram: { enabled: true } } }), {
