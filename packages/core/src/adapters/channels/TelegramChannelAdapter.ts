@@ -78,8 +78,8 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
       this.log.debug('Telegram degraded message parts to text', { parts: degraded });
     }
     let first: number | undefined;
-    for (const html of chunks) {
-      const messageId = await this.transport.sendMessage(target.chatId, html);
+    for (const chunk of chunks) {
+      const messageId = await this.transport.sendMessage(target.chatId, chunk.html);
       first ??= messageId;
     }
     for (const part of files) {
