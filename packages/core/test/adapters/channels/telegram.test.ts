@@ -20,6 +20,12 @@ class FakeTelegram implements TelegramTransport {
   readonly typed: string[] = [];
   readonly downloads: string[] = [];
   readonly documents: { chatId: string; name: string; bytes: Uint8Array; caption?: string }[] = [];
+  readonly approvals: {
+    chatId: string;
+    html: string;
+    buttons: { text: string; data: string }[];
+  }[] = [];
+  readonly answered: { id: string; text: string }[] = [];
   started = 0;
   stopped = 0;
   failDownload = false;
@@ -57,6 +63,17 @@ class FakeTelegram implements TelegramTransport {
   ): Promise<number> {
     this.documents.push({ chatId, name, bytes, ...(caption && { caption }) });
     return 100 + this.documents.length;
+  }
+  async sendApproval(
+    chatId: string,
+    html: string,
+    buttons: readonly { text: string; data: string }[],
+  ): Promise<number> {
+    this.approvals.push({ chatId, html, buttons: [...buttons] });
+    return 200 + this.approvals.length;
+  }
+  async answerCallback(id: string, text: string): Promise<void> {
+    this.answered.push({ id, text });
   }
   receive(message: TelegramIncoming): void {
     this.handler?.(message);
