@@ -25,6 +25,7 @@ function fakeClient(history: MessageDto[] = []) {
     newSessions: 0,
     soulApplied: 0,
     soulHash: '',
+    resolved: [] as { id: string; decision: string }[],
   };
   const client: TuiClient = {
     history: async () => ({ sessionId: 's1', messages: history }),
@@ -85,6 +86,25 @@ function fakeClient(history: MessageDto[] = []) {
       code: 'ABCD2345',
       expiresAt: '2026-01-01T00:10:00.000Z',
     }),
+    approvals: async () => ({ approvals: [] }),
+    resolveApproval: async (id: string, decision: 'approve' | 'decline') => {
+      calls.resolved.push({ id, decision });
+      return {
+        approval: {
+          id,
+          turnId: 't1',
+          sessionId: 's1',
+          tool: 'test.notify',
+          effect: 'external',
+          target: 'core',
+          summary: 'test.notify (external)',
+          arguments: {},
+          actionHash: 'h'.repeat(64),
+          status: decision === 'approve' ? 'approved' : 'declined',
+          createdAt: new Date(0).toISOString(),
+        },
+      };
+    },
     events: async (onEvent: (e: LiveEvent) => void) => {
       listener = onEvent;
       return () => (listener = undefined);
@@ -296,4 +316,33 @@ describe('TUI', () => {
       'assistant:Found it.',
     ]);
   });
+});
+
+it('shows an approval card and answers it with /approve', async () => {
+  const { client, calls, emit } = fakeClient();
+  const ui = render(<ShitsujiApp client={client} />);
+  await tick();
+
+  emit({
+    type: 'approval.requested',
+    approvalId: 'a1b2c3d4-0000',
+    turnId: 't1',
+    sessionId: 's1',
+    tool: 'test.notify',
+    effect: 'external',
+    summary: 'test.notify (external) {"text":"Hi"}',
+    actionHash: 'h'.repeat(64),
+  });
+  await tick();
+  expect(ui.lastFrame()).toContain('test.notify (external)');
+  expect(ui.lastFrame()).toContain('/approve a1b2c3d4');
+  expect(ui.lastFrame()).toContain('Waiting for your approval');
+
+  await type(ui.stdin, '/approve a1b2c3d4');
+  ui.stdin.write('\r');
+  await tick();
+
+  expect(calls.resolved).toEqual([{ id: 'a1b2c3d4-0000', decision: 'approve' }]);
+  expect(ui.lastFrame()).toContain('Approval approved.');
+  ui.unmount();
 });
