@@ -38,6 +38,7 @@ import type { Repositories } from '../ports/Repositories.js';
 import type { ShitsujiPlugin } from '../ports/Plugin.js';
 import { WebhookChannelPlugin, TelegramChannelPlugin } from '../plugins/channelPlugins.js';
 import { CoreToolsPlugin } from '../plugins/coreToolsPlugin.js';
+import { TestToolsPlugin } from '../plugins/testToolsPlugin.js';
 import { WebToolsPlugin } from '../plugins/webToolsPlugin.js';
 import { AnthropicPlugin, OpenAICompatiblePlugin } from '../plugins/modelPlugins.js';
 import type { ShitsujiConfig } from './config/schema.js';
@@ -315,6 +316,7 @@ function builtInPlugins(
       searxngUrl: config.tools.web.searxngUrl,
       fetchEnabled: config.tools.web.fetch.enabled,
     }),
+    ...(config.tools.notifyUrl ? [new TestToolsPlugin({ notifyUrl: config.tools.notifyUrl })] : []),
   ];
   if (withChannels && config.channels.webhook.enabled) {
     list.push(new WebhookChannelPlugin({ ...config.channels.webhook, authorize: verifyKey }));
