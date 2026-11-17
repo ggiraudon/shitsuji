@@ -275,6 +275,7 @@ export async function createShitsuji(
               ownerId: OWNER_ID,
               soul,
               pairing,
+              approvals,
               verifyKey,
             },
             config.api,

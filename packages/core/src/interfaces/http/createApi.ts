@@ -3,9 +3,18 @@ import { Hono, type Context } from 'hono';
 import type { UpgradeWebSocket } from 'hono/ws';
 import type { Agent } from '../../application/Agent.js';
 import type { SoulService } from '../../application/soul/SoulService.js';
+import type { ApprovalService } from '../../application/trust/ApprovalService.js';
 import type { PairingService } from '../../application/channels/PairingService.js';
+import { NotFound } from '../../domain/errors.js';
+import type { Approval } from '../../domain/model/Approval.js';
 import { SoulEditChanged, SoulNoPendingEdit } from '../../domain/model/Soul.js';
-import { asId, type OwnerId, type SessionId, type TurnId } from '../../domain/model/ids.js';
+import {
+  asId,
+  type ApprovalId,
+  type OwnerId,
+  type SessionId,
+  type TurnId,
+} from '../../domain/model/ids.js';
 import { textOf, toolCallsOf, type Message } from '../../domain/model/Message.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { InboundMessage, InboundResult } from '../../ports/ChannelAdapter.js';
@@ -14,10 +23,14 @@ import type { Logger } from '../../ports/Logger.js';
 import type { Repositories, TurnEvent } from '../../ports/Repositories.js';
 import {
   LIVE_EVENT_TYPES,
+  approvalDecisionBody,
   confirmSoulBody,
   postMessageBody,
   type ActivityReceiptDto,
   type ActivityResponse,
+  type ApprovalDto,
+  type ApprovalResponse,
+  type ApprovalsResponse,
   type ConfirmSoulResponse,
   type LiveEvent,
   type MessageDto,
@@ -39,6 +52,8 @@ export interface ApiDeps {
   soul: SoulService;
   /** Codes that pair a chat with the owner (S31). */
   pairing: PairingService;
+  /** Cards waiting for the owner, and their answers (S36). */
+  approvals: ApprovalService;
   /**
    * How an API message reaches the runtime. Defaults to agent.submit; the composition can pass the
    * same sink the channel adapters use (S30), so both entry points share the inbound model.
@@ -116,6 +131,33 @@ export function createApi(deps: ApiDeps): Hono {
   app.post('/api/sessions', async (c) =>
     c.json({ sessionId: await deps.agent.startSession() }, 201),
   );
+
+  /** The cards waiting for the owner (S36). */
+  app.get('/api/approvals', async (c) => {
+    const open = await deps.repos.approvals.list({ status: ['pending', 'approved'], limit: 100 });
+    return c.json({ approvals: open.map(toApprovalDto) } satisfies ApprovalsResponse);
+  });
+
+  /** approve or decline; answering twice changes nothing the second time (S36). */
+  app.post('/api/approvals/:id', async (c) => {
+    const parsed = approvalDecisionBody.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) {
+      return c.json(
+        { error: 'Invalid body', issues: parsed.error.issues.map((i) => i.message) },
+        400,
+      );
+    }
+    try {
+      const approval = await deps.approvals.resolve(
+        asId<ApprovalId>(c.req.param('id')),
+        parsed.data.decision,
+      );
+      return c.json({ approval: toApprovalDto(approval) } satisfies ApprovalResponse);
+    } catch (error) {
+      if (error instanceof NotFound) return c.json({ error: error.message }, 404);
+      throw error;
+    }
+  });
 
   app.get('/api/sessions/:id/messages', async (c) => {
     const sessionId = await resolveSession(c.req.param('id'));
@@ -330,3 +372,23 @@ export function toActivityReceipt(event: TurnEvent): ActivityReceiptDto {
     at: event.at.toISOString(),
   };
 }
+
+const toApprovalDto = (approval: Approval): ApprovalDto => {
+  const p = approval.toProps();
+  return {
+    id: p.id,
+    turnId: p.turnId,
+    sessionId: p.sessionId,
+    tool: p.tool,
+    effect: p.effect,
+    target: p.target,
+    summary: p.summary,
+    ...(p.reason && { reason: p.reason }),
+    arguments: p.arguments,
+    actionHash: p.actionHash,
+    status: p.status,
+    createdAt: p.createdAt.toISOString(),
+    ...(p.decidedAt && { decidedAt: p.decidedAt.toISOString() }),
+    ...(p.endedAt && { endedAt: p.endedAt.toISOString() }),
+  };
+};

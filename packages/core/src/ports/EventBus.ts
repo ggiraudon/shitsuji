@@ -65,6 +65,7 @@ export interface ShitsujiEvents {
   'approval.resolved': {
     approvalId: string;
     turnId: string;
+    sessionId: string;
     status: 'approved' | 'declined' | 'expired' | 'executed' | 'uncertain';
   };
 }

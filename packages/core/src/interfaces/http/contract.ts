@@ -112,6 +112,35 @@ export interface UsageDto {
 }
 
 /** Live events on /api/events, as JSON text frames. */
+export interface ApprovalDto {
+  id: string;
+  turnId: string;
+  sessionId: string;
+  tool: string;
+  effect: string;
+  target: string;
+  summary: string;
+  reason?: string;
+  /** A shortened copy; the action hash is what binds the exact arguments. */
+  arguments: Record<string, unknown>;
+  actionHash: string;
+  status: string;
+  createdAt: string;
+  decidedAt?: string;
+  endedAt?: string;
+}
+
+export interface ApprovalsResponse {
+  approvals: ApprovalDto[];
+}
+
+/** The owner's answer to a card (S36). */
+export const approvalDecisionBody = z.object({ decision: z.enum(['approve', 'decline']) });
+
+export interface ApprovalResponse {
+  approval: ApprovalDto;
+}
+
 export type LiveEvent =
   | {
       type: 'turn.status';
@@ -139,6 +168,23 @@ export type LiveEvent =
       toolCallId: string;
       ok: boolean;
       error?: string;
+    }
+  | {
+      type: 'approval.requested';
+      approvalId: string;
+      turnId: string;
+      sessionId: string;
+      tool: string;
+      effect: string;
+      summary: string;
+      actionHash: string;
+    }
+  | {
+      type: 'approval.resolved';
+      approvalId: string;
+      turnId: string;
+      sessionId: string;
+      status: string;
     };
 
 export const LIVE_EVENT_TYPES = [
@@ -147,4 +193,6 @@ export const LIVE_EVENT_TYPES = [
   'turn.steered',
   'tool.started',
   'tool.finished',
+  'approval.requested',
+  'approval.resolved',
 ] as const;

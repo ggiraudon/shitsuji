@@ -150,6 +150,7 @@ export class ApprovalService {
     this.deps.events.publish('approval.resolved', {
       approvalId: approval.id,
       turnId: approval.turnId,
+      sessionId: approval.toProps().sessionId,
       status: approval.status as Exclude<ApprovalStatus, 'pending'>,
     });
   }
