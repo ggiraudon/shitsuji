@@ -60,6 +60,8 @@ export interface ToolContext {
   sessionId: string;
   /** Aborted on Stop. Long-running tools must listen to it. */
   signal: AbortSignal;
+  /** True when no owner message started this turn: waiting for an approval must be bounded. */
+  background?: boolean;
   log: Logger;
   events: EventBus;
   /** Runs fn in a transaction only while the turn is still running (TurnLock, F02). */

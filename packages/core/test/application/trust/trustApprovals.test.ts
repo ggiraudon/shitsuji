@@ -22,7 +22,7 @@ const payment = actionRequest({
   target: 'core',
 });
 
-async function setup() {
+async function setup(options: { backgroundWaitMs?: number } = {}) {
   const repos = new InMemoryRepositories();
   const services = testServices();
   const approvals = new ApprovalService({
@@ -38,6 +38,9 @@ async function setup() {
     approvals,
     ownerId: asId<OwnerId>('owner'),
     log: services.log,
+    ...(options.backgroundWaitMs !== undefined && {
+      backgroundApprovalWaitMs: options.backgroundWaitMs,
+    }),
   });
   const requested: string[] = [];
   services.events.subscribe('approval.requested', (e) => {
@@ -170,5 +173,17 @@ describe('TrustService: the turn fence (F11, S36)', () => {
     expect(second).toMatchObject({ verdict: 'deny' });
     expect(second.reason).toMatch(/earlier in the turn/);
     expect(requested).toHaveLength(1);
+  });
+});
+
+describe('TrustService: background work (#51)', () => {
+  it('expires an unanswered card instead of waiting forever on a background turn', async () => {
+    const { trust, requested, repos } = await setup({ backgroundWaitMs: 20 });
+
+    const decision = await trust.decide(payment, { ...check(), background: true });
+
+    expect(decision).toMatchObject({ verdict: 'deny' });
+    expect(decision.reason).toMatch(/expired/);
+    expect((await repos.approvals.get(asId<ApprovalId>(requested[0]!)))!.status).toBe('expired');
   });
 });

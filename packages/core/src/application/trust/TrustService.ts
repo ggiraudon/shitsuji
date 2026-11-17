@@ -44,6 +44,8 @@ export interface TrustServiceDeps {
   approvals?: ApprovalService;
   ownerId: OwnerId;
   log: Logger;
+  /** How long background work may wait for the owner before the card expires (default 30 s, #51). */
+  backgroundApprovalWaitMs?: number;
 }
 
 /**
@@ -56,6 +58,10 @@ export class TrustService implements TrustPolicy {
   private readonly verifier = new QuoteVerifier();
 
   constructor(private readonly deps: TrustServiceDeps) {}
+
+  private get backgroundWaitMs(): number {
+    return this.deps.backgroundApprovalWaitMs ?? 30_000;
+  }
 
   async decide(request: ActionRequest, check: TrustCheck): Promise<TrustDecision> {
     let authority: Authority;
@@ -116,6 +122,7 @@ export class TrustService implements TrustPolicy {
           ...(decision.reason && { reason: decision.reason }),
         },
         check.signal,
+        check.background ? { timeoutMs: this.backgroundWaitMs } : {},
       );
     } catch (error) {
       this.deps.log.error('Could not ask the owner to approve an action', {

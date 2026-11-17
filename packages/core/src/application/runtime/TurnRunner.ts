@@ -341,6 +341,7 @@ export class TurnRunner {
       turnId: turn.id,
       sessionId: session.id,
       signal,
+      background: turn.isBackground,
       log: log.child({ tool: call.name }),
       events,
       writeFenced: (fn) => this.turnLock.write(turn.id, fn),

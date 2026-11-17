@@ -8,6 +8,8 @@ export interface TrustCheck {
   sessionId: string;
   /** Aborted on Stop; a judgement must not outlive its turn. */
   signal: AbortSignal;
+  /** Background work cannot wait for the owner indefinitely (#51). */
+  background?: boolean;
 }
 
 /**

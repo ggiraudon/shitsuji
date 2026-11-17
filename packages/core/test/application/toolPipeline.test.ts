@@ -55,12 +55,13 @@ const setup = (
     policy?: TrustPolicy;
     approvals?: ApprovalService;
     repos?: InMemoryRepositories;
+    background?: boolean;
     maxOutputChars?: number;
     redact?: RedactFn;
   } = {},
 ) => {
   const services = testServices();
-  const { approvals: givenApprovals, repos: givenRepos, ...rest } = extra;
+  const { approvals: givenApprovals, repos: givenRepos, background, ...rest } = extra;
   const repos = givenRepos ?? new InMemoryRepositories();
   const approvals =
     givenApprovals ??
@@ -85,6 +86,7 @@ const setup = (
     turnId: 'turn-1',
     sessionId: 'session-1',
     signal: controller.signal,
+    ...(background !== undefined && { background }),
     log: services.log,
     events: services.events,
     writeFenced: async () => {
@@ -365,4 +367,19 @@ describe('ToolPipeline: approved actions (S36)', () => {
     expect(outcome).toMatchObject({ kind: 'error', reason: 'tool_error' });
     expect((await repos.approvals.get(approval.id))!.status).toBe('uncertain');
   });
+});
+
+it('marks a background call so an approval cannot wait forever (#51)', async () => {
+  const seen: (boolean | undefined)[] = [];
+  const policy: TrustPolicy = {
+    decide: (_request, check) => {
+      seen.push(check.background);
+      return { verdict: 'allow', basis: { kind: 'policy', detail: 'test' } };
+    },
+  };
+  const { call } = setup([new FakeTool()], { policy, background: true });
+
+  await call('test.tool', { n: 1 });
+
+  expect(seen).toEqual([true]);
 });

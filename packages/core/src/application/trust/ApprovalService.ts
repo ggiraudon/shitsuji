@@ -44,9 +44,14 @@ export class ApprovalService {
 
   /**
    * Asks the owner and waits. The card is durable before it is published, so a restart can show it as
-   * expired rather than losing it. Stop expires it and wakes the caller.
+   * expired rather than losing it. Stop expires it and wakes the caller; `timeoutMs` does the same for
+   * work that cannot wait for the owner (#51).
    */
-  async request(input: ApprovalInput, signal: AbortSignal): Promise<Approval> {
+  async request(
+    input: ApprovalInput,
+    signal: AbortSignal,
+    options: { timeoutMs?: number } = {},
+  ): Promise<Approval> {
     const action = input.action;
     const pending = Approval.request({
       id: newId<ApprovalId>(),
@@ -68,6 +73,14 @@ export class ApprovalService {
     const onAbort = () => void this.expire(pending.id, 'the turn stopped');
     if (signal.aborted) await this.expire(pending.id, 'the turn stopped');
     else signal.addEventListener('abort', onAbort, { once: true });
+    const timer =
+      options.timeoutMs === undefined
+        ? undefined
+        : setTimeout(
+            () => void this.expire(pending.id, 'nobody answered in time; the work cannot wait'),
+            options.timeoutMs,
+          );
+    timer?.unref();
 
     this.deps.events.publish('approval.requested', {
       approvalId: pending.id,
@@ -87,6 +100,7 @@ export class ApprovalService {
     try {
       return await decided;
     } finally {
+      if (timer !== undefined) clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
       this.waiting.delete(pending.id);
     }

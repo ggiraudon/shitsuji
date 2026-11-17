@@ -119,6 +119,7 @@ export class TrustMiddleware implements ToolMiddleware {
       turnId: inv.ctx.turnId,
       sessionId: inv.ctx.sessionId,
       signal: inv.ctx.signal,
+      ...(inv.ctx.background !== undefined && { background: inv.ctx.background }),
     });
     if (decision.verdict === 'allow') {
       inv.trust = decision;
