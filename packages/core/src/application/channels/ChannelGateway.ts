@@ -3,6 +3,8 @@ import { asId, type ApprovalId } from '../../domain/model/ids.js';
 import { NotFound } from '../../domain/errors.js';
 import type { SessionKind } from '../../domain/model/Session.js';
 import type { ApprovalService } from '../trust/ApprovalService.js';
+import type { TypedAnswer } from '../trust/TypedApprovalReader.js';
+import type { Approval } from '../../domain/model/Approval.js';
 import type { ChannelBinding, ChannelBindingStore } from '../../ports/ChannelBindingStore.js';
 import type {
   InboundAttachment,
@@ -40,6 +42,8 @@ export interface ChannelGatewayDeps {
   version: string;
   /** Cards waiting for the owner, answered by a button (S37). */
   approvals?: ApprovalService;
+  /** Reads a typed reply to an open card; only an unconditional yes approves (S37). */
+  readTypedApproval?: (text: string, approval: Approval) => Promise<TypedAnswer>;
   /** Answers directly through the channel adapter that received the message. */
   reply: (channel: string, chatId: string, text: string, intent: OutboundIntent) => Promise<void>;
 }
@@ -93,12 +97,41 @@ export class ChannelGateway {
     const command = commandOf(text);
     if (command) return this.command(message, command, binding);
 
+    // A typed answer to an open card is read on its own; anything but an unconditional yes or no
+    // falls through as an ordinary message (S37).
+    const typed = await this.typedAnswer(message, text, binding);
+    if (typed) return typed;
+
     const submitted = await this.deps.agent.submit(text, {
       ...(binding?.sessionId && { sessionId: binding.sessionId }),
       channel: message.channel,
       replyChannel: `${message.channel}:${message.chatId}`,
     });
     return { kind: 'turn', ...submitted };
+  }
+
+  /** A typed yes or no for the chat's open card; anything else is not an approval (S37). */
+  private async typedAnswer(
+    message: InboundMessage,
+    text: string,
+    binding: ChannelBinding | undefined,
+  ): Promise<InboundResult | undefined> {
+    if (!this.deps.approvals || !this.deps.readTypedApproval) return undefined;
+    const pending = await this.pendingFor(binding);
+    if (!pending) return undefined;
+    const answer = await this.deps.readTypedApproval(text, pending);
+    if (answer === 'unclear') return undefined;
+    await this.deps.approvals.resolve(pending.id, answer);
+    await this.answer(message, answer === 'approve' ? 'Approved.' : 'Declined.', 'final');
+    return { kind: 'replied', reason: answer === 'approve' ? 'approved' : 'declined' };
+  }
+
+  /** The newest open card for this chat's session; with one session, any pending card will do. */
+  private async pendingFor(binding: ChannelBinding | undefined): Promise<Approval | undefined> {
+    if (!this.deps.approvals) return undefined;
+    const open = await this.deps.approvals.listOpen();
+    const mine = binding?.sessionId ? open.filter((a) => a.sessionId === binding.sessionId) : open;
+    return mine[0];
   }
 
   /** A button press on an approval card: `y:<id>` or `n:<id>` (S37). */

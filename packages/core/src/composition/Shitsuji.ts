@@ -14,6 +14,8 @@ import type { Clock } from '../ports/Clock.js';
 import type { EventBus } from '../ports/EventBus.js';
 import type { Logger } from '../ports/Logger.js';
 import type { ApprovalService } from '../application/trust/ApprovalService.js';
+import type { TypedAnswer } from '../application/trust/TypedApprovalReader.js';
+import type { Approval } from '../domain/model/Approval.js';
 import { asId, type OwnerId, type TurnId } from '../domain/model/ids.js';
 import type { Repositories } from '../ports/Repositories.js';
 
@@ -33,6 +35,8 @@ export interface ShitsujiParts {
   clock: Clock;
   /** Cards waiting for the owner; Telegram sends them with buttons (S37). */
   approvals?: ApprovalService;
+  /** Reads a typed answer to an open card; only an unconditional yes approves (S37). */
+  readTypedApproval?: (text: string, approval: Approval) => Promise<TypedAnswer>;
   /** Runs before the API and the channels open, e.g. creating the owner key they check. */
   prepare?: () => Promise<void>;
   /** Starts the HTTP API, if enabled; called once the agent runs. */
@@ -67,6 +71,7 @@ export class Shitsuji {
   private readonly ownerId: OwnerId;
   private readonly clock: Clock;
   private readonly approvals?: ApprovalService;
+  private readonly readTypedApproval?: (text: string, approval: Approval) => Promise<TypedAnswer>;
   private gateway?: ChannelGateway;
 
   constructor(parts: ShitsujiParts) {
@@ -87,6 +92,7 @@ export class Shitsuji {
     this.ownerId = parts.ownerId;
     this.clock = parts.clock;
     this.approvals = parts.approvals;
+    this.readTypedApproval = parts.readTypedApproval;
   }
 
   async start(): Promise<void> {
@@ -125,6 +131,7 @@ export class Shitsuji {
       log: this.log,
       version: this.version,
       ...(this.approvals && { approvals: this.approvals }),
+      ...(this.readTypedApproval && { readTypedApproval: this.readTypedApproval }),
       reply: (channelId, chatId, text, intent) => this.deliverTo(channelId, chatId, text, intent),
     });
     for (const channel of this.channels.all()) {

@@ -26,6 +26,7 @@ import { ToolPipeline } from '../application/tools/ToolPipeline.js';
 import { PolicyEngine } from '../application/trust/PolicyEngine.js';
 import { ApprovalService } from '../application/trust/ApprovalService.js';
 import { SessionAuthority, TrustService } from '../application/trust/TrustService.js';
+import { TypedApprovalReader } from '../application/trust/TypedApprovalReader.js';
 import { TrustJudge } from '../application/trust/TrustJudge.js';
 import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
@@ -200,6 +201,7 @@ export async function createShitsuji(
     ownerId: OWNER_ID,
     log,
   });
+  const typedApproval = new TypedApprovalReader({ models, log });
   const tools = new ToolCatalog(plugins.tools());
   tools.add(new ToolSearchTool(() => tools.list()));
   tools.add(new ToolCallGateway());
@@ -255,6 +257,7 @@ export async function createShitsuji(
     ownerId: OWNER_ID,
     clock: services.clock,
     approvals,
+    readTypedApproval: (text, approval) => typedApproval.read(text, approval),
     prepare:
       startsApi || channels.size > 0
         ? async () => {

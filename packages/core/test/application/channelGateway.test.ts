@@ -36,6 +36,10 @@ async function setup(
     requiresPairing?: boolean;
     stopResult?: boolean;
     newSession?: SessionId;
+    readTypedApproval?: (
+      text: string,
+      approval: Approval,
+    ) => Promise<'approve' | 'decline' | 'unclear'>;
   } = {},
 ) {
   const repos = new InMemoryRepositories();
@@ -90,6 +94,7 @@ async function setup(
     log: new MemoryLogger(),
     version: '0.1.0',
     approvals,
+    ...(options.readTypedApproval && { readTypedApproval: options.readTypedApproval }),
     reply: async (channelId, chatId, text, intent) => {
       replies.push({ channel: channelId, chatId, text, intent });
     },
@@ -387,5 +392,61 @@ describe('ChannelGateway: approval buttons (S37)', () => {
 
     expect(await press(gateway, 'y:approval-p')).toEqual({ kind: 'ignored', reason: 'unpaired' });
     expect((await repos.approvals.get(asId<ApprovalId>('approval-p')))!.status).toBe('pending');
+  });
+});
+
+describe('ChannelGateway: typed approval answers (S37)', () => {
+  const seedCard = async (repos: InMemoryRepositories, sessionId: SessionId, id = 'approval-t') => {
+    const approval = Approval.request({
+      id: asId<ApprovalId>(id),
+      ownerId: OWNER,
+      turnId: asId<TurnId>('turn-1'),
+      sessionId,
+      tool: 'test.notify',
+      effect: 'external',
+      target: 'core',
+      actionHash: 'a'.repeat(64),
+      arguments: {},
+      summary: 'test.notify (external)',
+      createdAt: new Date('2026-03-01T10:00:00Z'),
+    });
+    await repos.approvals.insert(approval);
+    return approval;
+  };
+
+  it('treats an unconditional typed yes as an approval', async () => {
+    const { receive, repos, session, replies } = await setup({
+      requiresPairing: false,
+      readTypedApproval: async () => 'approve',
+    });
+    const card = await seedCard(repos, session.id);
+
+    expect(await receive('Yes, go ahead.')).toEqual({ kind: 'replied', reason: 'approved' });
+    expect((await repos.approvals.get(card.id))!.status).toBe('approved');
+    expect(replies.at(-1)!.text).toBe('Approved.');
+  });
+
+  it('does not approve "yes, but to Bob": it becomes an ordinary message', async () => {
+    const { receive, repos, session, submitted } = await setup({
+      requiresPairing: false,
+      readTypedApproval: async () => 'unclear',
+    });
+    const card = await seedCard(repos, session.id);
+
+    const result = await receive('Yes, but send it to Bob instead.');
+
+    expect(result.kind).toBe('turn');
+    expect(submitted[0]!.text).toBe('Yes, but send it to Bob instead.');
+    expect((await repos.approvals.get(card.id))!.status).toBe('pending');
+  });
+
+  it('leaves commands and ordinary messages alone when no card is open', async () => {
+    const { receive, submitted } = await setup({
+      requiresPairing: false,
+      readTypedApproval: async () => 'approve',
+    });
+
+    expect((await receive('Good evening')).kind).toBe('turn');
+    expect(submitted).toHaveLength(1);
   });
 });
