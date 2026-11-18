@@ -302,10 +302,35 @@ describe('workspace.exec', () => {
 
     const logPath = (out.data as { logPath?: string }).logPath;
     expect(logPath).toBeTruthy();
-    expect(logPath!.split(path.sep).join('/')).toContain('/sessions/s/exec-t.log');
+    expect(logPath!.split(path.sep).join('/')).toContain('/sessions/s/exec-t-1.log');
     const log = fs.readFileSync(logPath!, 'utf8');
     expect(log).toContain('MIDDLE');
     expect(log).toHaveLength(1006);
+  });
+
+  it('gives each over-cap command its own log (S41 review)', async () => {
+    const options = { defaultTimeoutSeconds: 20, maxTimeoutSeconds: 60, maxOutputBytes: 200 };
+    const tool = new WorkspaceExecTool(
+      ws,
+      new HostExec({ maxTimeoutMs: options.maxTimeoutSeconds * 1000 }),
+      options,
+    );
+    const call = () =>
+      tool.run(
+        { program: node, args: ['-e', 'process.stdout.write("A".repeat(500))'], cwd: '.' },
+        ctx(),
+      );
+
+    const first = await call();
+    const second = await call();
+    const a = (first.data as { logPath?: string }).logPath;
+    const b = (second.data as { logPath?: string }).logPath;
+
+    expect(a).toBeTruthy();
+    expect(b).toBeTruthy();
+    expect(a).not.toBe(b);
+    expect(fs.readFileSync(a!, 'utf8')).toHaveLength(500);
+    expect(fs.readFileSync(b!, 'utf8')).toHaveLength(500);
   });
 
   it('stops the program on Stop', async () => {

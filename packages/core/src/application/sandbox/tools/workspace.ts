@@ -368,6 +368,9 @@ export class WorkspaceExecTool extends BaseTool<typeof execInput> {
   readonly effect = 'write_local' as const;
   override readonly target = 'workspace' as const;
 
+  /** How many exec logs this tool has written; part of the log name so none overwrites another. */
+  private logs = 0;
+
   constructor(
     private readonly files: SandboxFiles,
     private readonly exec: SandboxExec,
@@ -442,13 +445,19 @@ export class WorkspaceExecTool extends BaseTool<typeof execInput> {
     };
   }
 
-  /** The whole output, in `sessions/<sessionId>/`, so the owner can read what the model could not. */
+  /**
+   * The whole output, in `sessions/<sessionId>/`, so the owner can read what the model could not. The
+   * number keeps one turn's commands from overwriting each other's log.
+   */
   private async saveLog(
     ctx: ToolContext,
     output: Buffer,
     capped: boolean,
   ): Promise<{ path: string }> {
-    const file = await this.files.resolve(`sessions/${ctx.sessionId}/exec-${ctx.turnId}.log`);
+    this.logs += 1;
+    const file = await this.files.resolve(
+      `sessions/${ctx.sessionId}/exec-${ctx.turnId}-${this.logs}.log`,
+    );
     const text =
       output.toString('utf8') +
       (capped ? `\n[the log itself was capped at ${MAX_LOG_BYTES} bytes]` : '');
