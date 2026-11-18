@@ -105,8 +105,8 @@ describe('AnthropicProvider', () => {
         content: [
           { type: 'tool_result', tool_use_id: 't1', content: '2' },
           { type: 'tool_result', tool_use_id: 't2', content: 'Error: boom', is_error: true },
-          { type: 'text', text: '[Note] Previous turn was interrupted.' },
-          { type: 'text', text: 'Thanks' },
+          // Adjacent text becomes one block, a blank line apart (#66).
+          { type: 'text', text: '[Note] Previous turn was interrupted.\n\nThanks' },
         ],
       },
     ]);
@@ -139,6 +139,29 @@ describe('AnthropicProvider', () => {
     expect((requests[0]!.body!.messages as { content: unknown[] }[])[0]!.content).toEqual([
       { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
       { type: 'image', source: { type: 'url', url: 'https://example.com/a.jpg' } },
+    ]);
+  });
+
+  it("keeps a context tail apart from the owner's words (#66)", async () => {
+    const { p, requests } = provider({ fixture: 'anthropic-text.sse' });
+    const tail =
+      "[Context from Shitsuji, not the owner's words]\nCurrent local date and time for your owner: Wednesday, November 18, 2026 at 2:43 PM (UTC).";
+    await complete(
+      p,
+      request([
+        {
+          role: 'user',
+          parts: [
+            { type: 'text', text: 'typed yes' },
+            { type: 'text', text: tail },
+          ],
+        },
+      ]),
+    );
+
+    // Two text blocks are read as one run, so they are joined with a separator here.
+    expect((requests[0]!.body!.messages as { content: unknown[] }[])[0]!.content).toEqual([
+      { type: 'text', text: `typed yes\n\n${tail}` },
     ]);
   });
 

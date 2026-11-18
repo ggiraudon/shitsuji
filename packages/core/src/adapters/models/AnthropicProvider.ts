@@ -11,6 +11,7 @@ import type {
 } from '../../ports/ModelProvider.js';
 import { httpError } from './http.js';
 import { readSseData } from './sse.js';
+import { TEXT_PART_SEPARATOR, joinTextParts } from './textParts.js';
 import { ToolNameMap } from './toolNames.js';
 import { ToolCallAccumulator, ToolCallArgumentsError } from './ToolCallAccumulator.js';
 
@@ -231,18 +232,34 @@ function toWireMessages(messages: ModelMessage[]): WireMessage[] {
   const push = (role: 'user' | 'assistant', blocks: Block[]) => {
     if (!blocks.length) return;
     const last = out.at(-1);
-    if (last && last.role === role) last.content.push(...blocks);
-    else out.push({ role, content: blocks });
+    if (last && last.role === role) last.content = joinTextRuns([...last.content, ...blocks]);
+    else out.push({ role, content: joinTextRuns(blocks) });
   };
   for (const m of messages) {
     if (m.role === 'assistant') push('assistant', m.parts.flatMap(toAssistantBlock));
-    else if (m.role === 'system') push('user', [{ type: 'text', text: `[Note] ${text(m.parts)}` }]);
+    else if (m.role === 'system')
+      push('user', [{ type: 'text', text: `[Note] ${joinTextParts(m.parts)}` }]);
     else push('user', m.parts.flatMap(toUserBlock));
   }
   return out;
 }
 
-const text = (parts: ContentPart[]) => parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
+/**
+ * Adjacent text blocks are read as one run and the API adds no separator between them, so a context
+ * tail would run into the owner's last word; text that touches becomes one block (#66).
+ */
+function joinTextRuns(blocks: Block[]): Block[] {
+  const out: Block[] = [];
+  for (const block of blocks) {
+    const last = out.at(-1);
+    if (block.type === 'text' && last?.type === 'text') {
+      out[out.length - 1] = { ...last, text: `${last.text}${TEXT_PART_SEPARATOR}${block.text}` };
+    } else {
+      out.push(block);
+    }
+  }
+  return out;
+}
 
 function toAssistantBlock(p: ContentPart): Block[] {
   if (p.type === 'text' && p.text) return [{ type: 'text', text: p.text }];

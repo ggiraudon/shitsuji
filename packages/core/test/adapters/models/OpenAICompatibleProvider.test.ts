@@ -101,6 +101,61 @@ describe('OpenAICompatibleProvider: DeepSeek', () => {
     expect((error as Error).message).toMatch(/"calculator" has arguments that are not valid JSON/);
   });
 
+  it("separates the context tail from the owner's words (#66)", async () => {
+    const { p, requests } = provider([{ fixture: 'deepseek-text.sse' }]);
+    const tail =
+      "[Context from Shitsuji, not the owner's words]\nCurrent local date and time for your owner: Wednesday, November 18, 2026 at 2:43 PM (UTC).";
+    await complete(
+      p,
+      request({
+        messages: [
+          {
+            role: 'user',
+            parts: [
+              { type: 'text', text: 'typed yes' },
+              { type: 'text', text: tail },
+            ],
+          },
+        ],
+      }),
+    );
+
+    // The tail ended up glued onto the owner's last word, and went out in a notification.
+    expect(requests[0]!.body!.messages).toContainEqual({
+      role: 'user',
+      content: `typed yes\n\n${tail}`,
+    });
+  });
+
+  it('keeps text parts separated around an image too (#66)', async () => {
+    const { p, requests } = provider([{ fixture: 'deepseek-text.sse' }]);
+    await complete(
+      p,
+      request({
+        messages: [
+          {
+            role: 'user',
+            parts: [
+              { type: 'text', text: 'What is this?' },
+              { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+              { type: 'text', text: '[Context from Shitsuji]' },
+              { type: 'text', text: 'It is 2:43 PM.' },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(requests[0]!.body!.messages).toContainEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'What is this?' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+        { type: 'text', text: '[Context from Shitsuji]\n\nIt is 2:43 PM.' },
+      ],
+    });
+  });
+
   it('sends a whole conversation with tool calls, results and images in OpenAI format', async () => {
     const { p, requests } = provider([{ fixture: 'deepseek-text.sse' }]);
     await complete(
