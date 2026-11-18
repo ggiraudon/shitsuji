@@ -15,6 +15,8 @@ const none: TrustBasis = { kind: 'none' };
 
 export interface PolicyOptions {
   level?: ApprovalLevel;
+  /** Standing rules from the config (`trust.rules`); call-time rules are added to them. */
+  rules?: readonly StandingRule[];
 }
 
 /**
@@ -28,14 +30,17 @@ export interface PolicyOptions {
  */
 export class PolicyEngine {
   private readonly level: ApprovalLevel;
+  private readonly rules: readonly StandingRule[];
 
   constructor(options: PolicyOptions = {}) {
     this.level = options.level ?? DEFAULT_APPROVAL_LEVEL;
+    this.rules = options.rules ?? [];
   }
 
   /** `rules` are the owner's standing rules for this action (F11; the authority arrives in S35). */
   decide(request: ActionRequest, rules: readonly StandingRule[] = []): TrustDecision {
     const base = { actionHash: request.hash };
+    const allRules = [...this.rules, ...rules];
 
     switch (request.effect) {
       case 'read':
@@ -69,7 +74,7 @@ export class PolicyEngine {
 
       case 'payment': {
         // Whatever the level, and whichever rule allows: money is never spent unasked (P6).
-        const rule = strongestRule(rules, request);
+        const rule = strongestRule(allRules, request);
         if (rule?.action === 'deny') return denyByRule(rule, base);
         if (rule?.action === 'ask') return askByRule(rule, base);
         return {
@@ -82,7 +87,7 @@ export class PolicyEngine {
 
       case 'write_self':
       case 'external': {
-        const rule = strongestRule(rules, request);
+        const rule = strongestRule(allRules, request);
         if (rule?.action === 'deny') return denyByRule(rule, base);
         if (rule?.action === 'ask') return askByRule(rule, base);
         // A "go ahead" rule covers outside actions, never a change to Shitsuji itself (F11).

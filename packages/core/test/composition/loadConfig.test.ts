@@ -244,3 +244,30 @@ describe('Secret', () => {
     expect(key.reveal()).toBe('super-secret-value');
   });
 });
+
+describe('trust.rules (#58)', () => {
+  it('reads rules and validates their verdict, tool and target', () => {
+    writeConfig(
+      [
+        'trust:',
+        '  rules:',
+        '    - { tool: test.notify, verdict: ask, detail: always ask before notifying }',
+        "    - { tool: 'web.*', verdict: allow, target: core }",
+      ].join('\n'),
+    );
+    const { config } = load();
+    expect(config.trust.rules).toEqual([
+      { tool: 'test.notify', verdict: 'ask', detail: 'always ask before notifying' },
+      { tool: 'web.*', verdict: 'allow', target: 'core' },
+    ]);
+
+    writeConfig('trust:\n  rules:\n    - { tool: x, verdict: maybe }\n');
+    expect(errorOf(() => load()).message).toMatch(/verdict/);
+
+    writeConfig('trust:\n  rules:\n    - { tool: "", verdict: ask }\n');
+    expect(errorOf(() => load()).message).toMatch(/tool/);
+
+    writeConfig('trust:\n  rules:\n    - { tool: x, verdict: ask, target: cloud }\n');
+    expect(errorOf(() => load()).message).toMatch(/target/);
+  });
+});

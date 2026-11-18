@@ -25,6 +25,7 @@ import { ToolCatalog } from '../application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../application/tools/ToolPipeline.js';
 import { PolicyEngine } from '../application/trust/PolicyEngine.js';
 import { ApprovalService } from '../application/trust/ApprovalService.js';
+import type { StandingRule } from '../application/trust/StandingRule.js';
 import { SessionAuthority, TrustService } from '../application/trust/TrustService.js';
 import { TypedApprovalReader } from '../application/trust/TypedApprovalReader.js';
 import { TrustJudge } from '../application/trust/TrustJudge.js';
@@ -193,8 +194,16 @@ export async function createShitsuji(
     log,
   });
   // The owner's words come from the session's transcript; the judge is a small model (M3).
+  // Standing rules come from the config; a rule can force a card or refuse before the judge (#58).
+  const trustRules: readonly StandingRule[] = config.trust.rules.map((rule) => ({
+    action: rule.verdict,
+    tool: rule.tool,
+    ...(rule.target && { target: rule.target }),
+    ...(rule.detail && { detail: rule.detail }),
+  }));
+  if (trustRules.length) log.info('Trust rules loaded', { count: trustRules.length });
   const trust = new TrustService({
-    engine: new PolicyEngine(),
+    engine: new PolicyEngine({ rules: trustRules }),
     authority: new SessionAuthority(repos.messages),
     judge: new TrustJudge({ models, log }),
     approvals,
