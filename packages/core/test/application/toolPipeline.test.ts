@@ -11,6 +11,7 @@ import { actionRequest } from '../../src/application/trust/ActionRequest.js';
 import { Approval } from '../../src/domain/model/Approval.js';
 import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
 import { PolicyEngine } from '../../src/application/trust/PolicyEngine.js';
+import { PolicyOnlyTrust } from '../../src/application/trust/TrustPolicy.js';
 import {
   asId,
   type ApprovalId,
@@ -382,4 +383,22 @@ it('marks a background call so an approval cannot wait forever (#51)', async () 
   await call('test.tool', { n: 1 });
 
   expect(seen).toEqual([true]);
+});
+
+it('names the standing rule that allowed a call (#58)', async () => {
+  const tool = new FakeTool('mail.send', 'external');
+  const policy = new PolicyOnlyTrust(
+    new PolicyEngine({
+      rules: [{ action: 'allow', tool: 'mail.*', detail: 'go ahead with email' }],
+    }),
+  );
+  const { call, repos } = setup([tool], { policy });
+
+  expect(await call('mail.send', { n: 1 })).toMatchObject({ kind: 'ok' });
+
+  const events = await repos.turnEvents.listByTurn(asId<TurnId>('turn-1'));
+  expect(events[1]!.data.allowedBy).toEqual({
+    kind: 'rule',
+    detail: 'go ahead with email',
+  });
 });

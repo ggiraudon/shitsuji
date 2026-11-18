@@ -39,6 +39,15 @@ bug (AGENTS.md, "Issues").
 - [ ] **An outside action that runs.** "Send a notification saying the build is green." There must be **no
       card**, and `GET http://127.0.0.1:8099/state` must show the notification once. This is the judge
       allowing it on your words (with a verbatim quote in the receipt).
+- Before the next two checks, make `test.notify` always ask. Add this to `shitsuji.config.yaml` and restart
+  core; remove it after check 5 (otherwise every notification asks).
+
+  ```yaml
+  trust:
+    rules:
+      - { tool: test.notify, verdict: ask, detail: always ask before notifying }
+  ```
+
 - [ ] **An action that asks.** "Let the team know how the build went." Expect an **Approve / Decline**
       card within a few seconds; press Approve. The card changes to "Approved.", the turn continues, and
       `/state` shows one notification.

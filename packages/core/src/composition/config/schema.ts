@@ -119,6 +119,29 @@ export const shitsujiConfigSchema = z
       })
       .strict()
       .default({}),
+    /**
+     * Standing rules for trust (F11, #58). A rule vetoes or forces a question for the tools it matches,
+     * before the judge; `payment` still always asks (P6). `detail` is the owner's words, shown in the
+     * receipt.
+     */
+    trust: z
+      .object({
+        rules: z
+          .array(
+            z
+              .object({
+                /** Tool name or glob (`*` any run, `?` one). */
+                tool: z.string().min(1).max(200),
+                verdict: z.enum(['allow', 'ask', 'deny']),
+                target: z.enum(['core', 'workspace', 'desktop', 'mcp']).optional(),
+                detail: z.string().min(1).max(200).optional(),
+              })
+              .strict(),
+          )
+          .default([]),
+      })
+      .strict()
+      .default({}),
     /** How the TUI finds core (S25). The key defaults to <dataDir>/owner.key on this machine. */
     tui: z
       .object({

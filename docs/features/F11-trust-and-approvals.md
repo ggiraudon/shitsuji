@@ -161,8 +161,17 @@ just the card and the reply: only an unconditional yes approves, so "yes, but to
 becomes an ordinary message instead of approving, and any error also reads as unclear. Commands run
 first, so `/stop` still works with a card open.
 
-### Matching an answer to a card
+### Standing rules from the config
 
+`trust.rules` in `shitsuji.config.yaml` makes a rule permanent before any judging: `{ tool, verdict,
+target?, detail? }`, where `tool` is a name or glob and `verdict` is `allow`, `ask` or `deny`. Deny beats
+ask, which beats allow; `detail` is the owner's words, and it appears in the receipt (`allowedBy`) and the
+refusal. A rule is checked before the judge, so an `ask` rule forces a card even when the owner's words
+would have allowed the action, and a `deny` rule refuses without a model call. `payment` still always
+asks, whatever a rule says (P6), and a `go ahead` rule never covers a change to Shitsuji itself. An
+unknown verdict, an empty pattern or an unknown target is a config error at startup (#58).
+
+### Matching an answer to a card
 - **A new owner message supersedes.** When the owner writes again in a session, its pending cards
   expire as superseded after the message is stored; the blocked turn wakes with an expired approval and
   ends cleanly.

@@ -57,7 +57,8 @@ Reading and computing run freely. Changes inside the workspace run at the defaul
 it go to a **judge** that sees only your own words and may allow them with a verbatim quote, otherwise it
 asks you. Payments always ask. A card is bound to the exact action and arguments: pressing Approve twice
 runs it once, and Stop expires it. Past `budget.monthlyLimit`, background work is refused and tells you
-why. `/activity` shows what each tool call did and what allowed it.
+why. `/activity` shows what each tool call did and what allowed it. Standing rules in `trust.rules`
+(`tool`, `verdict`, optional `target` and `detail`) can force a card or refuse an action before the judge.
 
 ## Evaluation
 
