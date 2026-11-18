@@ -12,6 +12,7 @@ import type {
 } from '../../ports/ModelProvider.js';
 import { httpError } from './http.js';
 import { readSseData } from './sse.js';
+import { TEXT_PART_SEPARATOR, joinTextParts } from './textParts.js';
 import { ToolNameMap } from './toolNames.js';
 import { TextToolCallParser } from './TextToolCallParser.js';
 import { ToolCallAccumulator, ToolCallArgumentsError } from './ToolCallAccumulator.js';
@@ -213,35 +214,17 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
   /** One domain message → OpenAI wire messages (a tool message with several results becomes several). */
   private toWire(m: ModelMessage, textMode: boolean): WireMessage[] {
-    const text = (parts: ContentPart[]) =>
-      parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
     switch (m.role) {
       case 'system':
         return [
           this.quirks.systemRole === 'user-prefix'
-            ? { role: 'user', content: `[Note] ${text(m.parts)}` }
-            : { role: this.quirks.systemRole, content: text(m.parts) },
+            ? { role: 'user', content: `[Note] ${joinTextParts(m.parts)}` }
+            : { role: this.quirks.systemRole, content: joinTextParts(m.parts) },
         ];
       case 'user': {
         const images = m.parts.filter((p) => p.type === 'image');
-        if (!images.length) return [{ role: 'user', content: text(m.parts) }];
-        return [
-          {
-            role: 'user',
-            content: m.parts.flatMap((p): unknown[] =>
-              p.type === 'text'
-                ? [{ type: 'text', text: p.text }]
-                : p.type === 'image'
-                  ? [
-                      {
-                        type: 'image_url',
-                        image_url: { url: p.url ?? `data:${p.mediaType};base64,${p.data}` },
-                      },
-                    ]
-                  : [],
-            ),
-          },
-        ];
+        if (!images.length) return [{ role: 'user', content: joinTextParts(m.parts) }];
+        return [{ role: 'user', content: this.userContent(m.parts) }];
       }
       case 'assistant': {
         // Reasoning parts are never sent back (DeepSeek rejects them in requests).
@@ -252,10 +235,13 @@ export class OpenAICompatibleProvider implements ModelProvider {
               '```tool_call\n' + JSON.stringify({ name: c.name, arguments: c.arguments }) + '\n```',
           );
           return [
-            { role: 'assistant', content: [text(m.parts), ...blocks].filter(Boolean).join('\n') },
+            {
+              role: 'assistant',
+              content: [joinTextParts(m.parts), ...blocks].filter(Boolean).join('\n'),
+            },
           ];
         }
-        const wire: WireMessage = { role: 'assistant', content: text(m.parts) || null };
+        const wire: WireMessage = { role: 'assistant', content: joinTextParts(m.parts) || null };
         if (calls.length) {
           wire.tool_calls = calls.map((c) => ({
             id: c.id,
@@ -274,6 +260,28 @@ export class OpenAICompatibleProvider implements ModelProvider {
               : [{ role: 'tool', tool_call_id: p.toolCallId, content: p.content }],
         );
     }
+  }
+
+  /**
+   * A user message that carries images: each part keeps its place, but text parts that touch become
+   * one text entry, separated like any other run of text (#66).
+   */
+  private userContent(parts: ContentPart[]): unknown[] {
+    const content: { type: string; text?: string; image_url?: unknown }[] = [];
+    for (const part of parts) {
+      if (part.type === 'text') {
+        const last = content.at(-1);
+        if (last?.type === 'text')
+          last.text = `${last.text ?? ''}${TEXT_PART_SEPARATOR}${part.text}`;
+        else content.push({ type: 'text', text: part.text });
+      } else if (part.type === 'image') {
+        content.push({
+          type: 'image_url',
+          image_url: { url: part.url ?? `data:${part.mediaType};base64,${part.data}` },
+        });
+      }
+    }
+    return content;
   }
 
   private async request(

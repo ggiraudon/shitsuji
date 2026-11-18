@@ -53,6 +53,12 @@ export interface ContextBuilderDeps {
 const PLACEMENT_RANK: Record<InjectionPlacement, number> = { header: 0, context: 1, tail: 2 };
 
 /**
+ * The tail travels on the owner's message, so it says where it comes from: the model must not read
+ * the clock as something the owner typed, or repeat it back (#66).
+ */
+export const TAIL_MARKER = "[Context from Shitsuji, not the owner's words]";
+
+/**
  * Turns a session's transcript plus every `ContextInjectable` into one model call's context (F04).
  * Each injectable declares a placement and an order, so where its text lands is a property of the
  * code, not a convention: the header starts the cached prefix, context notes sit at the start of the
@@ -146,11 +152,12 @@ export class ContextBuilder {
     // The tail is fixed for the turn: re-rendering it on each step would change the opening request
     // between calls and cost a cache miss for the whole tool loop after it.
     const frozen = this.turnTails.get(session.id);
+    const renderedTail = rendered.tail.map((n) => n.text).join('\n\n');
     const tail =
       frozen?.turnId === turn.id
         ? frozen.text
-        : rendered.tail.length
-          ? rendered.tail.map((n) => n.text).join('\n\n')
+        : renderedTail
+          ? `${TAIL_MARKER}\n${renderedTail}`
           : undefined;
     remember(this.turnTails, session.id, { turnId: turn.id, text: tail });
     this.checkHeaderStability(session.id, rendered.header);

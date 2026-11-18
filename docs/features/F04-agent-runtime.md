@@ -165,7 +165,10 @@ checks or approvals.
   message. It's never stored in the transcript. Every step of the turn sends it unchanged, so a tool loop
   keeps hitting the cache; the next turn renders it afresh on its own opening message, which only costs
   the cache from the previous turn's opening message on. A turn with no owner message in view (a
-  scheduled one, say) gets it as a note at the end.
+  scheduled one, say) gets it as a note at the end. It begins with
+  `[Context from Shitsuji, not the owner's words]`, and the provider leaves a blank line between it and
+  the owner's text: without both, the model read the clock as the tail of the owner's request and sent it
+  on in a notification (#66).
 
 **A check that the header stays stable.** In development and in tests, the ContextBuilder compares each
 header injectable's output with the previous call in the same session. If one changes on every call, it
