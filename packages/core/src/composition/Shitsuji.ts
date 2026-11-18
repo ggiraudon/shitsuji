@@ -70,7 +70,7 @@ export class Shitsuji {
   private readonly repos: Repositories;
   private readonly ownerId: OwnerId;
   private readonly clock: Clock;
-  private readonly approvals?: ApprovalService;
+  private readonly approvalsService?: ApprovalService;
   private readonly readTypedApproval?: (text: string, approval: Approval) => Promise<TypedAnswer>;
   private gateway?: ChannelGateway;
 
@@ -91,7 +91,7 @@ export class Shitsuji {
     this.repos = parts.repos;
     this.ownerId = parts.ownerId;
     this.clock = parts.clock;
-    this.approvals = parts.approvals;
+    this.approvalsService = parts.approvals;
     this.readTypedApproval = parts.readTypedApproval;
   }
 
@@ -130,7 +130,7 @@ export class Shitsuji {
       clock: this.clock,
       log: this.log,
       version: this.version,
-      ...(this.approvals && { approvals: this.approvals }),
+      ...(this.approvalsService && { approvals: this.approvalsService }),
       ...(this.readTypedApproval && { readTypedApproval: this.readTypedApproval }),
       reply: (channelId, chatId, text, intent) => this.deliverTo(channelId, chatId, text, intent),
     });
@@ -152,6 +152,11 @@ export class Shitsuji {
   /** Where the API listens, once started. */
   get apiUrl(): string | undefined {
     return this.api?.url;
+  }
+
+  /** Cards waiting for the owner; the evaluation harness answers them in process (S38). */
+  get approvals(): ApprovalService | undefined {
+    return this.approvalsService;
   }
 
   async stop(): Promise<void> {
