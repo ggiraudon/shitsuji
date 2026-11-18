@@ -26,7 +26,7 @@ agent's desktop with **Take control**, memory and skills, schedules, settings an
 
 - **Frontend:** React + Vite + TypeScript in `packages/web`, built into static files that `core` serves.
 - **Transport:** REST for reads and commands, one WebSocket per client for live events.
-- **Shared types:** `packages/shared` holds the API and event types used by both sides, so they cannot drift.
+- **Shared types:** `packages/shared` (the `shitsuji-shared` submodule) holds the API and event types used by both sides, so they cannot drift.
 - **Auth:** a single-owner access key, printed at first start and exchanged for an HTTP-only cookie (nod's
   model). Later: passkeys. All routes are owner-scoped even with one owner.
 

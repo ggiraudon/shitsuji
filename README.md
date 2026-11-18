@@ -8,6 +8,10 @@ harness. The web UI, sandbox and desktop come next. The plan and progress are in
 
 ## Quick start (Docker)
 
+`packages/shared` is a git submodule ([shitsuji-shared](https://github.com/ggiraudon/shitsuji-shared)),
+so clone with `git clone --recurse-submodules`, or run `git submodule update --init` in an existing
+clone.
+
 1. Copy `.env.example` to `.env`. Set `POSTGRES_PASSWORD` (letters, digits, `-` and `_` only) and
    `DEEPSEEK_API_KEY` (or `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`).
 2. Start everything:

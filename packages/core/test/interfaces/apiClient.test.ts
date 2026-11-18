@@ -16,7 +16,7 @@ import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { startApiServer, type RunningApi } from '../../src/composition/apiServer.js';
 import { asId, type OwnerId } from '../../src/domain/model/ids.js';
-import type { LiveEvent } from '../../src/interfaces/http/contract.js';
+import type { LiveEvent } from '@shitsuji/shared';
 import { ApiClient, ApiError } from '../../src/interfaces/tui/ApiClient.js';
 import { BaseTool, type ToolOutput } from '../../src/ports/Tool.js';
 import { routerFor, ScriptedProvider, testServices, until } from '../helpers.js';
