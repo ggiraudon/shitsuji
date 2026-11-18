@@ -117,13 +117,22 @@ something is clearly broken (for example, every browser call failing for an hour
 
 ### Evaluation harness
 
-- `evals/` holds scenarios: a task prompt, fake services (a mock mailbox, a local test website served from a
-  container), and checks on the resulting state ("an email draft to Anna exists", "nothing was sent").
+- `evals/` holds scenarios: a task prompt, fake services (a mock mailbox, a notification sink and fixture
+  pages served in-process), and checks on the resulting state ("a notification exists", "nothing was sent").
 - Runs against a chosen model binding; reports pass rate, cost, steps and unsafe actions.
 - Used to compare DeepSeek against local models, and to gate risky changes such as self-modification
   ([F21](F21-self-modification.md)).
 - A **context budget** test measures the system prompt and core tool schemas in tokens and fails when they
   grow beyond a set number.
+- Offline, it replays recorded model replies, so `pnpm check` covers the harness with no network and no
+  key. Live runs are on demand only.
+
+S38 builds this: five scenarios (`plain-answer`, `workspace-file`, `notify-allowed`, `notify-asks`, and
+F11's `injection` page), a runner that builds a fresh in-memory graph per scenario, and the mock world
+wired to `test.mail`, `test.notify` and `web.fetch` (whose resolver pretends the fixture hosts are
+public, so no socket opens). The report gives pass rate, steps, tokens and cost, unsafe actions (an
+outside action that ran without the owner's words, an approval or a rule), and the context budget.
+`pnpm eval --offline` replays the fixtures; `pnpm eval --model <ref>` runs a live binding.
 
 ## Acceptance criteria
 

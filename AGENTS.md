@@ -68,6 +68,8 @@ Keep this list true as commands change.
 | `pnpm test:integration` | Tests against real Postgres via Testcontainers (needs Docker) |
 | `pnpm lint` | ESLint + Prettier check |
 | `pnpm check` | Type-check, lint, import-direction check and tests: **run before every commit** |
+| `pnpm eval --offline` | The evaluation scenarios against the recorded model replies (no key, no network) |
+| `pnpm eval --model <ref>` | The evaluation scenarios against a live model binding, with a report |
 | `docker compose up` | Start the stack (`core` + `postgres`) |
 | `docker compose -f compose.yaml -f compose.dev.yaml up -d postgres` | Only Postgres, published on 127.0.0.1:5432, for running core on the host |
 | `pnpm --filter @shitsuji/core dev` | Run core from source with reload (reads `.env` and `shitsuji.config.yaml`) |
