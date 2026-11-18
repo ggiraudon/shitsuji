@@ -39,7 +39,7 @@ import {
   type SoulDto,
   type TurnDto,
   type UsageDto,
-} from './contract.js';
+} from '@shitsuji/shared';
 
 export interface ApiDeps {
   agent: Agent;

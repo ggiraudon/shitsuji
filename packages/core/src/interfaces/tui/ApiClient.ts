@@ -9,7 +9,7 @@ import type {
   SoulDto,
   TurnDto,
   UsageDto,
-} from '../http/contract.js';
+} from '@shitsuji/shared';
 
 export class ApiError extends Error {
   override readonly name = 'ApiError';

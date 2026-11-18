@@ -1,0 +1,4 @@
+[submodule "packages/shared"]
+	path = packages/shared
+	url = https://github.com/ggiraudon/shitsuji-shared.git
+	branch = master

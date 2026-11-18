@@ -1,6 +1,6 @@
 import { Box, render, Text, useApp, useInput } from 'ink';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { LiveEvent, MessageDto } from '../http/contract.js';
+import type { LiveEvent, MessageDto } from '@shitsuji/shared';
 import type { ApiClient } from './ApiClient.js';
 
 const colors = {

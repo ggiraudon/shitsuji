@@ -56,6 +56,20 @@ Work is tracked in GitHub issues on `ggiraudon/shitsuji`; the docs stay the spec
 - Compose files must run unchanged on a plain Linux host: no Windows paths, no `host.docker.internal`, and no
   other Docker Desktop-only features.
 
+## The shared contract (submodule)
+
+`packages/shared` is a **git submodule**: the [shitsuji-shared](https://github.com/ggiraudon/shitsuji-shared)
+repo, default branch `master`. It holds the API's request, response and live-event shapes
+(`@shitsuji/shared`), which core, the TUI and future clients (web UI, companion app) import.
+
+- A fresh clone needs `git submodule update --init` (or `git clone --recurse-submodules`).
+- After pulling master, run `git submodule update` so the submodule matches the commit core records.
+- To change the contract: work inside `packages/shared` on its `master`, run `pnpm check` there, commit
+  and push **that repo first**, then `git add packages/shared` in core and commit the new pointer together
+  with the core code that needs it. Never commit a pointer to a submodule commit that is not pushed.
+- `pnpm typecheck`, `pnpm test` and `pnpm --filter @shitsuji/core dev` build the shared package first;
+  run `pnpm build:shared` yourself if anything else complains that `@shitsuji/shared` has no `dist`.
+
 ## Commands
 
 Keep this list true as commands change.
@@ -64,6 +78,7 @@ Keep this list true as commands change.
 |---------|--------------|
 | `pnpm install` | Install all workspace packages |
 | `pnpm build` | Build every package |
+| `pnpm build:shared` | Build the shared contract (`packages/shared`, a submodule) |
 | `pnpm test` | Unit and contract tests (no network, no Docker) |
 | `pnpm test:integration` | Tests against real Postgres via Testcontainers (needs Docker) |
 | `pnpm lint` | ESLint + Prettier check |

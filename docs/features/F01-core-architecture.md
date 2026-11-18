@@ -132,3 +132,5 @@ went wrong", and are redacted before they are stored or shown.
   `packages/shared`. `packages/web`, `packages/workspace-daemon` and `packages/desktop-daemon` are added when
   [F07](F07-web-ui.md), [F08](F08-workspace-sandbox.md) and [F10](F10-desktop.md) start. The layers above
   live in `packages/core/src`. See [07-first-pass-plan.md](../07-first-pass-plan.md).
+  *(2026-11-17: `packages/shared` became a git submodule, the `shitsuji-shared` repo, so the companion
+  app can share the API contract; the API types moved there from `interfaces/http/contract.ts`.)*

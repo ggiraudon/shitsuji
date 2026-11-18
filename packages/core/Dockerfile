@@ -13,8 +13,10 @@ COPY packages/core/package.json packages/core/
 COPY packages/shared/package.json packages/shared/
 RUN pnpm install --frozen-lockfile --filter @shitsuji/core...
 
+# packages/shared is a git submodule (shitsuji-shared): clone with --recurse-submodules.
+COPY packages/shared packages/shared
 COPY packages/core packages/core
-RUN pnpm --filter @shitsuji/core build \
+RUN pnpm --filter @shitsuji/core... build \
  && pnpm --filter @shitsuji/core deploy --prod --legacy /out
 
 FROM node:22-bookworm-slim

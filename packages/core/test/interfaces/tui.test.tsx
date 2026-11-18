@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
-import type { LiveEvent, MessageDto } from '../../src/interfaces/http/contract.js';
+import type { LiveEvent, MessageDto } from '@shitsuji/shared';
 import { historyLines, ShitsujiApp, type TuiClient } from '../../src/interfaces/tui/app.js';
 
 const msg = (over: Partial<MessageDto>): MessageDto => ({
