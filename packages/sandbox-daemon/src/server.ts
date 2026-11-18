@@ -1,10 +1,13 @@
 import http from 'node:http';
 import {
+  EXEC_SIGNAL_ROUTE,
   SANDBOX_PROTOCOL_VERSION,
   SANDBOX_ROUTES,
   SANDBOX_TOKEN_HEADER,
   capabilitiesReplySchema,
   errorReplySchema,
+  execEventSchema,
+  execRequestSchema,
   healthReplySchema,
   listFilesReplySchema,
   listFilesRequestSchema,
@@ -12,29 +15,35 @@ import {
   moveFileRequestSchema,
   readFileReplySchema,
   readFileRequestSchema,
+  signalExecReplySchema,
+  signalExecRequestSchema,
   statFileReplySchema,
   statFileRequestSchema,
   writeFileReplySchema,
   writeFileRequestSchema,
   type ErrorReply,
+  type ExecEvent,
+  type ExecRequest,
   type SandboxRoot,
 } from '@shitsuji/sandbox-protocol';
 import type { ZodTypeAny, z } from 'zod';
 import { tokenMatches } from './auth.js';
+import type { ExecSupervisor } from './exec.js';
 import { invalidRequest, notFound, SandboxHttpError, tooLarge } from './errors.js';
 import type { SandboxFilesService } from './files.js';
 
 export interface SandboxServerDeps {
   token: string;
   files: SandboxFilesService;
+  exec: ExecSupervisor;
   maxBodyBytes?: number;
   /** The protocol version reported on /health and /capabilities. */
   version?: number;
 }
 
 /**
- * The HTTP surface from F08: health, capabilities, and the files endpoints. It listens only on the
- * sandbox network and every route but /health needs the token. Exec comes with S46.
+ * The HTTP surface from F08: health, capabilities, the files endpoints and exec. It listens only on
+ * the sandbox network and every route but /health needs the token.
  */
 export function createSandboxServer(deps: SandboxServerDeps): http.Server {
   const version = deps.version ?? SANDBOX_PROTOCOL_VERSION;
@@ -56,13 +65,26 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
           capabilitiesReplySchema.parse({
             version,
             files: { roots: ['workspace', 'handoff'] },
-            exec: null,
+            exec: { maxTimeoutMs: deps.exec.maxTimeoutMs },
           }),
         );
       }
       if (req.method !== 'POST') throw notFound(`No route for ${req.method} ${url.pathname}.`);
       const body = await readJson(req, maxBodyBytes);
+      const signalRoute = EXEC_SIGNAL_ROUTE.exec(url.pathname);
+      if (signalRoute) {
+        const request = parse(signalExecRequestSchema, body);
+        const id = decodeURIComponent(signalRoute[1]!);
+        if (!deps.exec.signal(id, request.signal, request.graceMs)) {
+          throw notFound(`No running command ${id}.`);
+        }
+        return send(res, 200, signalExecReplySchema.parse({ stopped: true }));
+      }
       switch (url.pathname) {
+        case SANDBOX_ROUTES.exec: {
+          const request = parse(execRequestSchema, body);
+          return streamExec(res, deps.exec, request);
+        }
         case SANDBOX_ROUTES.read: {
           const request = parse(readFileRequestSchema, body);
           const reply = await deps.files.read(request.root, request.path, request.encoding);
@@ -166,4 +188,32 @@ function sendError(res: http.ServerResponse, error: unknown): void {
     500,
     errorReplySchema.parse({ error: { code: 'internal', message: 'Internal error.' } }),
   );
+}
+
+/** Streams one command as NDJSON: start, output chunks, then the exit (or one error). */
+async function streamExec(
+  res: http.ServerResponse,
+  supervisor: ExecSupervisor,
+  request: ExecRequest,
+): Promise<void> {
+  res.writeHead(200, {
+    'content-type': 'application/x-ndjson; charset=utf-8',
+    'cache-control': 'no-store',
+  });
+  // If the caller goes away (a Stop, a lost connection), the command is stopped too.
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  const emit = (event: ExecEvent) => {
+    if (res.writableEnded) return;
+    res.write(`${JSON.stringify(execEventSchema.parse(event))}\n`);
+  };
+  try {
+    await supervisor.run(request, emit, controller.signal);
+  } catch {
+    emit({ type: 'error', code: 'internal', message: 'The command could not be started.' });
+  } finally {
+    res.end();
+  }
 }
