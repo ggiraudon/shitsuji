@@ -55,6 +55,9 @@ export interface ChannelGatewayDeps {
  * `requiresPairing` starts no turn until its chat is paired.
  */
 export class ChannelGateway {
+  /** The unpaired-chat log throttle: channel:chat -> last warning and how many it covered (#39). */
+  private readonly unpairedWarnings = new Map<string, { at: number; suppressed: number }>();
+
   constructor(private readonly deps: ChannelGatewayDeps) {}
 
   /**
@@ -88,10 +91,14 @@ export class ChannelGateway {
 
     if (!paired) {
       if (/^\/start(\s|$)/i.test(text)) return this.pair(message, text);
-      this.deps.log.warn('Ignoring a message from an unpaired chat', {
-        channel: message.channel,
-      });
+      this.warnUnpaired(message);
       return { kind: 'ignored', reason: 'unpaired' };
+    }
+
+    // A paired chat does not need /start; the code must not reach the model (#39).
+    if (/^\/start(\s|$)/i.test(text)) {
+      await this.answer(message, 'Already paired. Nothing else is needed.', 'final');
+      return { kind: 'replied', reason: 'command' };
     }
 
     const command = commandOf(text);
@@ -249,6 +256,31 @@ export class ChannelGateway {
 
   private answer(message: InboundMessage, text: string, intent: OutboundIntent): Promise<void> {
     return this.deps.reply(message.channel, message.chatId, text, intent);
+  }
+
+  /**
+   * One warning per chat per minute, with a count in between: anyone who finds the bot can send
+   * messages, and the log must not grow with them (#39). The map is bounded for the same reason.
+   */
+  private warnUnpaired(message: InboundMessage): void {
+    const key = `${message.channel}:${message.chatId}`;
+    const now = this.deps.clock.now().getTime();
+    const entry = this.unpairedWarnings.get(key);
+    if (entry && now - entry.at < 60_000) {
+      entry.suppressed++;
+      return;
+    }
+    this.deps.log.warn(
+      entry
+        ? 'Ignoring more messages from an unpaired chat'
+        : 'Ignoring a message from an unpaired chat',
+      { channel: message.channel, ...(entry && { suppressed: entry.suppressed }) },
+    );
+    this.unpairedWarnings.set(key, { at: now, suppressed: 0 });
+    if (this.unpairedWarnings.size > 500) {
+      const oldest = this.unpairedWarnings.keys().next().value;
+      if (oldest !== undefined) this.unpairedWarnings.delete(oldest);
+    }
   }
 
   /** The session a chat talks to: its own after /new, else the owner's main chat. */

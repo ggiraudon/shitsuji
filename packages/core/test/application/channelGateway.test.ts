@@ -76,6 +76,7 @@ async function setup(
       return options.stopResult ?? true;
     },
   };
+  const log = new MemoryLogger();
   const replies: { channel: string; chatId: string; text: string; intent: OutboundIntent }[] = [];
   const approvals = new ApprovalService({
     approvals: repos.approvals,
@@ -91,7 +92,7 @@ async function setup(
     repos,
     ownerId: OWNER,
     clock,
-    log: new MemoryLogger(),
+    log,
     version: '0.1.0',
     approvals,
     ...(options.readTypedApproval && { readTypedApproval: options.readTypedApproval }),
@@ -119,6 +120,7 @@ async function setup(
     clock,
     calls,
     approvals,
+    log,
   };
 }
 
@@ -479,5 +481,35 @@ describe('ChannelGateway: typed approval answers (S37)', () => {
     expect(result.kind).toBe('turn');
     expect(submitted[0]!.text).toBe('Yes, go ahead.');
     expect((await repos.approvals.get(elsewhere.id))!.status).toBe('pending');
+  });
+});
+
+describe('ChannelGateway: /start and unpaired logging (#39)', () => {
+  it('answers /start in a paired chat without a model call', async () => {
+    const { receive, submitted, replies, pairing } = await setup();
+    const { code } = pairing.issue(OWNER);
+    await receive(`/start ${code}`);
+
+    const result = await receive(`/start ${code}`);
+
+    expect(result).toEqual({ kind: 'replied', reason: 'command' });
+    expect(replies.at(-1)!.text).toMatch(/Already paired/);
+    expect(submitted).toHaveLength(0);
+  });
+
+  it('warns once per chat per minute for unpaired messages, with a count', async () => {
+    const { receive, log, clock } = await setup({ requiresPairing: true });
+
+    await receive('one');
+    await receive('two');
+    await receive('three');
+    expect(log.records.filter((r) => /unpaired chat/.test(r.message))).toHaveLength(1);
+
+    clock.advance(61_000);
+    await receive('four');
+
+    const warnings = log.records.filter((r) => /unpaired chat/.test(r.message));
+    expect(warnings).toHaveLength(2);
+    expect(warnings[1]!.context).toMatchObject({ suppressed: 2 });
   });
 });
