@@ -209,6 +209,7 @@ export function formatReport(report: EvalReport): string {
 function offlineConfig(dataDir: string): ShitsujiConfig {
   return shitsujiConfigSchema.parse({
     paths: { dataDir },
+    sandbox: { probes: { enabled: false } },
     channels: { webhook: { enabled: false }, telegram: { enabled: false } },
     api: { enabled: false },
     tools: { exec: { enabled: false }, web: { fetch: { enabled: false } } },
@@ -228,6 +229,7 @@ function liveConfig(dataDir: string, model: string): ShitsujiConfig {
   config.channels.telegram.enabled = false;
   config.api.enabled = false;
   config.tools.exec.enabled = false;
+  config.sandbox.probes.enabled = false;
   config.tools.web.fetch.enabled = false;
   config.models.purposes.chat = model;
   config.models.purposes.trust = model;

@@ -61,6 +61,7 @@ class MailTool extends BaseTool<z.ZodObject<{ to: z.ZodString }>> {
 const config = (extra: Record<string, unknown> = {}) =>
   shitsujiConfigSchema.parse({
     paths: { dataDir },
+    sandbox: { probes: { enabled: false } },
     channels: { webhook: { enabled: false } },
     api: { enabled: false },
     models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/test-model' } },

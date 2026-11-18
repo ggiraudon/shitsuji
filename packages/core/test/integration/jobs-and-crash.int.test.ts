@@ -97,6 +97,7 @@ describe('crash in the middle of a turn (F02)', () => {
     const config = shitsujiConfigSchema.parse({
       database: { url },
       paths: { dataDir: tempDataDir() },
+      sandbox: { probes: { enabled: false } },
       channels: { webhook: { enabled: false } },
       api: { enabled: false },
       models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/m' } },

@@ -90,6 +90,16 @@ pipeline, trust checks and receipts, their output is wrapped as untrusted data, 
 `tool_search`. A driver can never change a standard tool's effect; an extra tool's declared effect can be
 tightened by a standing rule.
 
+**What S42 builds.** One conformance suite, `test/contracts/sandbox.contract.ts`, runs against every
+driver: each test runs only for a capability the driver claims (exec, files, network), and the fork bomb
+only when it contains processes. The `host` driver runs it in unit tests with containment and network
+skipped. `EgressProbe` checks the egress claims from inside the sandbox — `sandbox.probes.lan` (default
+`[192.168.1.1]`, X2), core's API and Postgres — at startup and on `health()`: a `lanBlocked` claim that an
+address contradicts is refused with `SandboxUnavailable` naming it, and so is a claim that cannot be
+probed at all. A driver making no claim (the host) may have network, says so in the log, and is refused
+only when `sandbox.probes.requireIsolation` is on; nothing falls back to another driver (X3). A driver's
+extra tools must be named `<driverId>.*`, so none can shadow a standard tool.
+
 **What S41 builds.** The standard tools are complete: `workspace.edit` replaces an exact piece of text
 and refuses a missing or ambiguous match, and `workspace.find` looks for files by glob, by text, or both.
 `workspace.exec` defaults to ten minutes (at most an hour, still capped by the driver's `maxTimeoutMs`);

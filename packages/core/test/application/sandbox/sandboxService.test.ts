@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod/v4';
+import { EgressProbe, type EgressTarget } from '../../../src/application/sandbox/EgressProbe.js';
 import { SandboxService } from '../../../src/application/sandbox/SandboxService.js';
 import { SandboxUnavailable } from '../../../src/domain/errors.js';
 import { asId, type OwnerId } from '../../../src/domain/model/ids.js';
@@ -44,18 +46,39 @@ const driver = (
 ): SandboxDriver => ({
   id: 'fake',
   capabilities: async () => capabilities,
-  open: async () => ({ close: vi.fn(async () => undefined), ...sandbox }),
+  open: async () => ({
+    close: vi.fn(async () => undefined),
+    egress: { reachable: async () => false },
+    ...sandbox,
+  }),
   health: async () => ({ ok: healthOk, ...(healthOk ? {} : { detail: 'no sandbox runtime' }) }),
 });
 
-const service = (d: SandboxDriver) =>
-  new SandboxService({
+const LAN: EgressTarget = { label: 'LAN', host: '192.168.1.1', port: 80 };
+
+/** A tool with the fields a driver's extra tool needs. */
+const fakeTool = (name: string) => ({
+  name,
+  description: name,
+  input: z.object({}),
+  effect: 'read' as const,
+  target: 'workspace' as const,
+  deferred: false,
+  untrustedOutput: false,
+  run: async () => ({ content: '' }),
+});
+
+const service = (d: SandboxDriver) => {
+  const services = testServices();
+  return new SandboxService({
     driver: d,
     lease: LEASE,
     exec: EXEC,
     outbound: { stage: async (name) => `/outbox/${name}` },
-    log: testServices().log,
+    egress: new EgressProbe({ targets: [LAN], timeoutMs: 10, log: services.log }),
+    log: services.log,
   });
+};
 
 const names = (s: SandboxService) => s.tools().map((tool) => tool.name);
 
@@ -111,6 +134,70 @@ describe('SandboxService (F08, S40)', () => {
     await sandbox.start();
 
     expect(names(sandbox)).toContain('workspace.exec');
+  });
+
+  it('refuses a driver whose lanBlocked claim the probe contradicts (S42)', async () => {
+    const lying = driver(
+      { files: { roots: ['/workspace'] }, egress: { lanBlocked: true, credentialSwap: false } },
+      {
+        files: fakeFiles(),
+        egress: { reachable: async (host) => host === '192.168.1.1' },
+      },
+    );
+    const sandbox = service(lying);
+
+    await expect(sandbox.start()).rejects.toThrow(SandboxUnavailable);
+    await expect(sandbox.start()).rejects.toThrow(/192\.168\.1\.1:80/);
+    expect(sandbox.tools()).toEqual([]);
+  });
+
+  it('re-checks the egress claim on health() (S42)', async () => {
+    let reachesLan = false;
+    const sandbox = service(
+      driver(
+        { files: { roots: ['/workspace'] }, egress: { lanBlocked: true, credentialSwap: false } },
+        {
+          files: fakeFiles(),
+          egress: { reachable: async () => reachesLan },
+        },
+      ),
+    );
+    await sandbox.start();
+    expect(await sandbox.health()).toEqual({ ok: true });
+
+    reachesLan = true;
+    await expect(sandbox.health()).rejects.toThrow(SandboxUnavailable);
+  });
+
+  it('registers a driver tool named after it, and refuses one that is not (S42 review)', async () => {
+    const good = {
+      ...driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: false, credentialSwap: false },
+      }),
+      extraTools: () => [fakeTool('fake.hello')],
+    };
+    const sandbox = service(good);
+    await sandbox.start();
+    expect(names(sandbox)).toContain('fake.hello');
+
+    const shadowing = {
+      ...driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: false, credentialSwap: false },
+      }),
+      extraTools: () => [fakeTool('workspace.read')],
+    };
+    await expect(service(shadowing).start()).rejects.toThrow(/must be named "fake\.\*"/);
+
+    const twice = {
+      ...driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: false, credentialSwap: false },
+      }),
+      extraTools: () => [fakeTool('fake.hello'), fakeTool('fake.hello')],
+    };
+    await expect(service(twice).start()).rejects.toThrow(/twice/);
   });
 
   it('closes the sandbox and forgets its tools on close', async () => {

@@ -32,6 +32,7 @@ import { TypedApprovalReader } from '../application/trust/TypedApprovalReader.js
 import { TrustJudge } from '../application/trust/TrustJudge.js';
 import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
+import { EgressProbe, type EgressTarget } from '../application/sandbox/EgressProbe.js';
 import { SandboxService } from '../application/sandbox/SandboxService.js';
 import { HostSandboxDriver } from '../adapters/sandbox/host/HostSandboxDriver.js';
 import { NodeOutboundFiles } from '../adapters/files/NodeOutboundFiles.js';
@@ -78,6 +79,40 @@ export function trustRulesOf(config: ShitsujiConfig): StandingRule[] {
       ...(rule.detail && { detail: rule.detail }),
     })),
   ];
+}
+
+/**
+ * What the egress check tries from inside the sandbox: the owner's LAN addresses, core's API and
+ * Postgres (X2). A host the API is not bound to is still a good target: it should be unreachable.
+ */
+export function egressTargetsOf(config: ShitsujiConfig): EgressTarget[] {
+  const targets = config.sandbox.probes.lan.map((entry) => {
+    const [host, port] = entry.split(':');
+    return { label: 'LAN', host: host!, port: port ? Number(port) : 80 };
+  });
+  targets.push({
+    label: "core's API",
+    // In Compose the API listens on 0.0.0.0 and the sandbox would reach it as the core service.
+    host: config.api.host === '0.0.0.0' ? 'core' : config.api.host,
+    port: config.api.port,
+  });
+  targets.push(postgresTarget(config.database.url?.reveal()));
+  return targets;
+}
+
+function postgresTarget(url: string | undefined): EgressTarget {
+  const fallback: EgressTarget = { label: 'postgres', host: 'postgres', port: 5432 };
+  if (!url) return fallback;
+  try {
+    const parsed = new URL(url);
+    return {
+      label: 'postgres',
+      host: parsed.hostname || fallback.host,
+      port: parsed.port ? Number(parsed.port) : fallback.port,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 /** Decision Q1: the tools stay in `<dataDir>/workspace` unless the config names another folder. */
@@ -255,6 +290,12 @@ export async function createShitsuji(
     lease: { ownerId: OWNER_ID },
     exec: config.tools.exec,
     outbound: new NodeOutboundFiles(path.join(config.paths.dataDir, 'handoff', 'outbox')),
+    egress: new EgressProbe({
+      targets: config.sandbox.probes.enabled ? egressTargetsOf(config) : [],
+      requireIsolation: config.sandbox.probes.requireIsolation,
+      timeoutMs: config.sandbox.probes.timeoutMs,
+      log,
+    }),
     log,
   });
   await sandbox.start();
