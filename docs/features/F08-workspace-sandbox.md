@@ -237,8 +237,53 @@ Folders organise work; they are not security boundaries (one sandbox per owner).
   `shitsuji` driver it sits only on the `sandbox` network and `egress-proxy` is its only way out; tools that
   ignore `HTTPS_PROXY` have no internet and need configuring. With `opensandbox`, its egress sidecar does the
   same job, and the startup probes check it.
-- **OpenSandbox on Windows.** Its Docker mode should run under Docker Desktop, but this is unverified; the
-  first step of the driver is a spike that runs the conformance suite against it.
+- **OpenSandbox on Windows** runs (the S43 spike answers it below). It needs the Docker socket; the
+  findings and the go/no-go for S44 are in the next subsection.
 - **Per-task sandboxes** give stronger isolation. `opensandbox` may offer them early (`lifecycle.perTask`);
   the `shitsuji` driver needs a restricted Docker-socket proxy first (see
   [02-target-architecture.md](../02-target-architecture.md#containers)).
+
+### S43 spike: OpenSandbox on Docker Desktop (2026-11-18)
+
+Run with the opt-in Compose profile (`docker compose --profile opensandbox`), server
+`opensandbox/server:release-1.1.0` (digest `sha256:68ca02…`), execd `v1.1.0`, egress `v1.1.7`, Docker
+Desktop on WSL2 (kernel `6.18.58.1-microsoft-standard-WSL2`). Under its own project name, so nothing
+else ran differently.
+
+- **Does the server start?** Yes, on Docker Desktop/WSL2; `/health` answers and it creates sandboxes.
+- **Can it create a sandbox and run Python?** Yes. `python:3.12-slim`, `entrypoint` required,
+  `resourceLimits` required without a pool; `python3 -c 'print(1)'` returns `1` (about 1 s per exec).
+- **Start time.** First create 13.6 s (it pulls the sandbox, execd and egress images); afterwards 2.1 s
+  without an egress policy and 3.7–3.9 s with one. The server uses ~140 MB of RAM idle; the three images
+  are ~1 GB together.
+- **Isolation here.** Plain `runc` containers (the daemon offers only runc and nvidia; no gVisor or
+  Kata), not privileged, no host binds, the configured capability drop, `no-new-privileges:true`,
+  `pids_limit 512`, on the default bridge — but **root inside**, on the shared WSL2 kernel. No user
+  namespace remapping and no microVM: a kernel bug is the boundary, so it is a container, not a VM.
+- **Egress.** Without a `networkPolicy` there is **no egress control at all**: the sandbox reached
+  `192.168.1.1:80` and a helper container on the same bridge. With `{defaultAction: "deny", egress: []}`
+  the LAN address, a `10.x` address, the helper container and even DNS were blocked. With deny plus
+  allow rules for `pypi.org`, `files.pythonhosted.org` and `example.com`, HTTPS to those answered `200`
+  and `pip install requests` worked while the LAN stayed blocked. This needs `[egress] mode = "dns+nft"`
+  (the example's plain `dns` only inspects DNS, not IPs).
+- **A setup trap.** When the server is itself in a container, the egress sidecar readiness probe uses
+  `[docker].host_ip` to reach the sandbox's host-mapped port. Left unset it probes the server's own
+  loopback, and every policy sandbox fails with "Egress sidecar did not become ready within 30s".
+  Setting `host_ip` and `publish_host` to the default bridge gateway (`172.17.0.1`) fixed it.
+- **Client reachability.** Sandbox ports are host-mapped; a client that cannot route to the sandbox's
+  bridge IP (anything on the Windows host) needs the SDK's `use_server_proxy=True`, and the server-side
+  proxy is deprecated upstream (maintenance mode). That is the main integration risk for S44.
+- **What the server needs from its host.** Outbound internet to pull images, a writable state directory
+  (SQLite), a host port range for sandbox ports, and — the important one — **the Docker socket**, mounted
+  read-write. The server container is not privileged, but the socket is **root on the host** (the Linux VM
+  under Docker Desktop, the real host on Linux): through it anything can be started, host paths mounted,
+  and every container reached. It must be fenced before it runs anywhere but a development machine — a
+  socket proxy limited to the endpoints this server uses, or a dedicated Docker daemon/context — and never
+  given to the production `shitsuji` stack.
+
+**Go/no-go for S44: GO, with conditions.** The API, sandboxes, exec, files and egress enforcement all
+work on Docker Desktop, which is what S44 needs to test real isolation early. Conditions: the `opensandbox`
+driver requires a containerised server to set `host_ip`/`publish_host` and `dns+nft`; it must prove how it
+reaches sandbox endpoints with the deprecated server proxy (or another route) in its conformance run; and
+the socket stays fenced as above, with the `shitsuji` driver (S48) still the only production default. If
+the owner judges the deprecated proxy too risky, S44 waits (X6).

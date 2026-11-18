@@ -1,0 +1,63 @@
+# OpenSandbox server configuration for the S43 spike (F08). OpenSandbox is used as a running service
+# from its published images; nothing here vendors its code. Off by default: start it with
+#   docker compose -p shitsuji-spike --profile opensandbox up -d opensandbox
+# See docs/features/F08-workspace-sandbox.md ("Risks") for what the spike found.
+
+[server]
+host = "0.0.0.0"
+port = 8080
+# The API key comes from OPENSANDBOX_SERVER_API_KEY in the environment (compose sets it).
+max_sandbox_timeout_seconds = 3600
+
+[proxy]
+# The server reaches sandbox containers by their bridge IP.
+resolve_internal = true
+
+[log]
+level = "INFO"
+
+[runtime]
+type = "docker"
+# The in-sandbox supervisor; a sandbox image must be able to run it.
+execd_image = "opensandbox/execd:v1.1.0"
+
+[storage]
+# No host bind mounts: nothing from this machine is exposed to a sandbox.
+allowed_host_paths = []
+
+[store]
+type = "sqlite"
+path = "/var/lib/opensandbox/opensandbox.db"
+
+[docker]
+# bridge is required for networkPolicy and the egress sidecar.
+network_mode = "bridge"
+port_range_min = 40000
+port_range_max = 40200
+# The server runs in a container and creates sibling containers on the default bridge, so the
+# sandbox host ports answer at that bridge's gateway, not at the server's own loopback. This is
+# what the egress sidecar readiness probe uses (without it the probe hits 127.0.0.1 and fails).
+host_ip = "172.17.0.1"
+publish_host = "172.17.0.1"
+drop_capabilities = [
+  "AUDIT_WRITE",
+  "MKNOD",
+  "NET_ADMIN",
+  "NET_RAW",
+  "SYS_ADMIN",
+  "SYS_MODULE",
+  "SYS_PTRACE",
+  "SYS_TIME",
+  "SYS_TTY_CONFIG",
+]
+no_new_privileges = true
+pids_limit = 512
+
+[ingress]
+mode = "direct"
+
+[egress]
+image = "opensandbox/egress:v1.1.7"
+# dns+nft enforces CIDR/IP rules too, which is what the LAN probe needs.
+mode = "dns+nft"
+readiness_timeout_seconds = 30.0
