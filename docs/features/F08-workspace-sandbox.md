@@ -98,8 +98,26 @@ constant time, and the daemon refuses to start without it. The routes take the m
 and the daemon resolves it in the same request as the I/O: `..`, absolute paths and links that leave
 `/workspace` or `/handoff` are refused on the resolved path, so a symlink planted in the workspace cannot
 reach a host file (tested). `/handoff` is read-only to the sandbox; files leaving go through core's
-staging. Exec is S46, so `/capabilities` reports `exec: null`, and the image joins `compose.yaml` in S48;
-CI builds it and runs the health, token, round-trip and symlink checks against the real image.
+staging. Exec followed in S46, and the image joins `compose.yaml` in S48; CI builds it and runs the
+health, token, round-trip and symlink checks against the real image.
+
+**What S46 builds.** `POST /exec` streams NDJSON — a start frame, stdout and stderr chunks, then one exit
+frame with `timedOut` and `truncated` — and `POST /exec/:id/signal` stops a command (TERM, then KILL after
+a grace). Each child gets its own process session (`setsid`), so a stop or a timeout kills the whole tree,
+including `sleep infinity &`; the timeout and an output cap are enforced in the daemon as well as by the
+tool. Commands start from a fixed, explicit environment (`PATH`, `HOME`, `LANG`, `USER`, `TERM`, `TMPDIR`)
+and never inherit the daemon's, so nothing the daemon holds is in `env`.
+
+**The token is not in the environment, and commands are not the daemon's uid.** `/proc/<pid>/environ`
+keeps the startup environment, so deleting `SANDBOX_TOKEN` from `process.env` does not remove it, and a
+same-uid command could read either the environment or a file. So the image runs commands as uid 1000
+(`agent`) and sandboxd as uid 1001 (`sandboxd`), with the token in `/run/sandbox/token` (0400, owned by
+1001). A root entrypoint writes or takes the token, owns it to 1001, fixes the workspace modes (2770,
+owned by 1000, group-writable so the daemon's files API works) and starts the daemon with only `SETUID`,
+`SETGID` and `KILL` to spawn and stop commands. A command therefore cannot read the token file, the
+daemon's `/proc/<pid>/environ`, or the token in `env` — the container test checks all three. The container
+needs `init: true`: without an init the daemon is PID 1 and never reaps a fork bomb's orphans, which
+leaves the PID limit exhausted; with it, the bomb is contained and the sandbox answers again.
 
 **What S42 builds.** One conformance suite, `test/contracts/sandbox.contract.ts`, runs against every
 driver: each test runs only for a capability the driver claims (exec, files, network), and the fork bomb
@@ -163,7 +181,8 @@ against real containers.
 ```yaml
 sandbox:
   image: shitsuji/sandbox            # shitsuji/sandbox-desktop once F10 lands
-  user: "1000:1000"
+  # No `user:`: the entrypoint starts as root, prepares the token file and workspace, then runs
+  # sandboxd as uid 1001; commands run as 1000 (S46).
   init: true
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]

@@ -95,7 +95,11 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
       *(Pinned Debian image with the promised tools and user 1000; the protocol package; sandboxd with
       health, capabilities and the files routes, token-authenticated and confined to `/workspace` and
       read-only `/handoff`, including symlinks; built and smoke-tested in CI. Exec is S46.)*
-- [ ] **S46** The exec supervisor
+- [x] **S46** The exec supervisor
+      *(NDJSON exec and signal routes; each command in its own session, with a timeout, a group stop and
+      an output cap. Commands run as uid 1000 with a fixed environment; sandboxd is 1001 and reads the
+      token from a 0400 file, so a command cannot read it from the file, `env` or `/proc`. The container
+      test checks all three, plus a stop, a timeout and a fork bomb with `init`.)*
 - [ ] **S47** `egress-proxy`
 - [ ] **S48** The `shitsuji` driver
 - [ ] **S49** Switch the default, live check and docs

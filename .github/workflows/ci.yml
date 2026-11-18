@@ -24,33 +24,68 @@ jobs:
       - run: pnpm test:integration
       - run: pnpm build
 
-  # Builds Shitsuji's own sandbox image and checks that the daemon inside it answers, authenticates
-  # and refuses to leave its roots (F08, S45). Not part of the stack yet (S48).
+  # Builds Shitsuji's own sandbox image and checks that the daemon inside it answers, authenticates,
+  # refuses to leave its roots, runs commands as uid 1000 with no token in reach, and survives a stop,
+  # a timeout and a fork bomb (F08, S45–S46). Not part of the stack yet (S48).
   sandbox-image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build the sandbox image
         run: docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox:ci .
-      - name: sandboxd answers, authenticates and stays confined
+      - name: sandboxd answers, authenticates, executes and stays confined
         run: |
-          docker run -d --name sandbox-ci -e SANDBOX_TOKEN=ci-token -p 127.0.0.1:4555:4555 shitsuji/sandbox:ci
+          # --init reaps the fork bomb's zombies; the compose service does the same in S48.
+          docker run -d --name sandbox-ci --init --pids-limit 128 \
+            -e SANDBOX_TOKEN=ci-token -p 127.0.0.1:4555:4555 shitsuji/sandbox:ci
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:4555/health > /dev/null; then break; fi
             sleep 1
           done
           curl -fsS http://127.0.0.1:4555/health | grep -q '"ok":true'
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4555/files/read)" = "401"
-          curl -fsS -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' \
-            -d '{"root":"workspace","path":"notes/a.txt","content":"chestnut"}' \
+
+          api() {
+            curl -fsS -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' "$@"
+          }
+          run() { curl -fsS -N -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' \
+            -d "$1" http://127.0.0.1:4555/exec; }
+
+          # A file round-trip, and a symlink out refused.
+          api -d '{"root":"workspace","path":"notes/a.txt","content":"chestnut"}' \
             http://127.0.0.1:4555/files/write > /dev/null
-          curl -fsS -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' \
-            -d '{"root":"workspace","path":"notes/a.txt"}' \
+          api -d '{"root":"workspace","path":"notes/a.txt"}' \
             http://127.0.0.1:4555/files/read | grep -q chestnut
           docker exec sandbox-ci ln -s /etc /workspace/etc-link
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-sandbox-token: ci-token' \
             -H 'content-type: application/json' -d '{"root":"workspace","path":"etc-link/passwd"}' \
             http://127.0.0.1:4555/files/read)" = "403"
+
+          # Commands run as uid 1000, with a clean environment.
+          run '{"argv":["python3","-c","print(1)"]}' | grep -qF '"text":"1\n"'
+          output=$(run '{"argv":["sh","-c","id -u; cat /run/sandbox/token 2>&1; env; grep -c SANDBOX_TOKEN /proc/1/environ 2>&1"]}')
+          echo "$output"
+          echo "$output" | grep -qF '"text":"1000\n"'
+          if echo "$output" | grep -q 'ci-token' || echo "$output" | grep -q 'SANDBOX_TOKEN='; then
+            echo "the token reached a command"
+            exit 1
+          fi
+          echo "$output" | grep -q 'Permission denied'
+
+          # The daemon is uid 1001, so its /proc is not readable by a command.
+          docker exec sandbox-ci sh -c 'grep -m1 Uid /proc/1/status' | grep -q '1001'
+
+          # Stop, timeout and a fork bomb all end, and the sandbox keeps answering.
+          run '{"argv":["sleep","30"],"timeoutMs":60000}' > /tmp/exec.ndjson &
+          sleep 1
+          ID=$(head -1 /tmp/exec.ndjson | sed -E 's/.*"id":"([^"]+)".*/\1/')
+          api -d '{}' "http://127.0.0.1:4555/exec/$ID/signal" | grep -q '"stopped":true'
+          wait
+          grep -q '"signal":"SIGTERM"' /tmp/exec.ndjson
+          run '{"argv":["sleep","30"],"timeoutMs":500}' | grep -q '"timedOut":true'
+          run '{"argv":["bash","-c",":(){ :|:& };:"],"timeoutMs":3000}' > /dev/null || true
+          sleep 4
+          run '{"argv":["python3","-c","print(1)"]}' | grep -qF '"text":"1\n"'
           docker rm -f sandbox-ci
       - name: Show the daemon log on failure
         if: failure()

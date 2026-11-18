@@ -30,6 +30,7 @@ ENV NODE_ENV=production \
     SANDBOX_HANDOFF=/handoff \
     PYTHONUNBUFFERED=1 \
     NPM_CONFIG_PREFIX=/home/agent/.npm-global \
+    SANDBOX_TOKEN_FILE=/run/sandbox/token \
     PATH=/home/agent/.npm-global/bin:/home/agent/.local/bin:$PATH
 
 # The tools the agent is promised (F08). Python first-class, plus the document, media and search
@@ -44,7 +45,9 @@ RUN apt-get update \
     jq \
     less \
     pandoc \
+    passwd \
     poppler-utils \
+    procps \
     python3 \
     python3-pip \
     python3-venv \
@@ -52,18 +55,28 @@ RUN apt-get update \
     sqlite3 \
     tesseract-ocr \
     unzip \
+    util-linux \
     zip \
  && rm -rf /var/lib/apt/lists/*
 
-# User 1000, named agent: the node image's `node` user already holds that id, so rename it.
+# User 1000, named agent: the node image's `node` user already holds that id, so rename it. The
+# daemon runs as 1001: the split is what keeps the token out of a command's reach (S46).
 RUN groupmod -n agent node \
  && usermod -l agent -d /home/agent -m node \
- && mkdir -p /home/agent /workspace /handoff \
- && chown -R agent:agent /home/agent /workspace /handoff
+ && useradd -u 1001 -g agent -M -d /home/sandboxd -s /usr/sbin/nologin sandboxd \
+ && mkdir -p /home/agent /home/sandboxd /workspace /handoff /run/sandbox \
+ && chown -R agent:agent /home/agent /workspace /handoff \
+ && chown 1001:1000 /home/sandboxd /run/sandbox \
+ && chmod 2770 /workspace \
+ && chmod 2750 /handoff
 
 WORKDIR /app
 COPY --from=build --chown=agent:agent /out ./
-USER agent
+COPY --chmod=0755 docker/sandbox/entrypoint.sh /usr/local/bin/sandbox-entrypoint
 EXPOSE 4555
-# The daemon refuses to start without SANDBOX_TOKEN (compose provides it in S48).
-CMD ["node", "dist/main.js"]
+# The entrypoint starts as root, prepares the token file and workspace, then drops to uid 1001.
+# It refuses to start without SANDBOX_TOKEN or SANDBOX_TOKEN_FILE (compose provides one in S48).
+ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint"]
+
+
+
