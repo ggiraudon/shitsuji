@@ -44,9 +44,14 @@ export class ApprovalService {
 
   /**
    * Asks the owner and waits. The card is durable before it is published, so a restart can show it as
-   * expired rather than losing it. Stop expires it and wakes the caller.
+   * expired rather than losing it. Stop expires it and wakes the caller; `timeoutMs` does the same for
+   * work that cannot wait for the owner (#51).
    */
-  async request(input: ApprovalInput, signal: AbortSignal): Promise<Approval> {
+  async request(
+    input: ApprovalInput,
+    signal: AbortSignal,
+    options: { timeoutMs?: number } = {},
+  ): Promise<Approval> {
     const action = input.action;
     const pending = Approval.request({
       id: newId<ApprovalId>(),
@@ -68,6 +73,14 @@ export class ApprovalService {
     const onAbort = () => void this.expire(pending.id, 'the turn stopped');
     if (signal.aborted) await this.expire(pending.id, 'the turn stopped');
     else signal.addEventListener('abort', onAbort, { once: true });
+    const timer =
+      options.timeoutMs === undefined
+        ? undefined
+        : setTimeout(
+            () => void this.expire(pending.id, 'nobody answered in time; the work cannot wait'),
+            options.timeoutMs,
+          );
+    timer?.unref();
 
     this.deps.events.publish('approval.requested', {
       approvalId: pending.id,
@@ -87,6 +100,7 @@ export class ApprovalService {
     try {
       return await decided;
     } finally {
+      if (timer !== undefined) clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
       this.waiting.delete(pending.id);
     }
@@ -126,6 +140,20 @@ export class ApprovalService {
     return next;
   }
 
+  /**
+   * Expires every pending card of a session: a new owner message supersedes the question it was
+   * waiting on (#51), so the blocked turn wakes with an expired approval and ends cleanly.
+   */
+  async supersedeForSession(sessionId: SessionId, reason: string): Promise<number> {
+    const pending = await this.deps.approvals.list({ status: 'pending' });
+    let count = 0;
+    for (const approval of pending) {
+      if (approval.sessionId !== sessionId) continue;
+      if (await this.expire(approval.id, reason)) count++;
+    }
+    return count;
+  }
+
   /** Records what became of an approved action: it ran, or it may have run. */
   async finish(id: ApprovalId, succeeded: boolean): Promise<Approval | undefined> {
     const current = await this.deps.approvals.get(id);
@@ -146,12 +174,15 @@ export class ApprovalService {
   }
 
   /**
-   * An answer already recorded for this exact action in this turn, if any (F11's fence): asking
-   * twice for the same thing in one request would only annoy the owner.
+   * A decline already recorded for this exact action in this turn, if any (F11's fence): the owner
+   * said no once, so the agent is not allowed to ask the same thing again in the same request.
+   *
+   * Only a refusal is reused. An `approved` card is never reused: if its `finish()` failed the action
+   * may already have run, and an `executed` one certainly has. Those need a fresh question.
    */
-  async decidedFor(turnId: TurnId, actionHash: string): Promise<Approval | undefined> {
+  async declinedFor(turnId: TurnId, actionHash: string): Promise<Approval | undefined> {
     const inTurn = await this.deps.approvals.list({ turnId });
-    return inTurn.find((a) => a.actionHash === actionHash && a.status !== 'pending');
+    return inTurn.find((a) => a.actionHash === actionHash && a.status === 'declined');
   }
 
   private async load(id: ApprovalId): Promise<Approval> {

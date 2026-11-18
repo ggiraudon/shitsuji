@@ -227,6 +227,7 @@ export async function createShitsuji(
     events,
     soul,
     budget,
+    approvals,
     stabilityCheck: config.context.stabilityCheck ?? true,
   });
   Object.assign(facts, {

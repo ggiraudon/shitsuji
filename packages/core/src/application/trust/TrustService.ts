@@ -44,6 +44,8 @@ export interface TrustServiceDeps {
   approvals?: ApprovalService;
   ownerId: OwnerId;
   log: Logger;
+  /** How long background work may wait for the owner before the card expires (default 30 s, #51). */
+  backgroundApprovalWaitMs?: number;
 }
 
 /**
@@ -56,6 +58,10 @@ export class TrustService implements TrustPolicy {
   private readonly verifier = new QuoteVerifier();
 
   constructor(private readonly deps: TrustServiceDeps) {}
+
+  private get backgroundWaitMs(): number {
+    return this.deps.backgroundApprovalWaitMs ?? 30_000;
+  }
 
   async decide(request: ActionRequest, check: TrustCheck): Promise<TrustDecision> {
     let authority: Authority;
@@ -93,22 +99,11 @@ export class TrustService implements TrustPolicy {
     const turnId = asId<TurnId>(check.turnId);
     let prior;
     try {
-      prior = await this.deps.approvals.decidedFor(turnId, request.hash);
+      prior = await this.deps.approvals.declinedFor(turnId, request.hash);
     } catch {
       prior = undefined; // the fence is an optimisation; asking again is still correct
     }
-    if (prior?.status === 'approved') {
-      return {
-        verdict: 'allow',
-        basis: {
-          kind: 'owner',
-          detail: 'the owner approved this exact action earlier in the turn',
-        },
-        actionHash: request.hash,
-        approvalId: prior.id,
-      };
-    }
-    if (prior?.status === 'declined') {
+    if (prior) {
       return {
         verdict: 'deny',
         basis: none,
@@ -127,6 +122,7 @@ export class TrustService implements TrustPolicy {
           ...(decision.reason && { reason: decision.reason }),
         },
         check.signal,
+        check.background ? { timeoutMs: this.backgroundWaitMs } : {},
       );
     } catch (error) {
       this.deps.log.error('Could not ask the owner to approve an action', {

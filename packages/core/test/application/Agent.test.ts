@@ -6,7 +6,9 @@ import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { Agent } from '../../src/application/Agent.js';
-import { asId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
+import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
+import { Approval } from '../../src/domain/model/Approval.js';
+import { asId, type ApprovalId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
 import {
   routerFor,
@@ -26,6 +28,12 @@ const setup = async (replies: ScriptedReply[], extra: { limits?: { chat: number 
   const tools = new ToolCatalog();
   const llm = new ScriptedProvider(replies);
   const jobs = new InMemoryJobQueue(services.log, services.clock);
+  const approvals = new ApprovalService({
+    approvals: repos.approvals,
+    events: services.events,
+    clock: services.clock,
+    log: services.log,
+  });
   const agent = new Agent({
     name: 'Test',
     ownerId: OWNER,
@@ -37,12 +45,13 @@ const setup = async (replies: ScriptedReply[], extra: { limits?: { chat: number 
     ),
     repos,
     jobs,
+    approvals,
     ...services,
     ...extra,
   });
   await jobs.start();
   await agent.start();
-  return { agent, llm, seen, repos, services };
+  return { agent, llm, seen, repos, services, approvals };
 };
 
 const calc = (expression: string, id = 'c1'): ScriptedReply => ({
@@ -183,4 +192,28 @@ describe('Agent', () => {
     expect(llm.requests[0]!.system).not.toContain('CALCULATOR WAS USED');
     expect(llm.requests[1]!.system).toContain('CALCULATOR WAS USED');
   });
+});
+
+it('supersedes a pending card when the owner sends a new message (#51)', async () => {
+  const { agent, repos } = await setup([{ content: 'First.' }, { content: 'Second.' }]);
+  const first = await agent.send('Do the first thing');
+  const card = Approval.request({
+    id: asId<ApprovalId>('approval-1'),
+    ownerId: OWNER,
+    turnId: first.turnId,
+    sessionId: first.sessionId,
+    tool: 'test.notify',
+    effect: 'external',
+    target: 'core',
+    actionHash: 'a'.repeat(64),
+    arguments: { text: 'Hello' },
+    summary: 'test.notify (external)',
+    createdAt: new Date(),
+  });
+  await repos.approvals.insert(card);
+
+  const second = await agent.send('Actually, do something else');
+
+  expect(second.sessionId).toBe(first.sessionId);
+  expect((await repos.approvals.get(card.id))!.status).toBe('expired');
 });

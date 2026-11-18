@@ -21,6 +21,7 @@ import { ContextBuilder } from './context/ContextBuilder.js';
 import type { ModelRouter } from './models/ModelRouter.js';
 import type { BudgetService } from './budget/BudgetService.js';
 import type { SoulSource } from './soul/SoulService.js';
+import type { ApprovalService } from './trust/ApprovalService.js';
 import type { StepLimits } from './runtime/limits.js';
 import { MessageIntake, type Submitted, type SubmitOptions } from './runtime/MessageIntake.js';
 import { StopController } from './runtime/StopController.js';
@@ -48,6 +49,8 @@ export interface AgentOptions {
   soul?: SoulSource;
   /** The check-in limit; absent when the run has no budget (unit tests). */
   budget?: BudgetService;
+  /** Cards waiting for the owner; a new message supersedes the session's pending ones (#51). */
+  approvals?: ApprovalService;
   /** How many recent messages are sent to the model (default 40). */
   historyLimit?: number;
   /** Model calls per turn by session kind (decision Q5). */
@@ -93,7 +96,14 @@ export class Agent {
       new ClockInjectable(options.clock),
       new CompactionSummaryInjectable(),
     ];
-    this.intake = new MessageIntake({ ...options, agentName: this.name });
+    const approvals = options.approvals;
+    this.intake = new MessageIntake({
+      ...options,
+      agentName: this.name,
+      ...(approvals && {
+        supersedeApprovals: (sessionId, reason) => approvals.supersedeForSession(sessionId, reason),
+      }),
+    });
     const contextWindow = contextWindowOf(options.models);
     const context = new ContextBuilder({
       injectables: () => this.injectables,

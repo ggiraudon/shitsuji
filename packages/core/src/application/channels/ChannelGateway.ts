@@ -117,21 +117,38 @@ export class ChannelGateway {
     binding: ChannelBinding | undefined,
   ): Promise<InboundResult | undefined> {
     if (!this.deps.approvals || !this.deps.readTypedApproval) return undefined;
-    const pending = await this.pendingFor(binding);
-    if (!pending) return undefined;
-    const answer = await this.deps.readTypedApproval(text, pending);
+    const { card, count } = await this.pendingFor(binding);
+    if (!card) {
+      // Never guess which card a typed answer means (#51). Buttons carry the approval id.
+      if (count > 1) {
+        await this.answer(
+          message,
+          'More than one approval is waiting. Use the buttons on the card you mean.',
+          'final',
+        );
+        return { kind: 'replied', reason: 'approval-ambiguous' };
+      }
+      return undefined;
+    }
+    const answer = await this.deps.readTypedApproval(text, card);
     if (answer === 'unclear') return undefined;
-    await this.deps.approvals.resolve(pending.id, answer);
+    await this.deps.approvals.resolve(card.id, answer);
     await this.answer(message, answer === 'approve' ? 'Approved.' : 'Declined.', 'final');
     return { kind: 'replied', reason: answer === 'approve' ? 'approved' : 'declined' };
   }
 
-  /** The newest open card for this chat's session; with one session, any pending card will do. */
-  private async pendingFor(binding: ChannelBinding | undefined): Promise<Approval | undefined> {
-    if (!this.deps.approvals) return undefined;
-    const open = await this.deps.approvals.listOpen();
-    const mine = binding?.sessionId ? open.filter((a) => a.sessionId === binding.sessionId) : open;
-    return mine[0];
+  /**
+   * The open cards for this chat's session. A typed answer is accepted only when exactly one is
+   * waiting here; cards from another session are never in reach (#51).
+   */
+  private async pendingFor(
+    binding: ChannelBinding | undefined,
+  ): Promise<{ card?: Approval; count: number }> {
+    if (!this.deps.approvals) return { count: 0 };
+    const sessionId = await this.sessionFor(binding);
+    if (!sessionId) return { count: 0 };
+    const open = (await this.deps.approvals.listOpen()).filter((a) => a.sessionId === sessionId);
+    return { count: open.length, ...(open.length === 1 && { card: open[0] }) };
   }
 
   /** A button press on an approval card: `y:<id>` or `n:<id>` (S37). */

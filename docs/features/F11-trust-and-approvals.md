@@ -61,7 +61,7 @@ flowchart TD
   rules -- "always ask" / "never" --> ask2([ask or deny])
   rules -- "go ahead" --> allow
   rules -- none --> fenced{same action already\nasked in this request?}
-  fenced -- yes --> prior([use the recorded outcome])
+  fenced -- yes --> prior([use a recorded decline])
   fenced -- no --> judge[TrustJudge with owner words only]
   judge -- allow + quote verified --> allow
   judge -- ask / bad quote / error --> ask3([ask])
@@ -160,6 +160,21 @@ the state that won. While a card is open, a typed reply is read on its own by th
 just the card and the reply: only an unconditional yes approves, so "yes, but to Bob" is unclear and
 becomes an ordinary message instead of approving, and any error also reads as unclear. Commands run
 first, so `/stop` still works with a card open.
+
+### Matching an answer to a card
+
+- **A new owner message supersedes.** When the owner writes again in a session, its pending cards
+  expire as superseded after the message is stored; the blocked turn wakes with an expired approval and
+  ends cleanly.
+- **Background work waits only so long.** A turn with no owner message behind it bounds the wait
+  (30 seconds by default) and expires the card, so no task waits forever.
+- **The fence reuses only a decline.** A repeat of the same action in one turn gets the recorded no; an
+  `approved` card whose `finish()` failed, or an `executed` one, may already have run and needs a fresh
+  question.
+- **A typed answer needs exactly one card for its session.** The gateway resolves the chat's session
+  and accepts a typed yes or no only when that session has one pending card; with several it answers
+  "use the buttons on the card you mean", and a card from another session is never in reach. Buttons
+  always carry the approval id, so they have no such ambiguity.
 
 ## Changes to existing code
 

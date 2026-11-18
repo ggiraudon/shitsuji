@@ -22,7 +22,7 @@ const payment = actionRequest({
   target: 'core',
 });
 
-async function setup() {
+async function setup(options: { backgroundWaitMs?: number } = {}) {
   const repos = new InMemoryRepositories();
   const services = testServices();
   const approvals = new ApprovalService({
@@ -38,6 +38,9 @@ async function setup() {
     approvals,
     ownerId: asId<OwnerId>('owner'),
     log: services.log,
+    ...(options.backgroundWaitMs !== undefined && {
+      backgroundApprovalWaitMs: options.backgroundWaitMs,
+    }),
   });
   const requested: string[] = [];
   services.events.subscribe('approval.requested', (e) => {
@@ -127,17 +130,35 @@ describe('TrustService with approvals (S36, F11)', () => {
 });
 
 describe('TrustService: the turn fence (F11, S36)', () => {
-  it('reuses an approval for the same action instead of asking twice in one turn', async () => {
+  it('asks again for an action whose approval never finished: it may have run', async () => {
     const { trust, approvals, requested } = await setup();
     const first = trust.decide(payment, check());
     await until(() => requested.length === 1);
     await approvals.resolve(asId<ApprovalId>(requested[0]!), 'approve');
-    expect((await first).verdict).toBe('allow');
+    expect((await first).verdict).toBe('allow'); // finish() never ran, so the card stays approved
 
-    const second = await trust.decide(payment, check());
+    const second = trust.decide(payment, check());
+    await until(() => requested.length === 2);
+    await approvals.resolve(asId<ApprovalId>(requested[1]!), 'decline');
 
-    expect(second).toMatchObject({ verdict: 'allow', basis: { kind: 'owner' } });
-    expect(requested).toHaveLength(1);
+    expect((await second).verdict).toBe('deny');
+    expect(requested).toHaveLength(2);
+  });
+
+  it('does not reuse an approval whose action already ran', async () => {
+    const { trust, approvals, requested } = await setup();
+    const first = trust.decide(payment, check());
+    await until(() => requested.length === 1);
+    await approvals.resolve(asId<ApprovalId>(requested[0]!), 'approve');
+    await first;
+    await approvals.finish(asId<ApprovalId>(requested[0]!), true);
+
+    const second = trust.decide(payment, check());
+    await until(() => requested.length === 2);
+    await approvals.resolve(asId<ApprovalId>(requested[1]!), 'decline');
+
+    expect((await second).verdict).toBe('deny');
+    expect(requested).toHaveLength(2);
   });
 
   it('keeps a decline for the rest of the turn', async () => {
@@ -152,5 +173,17 @@ describe('TrustService: the turn fence (F11, S36)', () => {
     expect(second).toMatchObject({ verdict: 'deny' });
     expect(second.reason).toMatch(/earlier in the turn/);
     expect(requested).toHaveLength(1);
+  });
+});
+
+describe('TrustService: background work (#51)', () => {
+  it('expires an unanswered card instead of waiting forever on a background turn', async () => {
+    const { trust, requested, repos } = await setup({ backgroundWaitMs: 20 });
+
+    const decision = await trust.decide(payment, { ...check(), background: true });
+
+    expect(decision).toMatchObject({ verdict: 'deny' });
+    expect(decision.reason).toMatch(/expired/);
+    expect((await repos.approvals.get(asId<ApprovalId>(requested[0]!)))!.status).toBe('expired');
   });
 });
