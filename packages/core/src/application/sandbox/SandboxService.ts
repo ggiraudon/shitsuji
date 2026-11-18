@@ -2,12 +2,14 @@ import { SandboxUnavailable } from '../../domain/errors.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { OutboundFiles } from '../../ports/OutboundFiles.js';
 import type {
+  DriverHealth,
   LeaseRequest,
   Sandbox,
   SandboxCapabilities,
   SandboxDriver,
 } from '../../ports/SandboxDriver.js';
 import type { Tool } from '../../ports/Tool.js';
+import type { EgressProbe } from './EgressProbe.js';
 import { workspaceTools, type ExecOptions } from './tools/index.js';
 
 export interface SandboxServiceDeps {
@@ -18,6 +20,8 @@ export interface SandboxServiceDeps {
   exec: ExecOptions;
   /** Where a file leaving the sandbox is staged for the channel (S41). */
   outbound: OutboundFiles;
+  /** Checks the driver's egress claim at startup and on health() (S42). */
+  egress: EgressProbe;
   log: Logger;
 }
 
@@ -69,6 +73,8 @@ export class SandboxService {
         await sandbox.files.mkdir(await sandbox.files.resolve(folder));
       }
     }
+    // A contradicted egress claim refuses the sandbox before any tool exists (S42).
+    const report = await this.deps.egress.check(sandbox, capabilities, driver.id);
     const tools = [
       ...(sandbox.files
         ? workspaceTools(sandbox.files, sandbox.exec, this.deps.exec, this.deps.outbound)
@@ -80,7 +86,20 @@ export class SandboxService {
       driver: driver.id,
       tools: tools.map((tool) => tool.name),
       egress: capabilities.egress,
+      reachable: report.reachable.map((target) => `${target.host}:${target.port}`),
     });
+  }
+
+  /** Driver health, then the egress claim again (S42); a broken claim throws `SandboxUnavailable`. */
+  async health(): Promise<DriverHealth> {
+    const health = await this.deps.driver.health();
+    if (!health.ok || !this.opened) return health;
+    await this.deps.egress.check(
+      this.opened.sandbox,
+      this.opened.capabilities,
+      this.deps.driver.id,
+    );
+    return { ok: true };
   }
 
   async close(): Promise<void> {

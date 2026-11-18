@@ -234,6 +234,19 @@ export const shitsujiConfigSchema = z
     sandbox: z
       .object({
         driver: z.enum(['host', 'opensandbox', 'shitsuji']).default('host'),
+        /** What the egress check tries from inside the sandbox (F08, S42; X2). */
+        probes: z
+          .object({
+            /** Addresses on your LAN; `host` or `host:port`, port 80 when it is not given. */
+            lan: z.array(z.string().min(1)).default(['192.168.1.1']),
+            /** Refuse a driver that makes no isolation claim yet can reach something. */
+            requireIsolation: z.boolean().default(false),
+            timeoutMs: z.number().int().positive().default(1_000),
+            /** Off for tests and offline runs, so no probe opens a socket. */
+            enabled: z.boolean().default(true),
+          })
+          .strict()
+          .default({}),
       })
       .strict()
       .default({}),
