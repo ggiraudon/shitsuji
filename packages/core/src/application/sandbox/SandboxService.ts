@@ -59,6 +59,13 @@ export class SandboxService {
     }
     const capabilities = await driver.capabilities();
     const sandbox = await driver.open(this.deps.lease);
+    if (sandbox.files) {
+      // The layout from F08: work any session may read, and forged tools (F20). Session folders are
+      // made when a tool first writes in one.
+      for (const folder of ['shared', 'tools']) {
+        await sandbox.files.mkdir(await sandbox.files.resolve(folder));
+      }
+    }
     const tools = [
       ...(sandbox.files ? workspaceTools(sandbox.files, sandbox.exec, this.deps.exec) : []),
       ...(driver.extraTools?.() ?? []),

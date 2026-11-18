@@ -97,6 +97,8 @@ export interface SandboxFiles {
   /** Undefined when nothing is there. */
   stat(absolute: string): Promise<FileStat | undefined>;
   write(absolute: string, content: string, options: { append: boolean }): Promise<void>;
+  /** Creates a folder (and its parents) inside the roots. */
+  mkdir(absolute: string): Promise<void>;
   /** Undefined when the folder is not there. */
   list(absolute: string): Promise<FileEntry[] | undefined>;
 }
