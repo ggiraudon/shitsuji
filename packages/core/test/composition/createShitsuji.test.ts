@@ -13,6 +13,11 @@ import { BaseTool, type ToolOutput } from '../../src/ports/Tool.js';
 import { Turn } from '../../src/domain/model/Turn.js';
 import { SandboxUnavailable } from '../../src/domain/errors.js';
 import { asId, type SessionId, type TurnId } from '../../src/domain/model/ids.js';
+import type {
+  ModelProvider,
+  ModelRequest,
+  ModelStreamEvent,
+} from '../../src/ports/ModelProvider.js';
 import { ScriptedProvider, TestChannel, testServices, until } from '../helpers.js';
 
 let dataDir: string;
@@ -26,6 +31,21 @@ const judgeFixture = (name: string) =>
     path.join(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/trust', name),
     'utf8',
   );
+
+/** A model that never answers unless the turn is stopped, so /stop lands while it runs (#68). */
+class HangingProvider implements ModelProvider {
+  readonly id = 'fake';
+  async *stream(_request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent> {
+    await new Promise<void>((_resolve, reject) => {
+      if (signal?.aborted) return reject(new Error('aborted'));
+      signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    });
+    yield { type: 'done', finishReason: 'stop' };
+  }
+  async listModels() {
+    return ['test-model'];
+  }
+}
 
 /** A tool with an outside effect, to exercise the trust judge (S35). */
 class MailTool extends BaseTool<z.ZodObject<{ to: z.ZodString }>> {
@@ -91,6 +111,35 @@ describe('createShitsuji', () => {
         plugins: [plugin],
       }),
     ).rejects.toThrow(SandboxUnavailable);
+  });
+
+  it('shows only "Stopped." when the owner stops a turn (#68)', async () => {
+    const channel = new TestChannel();
+    const plugin: ShitsujiPlugin = {
+      manifest: { id: 'test.slow', name: 'slow', version: '1', provides: ['model', 'channel'] },
+      register(ctx) {
+        ctx.addModelProvider(new HangingProvider());
+        ctx.addChannel(channel);
+      },
+    };
+    const shitsuji = await createShitsuji(config(), {
+      services: testServices(),
+      plugins: [plugin],
+    });
+    await shitsuji.start();
+
+    channel.receive('What is the weather?', 'chat-42');
+    await until(() => channel.typingCalls.length > 0);
+
+    channel.receive('/stop', 'chat-42');
+    await until(() => channel.sent.length > 0);
+    // Give a second reply the chance to arrive before asserting there is none.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // A stop the owner asked for is not an error: '/stop' answers "Stopped.", and the cancelled
+    // turn must not also send "Error: stopped by owner".
+    expect(channel.sent.map((s) => s.message)).toEqual(['Stopped.']);
+    await shitsuji.stop();
   });
 
   it('meters every model call: one usage row, priced from models.catalog', async () => {

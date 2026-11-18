@@ -110,6 +110,9 @@ export class Shitsuji {
         return;
       }
       if (!['succeeded', 'waiting', 'failed', 'cancelled'].includes(e.status)) return;
+      // A cancelled turn is one the owner stopped; /stop already answered "Stopped.", so an
+      // "Error: stopped by owner" on top of it is noise, not news (#68).
+      if (e.status === 'cancelled') return;
       const text =
         e.status === 'succeeded'
           ? (e.reply ?? '')
