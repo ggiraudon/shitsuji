@@ -39,10 +39,19 @@ export class TypedApprovalReader {
             },
           ],
           temperature: 0,
-          maxOutputTokens: 20,
+          // Reason first, then the JSON; 20 tokens cut deepseek-flash off mid-reasoning (#63).
+          maxOutputTokens: 400,
         },
         { signal: AbortSignal.timeout(this.deps.timeoutMs ?? DEFAULT_TIMEOUT_MS) },
       );
+      if (response.finishReason === 'length') {
+        this.deps.log.warn(
+          'Typed approval answer stopped at its token limit; treating it as unclear',
+          {
+            approvalId: approval.id,
+          },
+        );
+      }
       return parse(response.text);
     } catch (error) {
       this.deps.log.warn('Could not read a typed approval answer; treating it as unclear', {

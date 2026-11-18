@@ -13,7 +13,12 @@ import {
   type OutboundMessage,
 } from '../src/ports/ChannelAdapter.js';
 import type { ToolCallId } from '../src/domain/model/ids.js';
-import type { ModelProvider, ModelRequest, ModelStreamEvent } from '../src/ports/ModelProvider.js';
+import type {
+  FinishReason,
+  ModelProvider,
+  ModelRequest,
+  ModelStreamEvent,
+} from '../src/ports/ModelProvider.js';
 
 export function testServices(): CoreServices & { log: MemoryLogger; clock: ManualClock } {
   const log = new MemoryLogger();
@@ -25,6 +30,8 @@ export interface ScriptedReply {
   content?: string;
   reasoning?: string;
   toolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[];
+  /** Defaults to `tool_calls` when calls are scripted, `stop` otherwise; `length` simulates a cutoff. */
+  finishReason?: FinishReason;
 }
 
 /** A model that replies with the scripted responses in order, recording every request. */
@@ -44,7 +51,10 @@ export class ScriptedProvider implements ModelProvider {
       yield { type: 'tool_call', call: { ...c, id: c.id as ToolCallId } };
     }
     yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } };
-    yield { type: 'done', finishReason: reply.toolCalls?.length ? 'tool_calls' : 'stop' };
+    yield {
+      type: 'done',
+      finishReason: reply.finishReason ?? (reply.toolCalls?.length ? 'tool_calls' : 'stop'),
+    };
   }
   async listModels() {
     return ['m'];

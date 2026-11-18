@@ -127,4 +127,44 @@ describe('TrustJudge (S35, F11)', () => {
 
     expect(await judge.judge(action, authority)).toMatchObject({ verdict: 'ask' });
   });
+
+  it('gives the reasoning room before the JSON and warns when the reply is cut off (#63)', async () => {
+    const reasoner = new ScriptedProvider(
+      [
+        {
+          reasoning: 'The owner asked for the report to be emailed to Anna, so this is allowed.',
+          content: fixture('judge-allow.json'),
+        },
+      ],
+      'fake',
+    );
+    const reasoned = judgeWith(reasoner);
+
+    expect(await reasoned.judge.judge(action, authority)).toMatchObject({ verdict: 'allow' });
+    // deepseek-flash reasons before answering; a small cap cut the JSON off after the reasoning.
+    expect(reasoner.requests[0]!.maxOutputTokens).toBe(1_000);
+    expect(reasoned.services.log.records.some((r) => /token limit/.test(r.message))).toBe(false);
+
+    const truncated = judgeWith(
+      new ScriptedProvider(
+        [
+          {
+            reasoning: 'The owner asked for the report to be emailed to Anna.',
+            content: '{"verdict": "allow", "quo',
+            finishReason: 'length',
+          },
+        ],
+        'fake',
+      ),
+    );
+
+    expect(await truncated.judge.judge(action, authority)).toMatchObject({ verdict: 'ask' });
+    expect(
+      truncated.services.log.records.some(
+        (r) =>
+          r.level === 'warn' &&
+          r.message === 'Trust judgement stopped at its token limit; asking the owner',
+      ),
+    ).toBe(true);
+  });
 });

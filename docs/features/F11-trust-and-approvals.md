@@ -139,6 +139,12 @@ a verbatim substring of one owner message; a made-up or paraphrased quote become
 records `allowedBy: { kind: 'quote', detail: … }`. Approvals are still S36, so an `ask` refuses for
 now.
 
+The trust calls leave room for a reasoning model: 1,000 output tokens for the judge and 400 for the
+typed-approval reader, because deepseek-flash reasons before it answers and a smaller cap cut the JSON
+off. A reply that stops on `length` is still handled the safe way (`ask` / unclear) and logs a warning
+naming the limit, so a truncated answer is visible in the log instead of silently confusing the owner
+(#63).
+
 ### What S36 builds
 
 An `ask` verdict creates a durable `Approval` (pending) bound to the action's hash and shows a card:
