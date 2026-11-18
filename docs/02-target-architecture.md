@@ -99,12 +99,10 @@ flowchart LR
     web --> core
     core[core\nAPI · runtime · scheduler\nchannel gateway · trust · vault]
     core --> db[(postgres\n+ pgvector)]
-    core -- control API --> ws[workspace\nsandbox shell + files]
-    core -- control API + CDP --> desk[desktop\nXFCE · Chromium · noVNC]
+    core -- sandbox driver --> sb[sandbox\nsandboxd: shell + files\ndesktop layer: XFCE · Chromium · noVNC]
     core -. optional .-> llm[ollama / localai]
-    ws --> eg[egress-proxy
+    sb --> eg[egress-proxy
 LAN block · credential swap]
-    desk --> eg
     eg -- resolve placeholder --> core
   end
   tg --> core
@@ -116,24 +114,29 @@ LAN block · credential swap]
 |---------|-------|----------------|---------|-------|
 | `core` | `shitsuji/core` (Node 22) | Yes: model keys, vault, Telegram token | `internal` + `egress` | The only service that talks to the database and to model APIs |
 | `postgres` | `pgvector/pgvector` | DB password | `internal` only | Threads, turns, tasks, memory, usage, jobs (pg-boss) |
-| `workspace` | `shitsuji/workspace` (Debian + Python, Node, git, ffmpeg, pandoc, …) | **None** (placeholders only) | `sandbox` only | Runs commands as an unprivileged user through a supervisor daemon. No route to Postgres. |
-| `desktop` | `shitsuji/desktop` (Debian + XFCE + Xvfb/TigerVNC + noVNC + Chromium) | **None** | `sandbox` only | Agent's GUI and browser. Chromium exposes CDP only on the `sandbox` network. noVNC for "Take control". |
+| `sandbox` | `shitsuji/sandbox` (Debian + Python, Node, git, ffmpeg, pandoc, … + `sandboxd`), or `shitsuji/sandbox-desktop` built on it (XFCE + TigerVNC + noVNC + Chromium + LibreOffice + AT-SPI) | **None** (placeholders only) | `sandbox` only | Used by the `shitsuji` sandbox driver ([F08](features/F08-workspace-sandbox.md)). Runs commands as an unprivileged user through `sandboxd`, and hosts the agent's GUI and browser. Chromium exposes CDP only on the `sandbox` network; noVNC for "Take control". No route to Postgres. |
 | `egress-proxy` | `shitsuji/egress` (Node) | Its own CA key and a token for `core`; no stored secrets | `sandbox` + `internal` + `egress` | The sandbox's only way out: blocks your LAN and `core`, tunnels ordinary HTTPS, and swaps placeholders for real credentials on bound hosts ([F12](features/F12-secrets-vault.md#the-credential-injecting-egress-proxy)) |
 | `ollama` / `localai` | upstream | None | `internal` | Compose **profile** `local-models`, off by default |
 | `proxy` | `caddy` | TLS certs | `public` + `internal` | Optional HTTPS for remote access. Binds `127.0.0.1` by default. |
 
-**Hardening for `workspace` and `desktop`** (taken from nod and openfuse): `cap_drop: [ALL]`,
+**Hardening for `sandbox`** (taken from nod and openfuse): `cap_drop: [ALL]`,
 `no-new-privileges`, PID, memory and CPU limits, read-only root where possible, `tmpfs` for `/tmp`, a
 non-root user, no Docker socket, no host mounts, and **no direct internet**: all outbound traffic goes through
 `egress-proxy`, which blocks private address ranges (your LAN, `core`) and is where credentials are attached.
 
-**Shared files.** A `handoff` volume is mounted in `workspace` and `desktop` (and read by `core`), so a file
-downloaded in the browser can be processed in the workspace and sent to you. Each container keeps its own
-private volume too.
+**Sandbox drivers** (decisions W1–W6 in [05-open-questions.md](05-open-questions.md)). `core` reaches the
+sandbox through a `SandboxDriver` port. A driver advertises its capabilities (exec, files, desktop, browser,
+lifecycle, egress); `core` owns the tools, registers only the ones the driver supports, and probes the egress
+claims at startup. Drivers: `host` (today's tools, no isolation), `opensandbox` (a self-hosted
+[OpenSandbox](https://github.com/opensandbox-group/OpenSandbox) server, optional Compose profile) and `shitsuji`
+(the `sandbox` and `egress-proxy` services above, the default once it passes the conformance suite).
 
-**Why `core` does not get the Docker socket.** Docker-socket access is root on the host. The containers
-are long-lived Compose services instead, and `core` reaches them through small control daemons with a
-shared token. If we later want one sandbox per task, we add a restricted Docker socket proxy that only
+**Shared files.** The workspace and the desktop are one container, so commands, GUI apps and the browser share
+`/workspace`. A `handoff` volume is shared between `sandbox` and `core`, for channel attachments coming in and
+files going back to you.
+
+**Why `core` does not get the Docker socket.** Docker-socket access is root on the host. The sandbox is a
+long-lived Compose service instead, and `core` reaches it through `sandboxd` with a shared token. If we later want one sandbox per task, we add a restricted Docker socket proxy that only
 allows creating containers from our own images.
 
 ## Request flow

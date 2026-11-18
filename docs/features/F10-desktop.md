@@ -6,9 +6,13 @@
 
 ## What it is
 
-The agent's **own graphical computer**: a container running a Linux desktop (XFCE) on a virtual display, with
-Chromium, a file manager, LibreOffice and a terminal. A **desktop daemon** gives the agent screenshots, mouse
-and keyboard ("computer use"), and noVNC lets you watch or **take control** from the web UI. The browser
+The agent's **own graphical computer**: a Linux desktop (XFCE) on a virtual display, with Chromium, a file
+manager, LibreOffice and a terminal. It is the **desktop capability of a sandbox driver**
+([F08](F08-workspace-sandbox.md), decisions W1–W3): with the `shitsuji` driver it is the
+`shitsuji/sandbox-desktop` image, the same `sandbox` container as the workspace with a desktop layer on top, so
+commands and GUI apps share one filesystem. `sandboxd` gains the desktop endpoints, giving the agent the
+accessibility tree, screenshots, mouse and keyboard ("computer use"), and noVNC lets you watch or **take
+control** from the web UI. The browser
 ([F09](F09-browser.md)) runs on this desktop, so you can see what it does.
 
 ## Inspiration
@@ -32,30 +36,22 @@ and keyboard ("computer use"), and noVNC lets you watch or **take control** from
 | OpenMausBot | `Accessibility.getFullAXTree` over CDP, plus page captures | On your own Mac: `cua-driver` with **accessibility element paths preferred over pixels**, which also work on hidden windows. Its "saved steps" replay finds targets by app, window title and accessibility label, never by pixel. Its cloud Linux desktop: **screenshots only** (the tool list has no tree) |
 
 So the pattern is clear: **both projects that went furthest use the accessibility tree first, but only on
-macOS.** On Linux containers, everyone falls back to screenshots. Using AT-SPI inside our desktop container
+macOS.** On Linux containers, everyone falls back to screenshots. Using AT-SPI inside our desktop layer
 would be new ground among these four, but it is the same idea they already rely on elsewhere.
 
 ## Design
 
-### Container
+### The desktop layer
+
+The `sandbox` service from F08, switched to the desktop image. Only the differences are shown:
 
 ```yaml
-desktop:
-  build: ./containers/desktop        # Debian + Xvnc + XFCE + D-Bus/AT-SPI + Chromium + noVNC + daemon
-  user: "1000:1000"
-  init: true
-  cap_drop: [ALL]
-  security_opt: [no-new-privileges:true]
+sandbox:
+  image: shitsuji/sandbox-desktop    # FROM shitsuji/sandbox + Xvnc + XFCE + D-Bus/AT-SPI + Chromium + LibreOffice + noVNC
   shm_size: 1g                       # Chromium needs it
-  mem_limit: 4g
-  cpus: 2
+  mem_limit: 6g                      # workspace and desktop together
   pids_limit: 2048
-  volumes:
-    - desktop-home:/home/agent       # browser profiles, desktop settings
-    - handoff:/handoff
-  networks: [sandbox]                # internet only through egress-proxy, tunnel-only mode (F12)
   environment:
-    DESKTOP_TOKEN: ${DESKTOP_TOKEN}
     SCREEN: 1440x900x24
 ```
 
@@ -68,12 +64,12 @@ Processes inside, started by a small supervisor (s6 or supervisord):
 | `xfce4-session` | — | Window manager and desktop |
 | `chromium --remote-debugging-port=9222 --force-renderer-accessibility` | CDP 9222 (bound to the sandbox interface) | The agent's browser ([F09](F09-browser.md)) |
 | `websockify` + noVNC | 6080 | Browser-based remote view, proxied by `core` |
-| `desktop-daemon` (+ AT-SPI helper) | 8700 | Accessibility tree, screenshots, OCR, input, window list, app launch, clipboard |
+| `sandboxd` desktop endpoints (+ AT-SPI helper) | 8700 (the same daemon as F08) | Accessibility tree, screenshots, OCR, input, window list, app launch, clipboard |
 
 `core` **proxies** noVNC and CDP; neither port is published to the host. You reach the desktop only through
 `core`'s authenticated web UI.
 
-### Desktop daemon API
+### Desktop endpoints of sandboxd
 
 | Endpoint | Action |
 |----------|--------|
@@ -169,9 +165,13 @@ it stays behind the daemon API, so it can be swapped.
 
 ### Port and adapters
 
+The desktop is the `desktop` capability of a sandbox driver ([F08](F08-workspace-sandbox.md#the-driver-port)):
+`Sandbox.desktop` implements this interface, and the driver advertises
+`desktop: { accessibility, screenshots, takeControl }`. `core` registers `desktop.*` and `computer.*` only when
+the active driver has it.
+
 ```ts
-export interface ComputerBackend {
-  readonly id: string;                                   // "docker-desktop", "e2b", "remote-vm"
+export interface DesktopCapability {
   state(): Promise<ComputerState>;                       // stopped / starting / ready / busy / owner_control
   screenshot(opts?: { scale?: number }): Promise<Image>;
   act(action: ComputerAction, signal: AbortSignal): Promise<ActionResult>;
@@ -180,8 +180,8 @@ export interface ComputerBackend {
 }
 ```
 
-`DockerDesktopBackend` is the first adapter. The port leaves room for `E2BDesktopBackend`, a VM on your own
-server, or (much later, opt-in) your real desktop.
+The `shitsuji` driver implements it first. Other drivers can add it later: a VM on your own server, a Windows
+or macOS desktop (for example through cua's driver), or (much later, opt-in) your real desktop.
 
 ### Computer-use tool
 
@@ -215,23 +215,17 @@ Two tools, matching the levels above:
 
 From Telegram, the agent sends a "Take control" link that opens the web UI on that screen.
 
-## Workspace or desktop?
+## Workspace and desktop in one sandbox
 
-They are separate containers with different jobs:
-
-| | Workspace ([F08](F08-workspace-sandbox.md)) | Desktop |
-|-|-----------|---------|
-| Purpose | Code, data, files, CLI tools | GUI apps and the browser |
-| Speed | Fast, cheap to run | Heavier (X server, Chromium) |
-| Self-authored tools | Scripts and programs ([F20](F20-tool-forge.md)) | Desktop automations (AT-SPI or `xdotool` scripts, browser scripts) |
-| Shared | `/handoff` volume | `/handoff` volume |
-
-A forged tool declares which one it runs in.
+With the `shitsuji` driver they are one container (decision W1): the workspace is the base image, the desktop a
+layer on top. Commands, GUI apps and the browser see the same `/workspace` and `/handoff`, so a file downloaded
+in Chromium can be processed by a script and opened in LibreOffice without moving it. A forged tool
+([F20](F20-tool-forge.md)) declares the capabilities it needs (`exec`, `desktop`, `browser`).
 
 ## Acceptance criteria
 
 - `docker compose up` starts the desktop; the web UI shows it live.
-- The agent opens LibreOffice Calc, types numbers, saves a file to `/handoff`, and the workspace can read it.
+- The agent opens LibreOffice Calc, types numbers, saves a file to `/workspace`, and `workspace.exec` can read it.
 - The same Calc task completes **using only `desktop.inspect` / `desktop.act`**, with no screenshot sent to
   the model; an eval ([F22](F22-observability-and-cost.md)) compares its tokens and success rate with the
   screenshot-only run.
@@ -243,8 +237,8 @@ A forged tool declares which one it runs in.
 
 ## Risks and open questions
 
-- **Resource use.** A desktop plus Chromium wants 2–4 GB RAM. Allow stopping it when idle and starting on
-  demand (`ComputerBackend.state()` + an idle timer).
+- **Resource use.** A desktop plus Chromium wants 2–4 GB RAM. Allow stopping the desktop processes when idle and
+  starting them on demand (`DesktopCapability.state()` + an idle timer); the shell stays up.
 - **Pixel-based control is slow and error-prone** with today's models; treat it as the fallback, not the main
   path.
 - **Tree quality varies by app.** GTK and Qt apps are usually good; XFCE panel applets, some Electron apps
