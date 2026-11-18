@@ -114,7 +114,12 @@ Before S40, t2 fixes [#68](https://github.com/ggiraudon/shitsuji/issues/68) (a `
 - *Check:* findings written in F08's risks section, with the exact image versions; decision whether S44 goes
   ahead (X6).
 
-#### S44. The `opensandbox` driver
+#### S44. The `opensandbox` driver — deferred (2026-11-18)
+
+The owner decided to skip this step for now: the spike's findings (F08, S43) showed the socket is root
+on the host and the client needs the deprecated server proxy, so the cost outweighed the early-isolation
+benefit. Issue #74 carries the decision; the spike's GO conditions stay in F08 if it is picked up again.
+
 - An adapter over its TypeScript SDK: `exec` and `files` map to its APIs; egress maps to a per-sandbox policy
   that denies private ranges and `core`. It reports `credentialSwap: false`.
 - *Check:* the conformance suite passes in an integration test against the profile (skipped when it isn't
