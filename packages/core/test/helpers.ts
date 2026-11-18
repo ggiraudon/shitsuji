@@ -4,6 +4,7 @@ import { MemoryLogger } from '../src/adapters/logging/loggers.js';
 import { ModelCatalog } from '../src/application/models/ModelCatalog.js';
 import { ModelRouter } from '../src/application/models/ModelRouter.js';
 import { PlainTextRenderer } from '../src/adapters/channels/PlainTextRenderer.js';
+import { TAIL_MARKER } from '../src/application/context/ContextBuilder.js';
 import type { CoreServices } from '../src/composition/services.js';
 import {
   BaseChannelAdapter,
@@ -72,7 +73,9 @@ export function routerFor(provider: ModelProvider, model = 'test-model'): ModelR
 }
 
 /** The tail injectables ride on the newest message (S23); the transcript itself is unchanged. */
-const isTailNote = (text: string) => text.startsWith('Current local date and time for your owner:');
+/** A tail note is Shitsuji's own context, not part of the stored transcript (#66). */
+const isTailNote = (text: string) =>
+  text.startsWith(TAIL_MARKER) || text.startsWith('Current local date and time for your owner:');
 
 /** A request's messages as "role:text" lines (tool results show their content). */
 export function transcript(request: ModelRequest): string[] {

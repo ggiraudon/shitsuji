@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ManualClock } from '../../src/adapters/clock/SystemClock.js';
 import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
-import { ContextBuilder } from '../../src/application/context/ContextBuilder.js';
+import { TAIL_MARKER, ContextBuilder } from '../../src/application/context/ContextBuilder.js';
 import { ClockInjectable } from '../../src/application/context/ClockInjectable.js';
 import { OwnerProfileInjectable } from '../../src/application/context/OwnerProfileInjectable.js';
 import { Session, type SessionKind } from '../../src/domain/model/Session.js';
@@ -118,11 +118,12 @@ describe('ContextBuilder: placement and order (S23)', () => {
     expect(built.messages.map((m) => m.role)).toEqual(['system', 'system', 'user']);
     expect(built.messages[0]!.parts).toEqual([{ type: 'text', text: 'CONTEXT ZERO' }]);
     expect(built.messages[1]!.parts).toEqual([{ type: 'text', text: 'CONTEXT ONE' }]);
-    // The tail joined, on the owner's message: this call carries it, the transcript does not.
-    expect(built.tail).toBe('TAIL ONE\n\nTAIL TWO');
+    // The tail joined, on the owner's message: this call carries it, the transcript does not. It says
+    // where it comes from, so the model does not read it as the owner's words (#66).
+    expect(built.tail).toBe(`${TAIL_MARKER}\nTAIL ONE\n\nTAIL TWO`);
     expect(built.messages.at(-1)!.parts).toEqual([
       { type: 'text', text: 'Good evening.' },
-      { type: 'text', text: 'TAIL ONE\n\nTAIL TWO' },
+      { type: 'text', text: `${TAIL_MARKER}\nTAIL ONE\n\nTAIL TWO` },
     ]);
   });
 
@@ -147,7 +148,10 @@ describe('ContextBuilder: placement and order (S23)', () => {
     // The second step's request starts with exactly the first one: the provider's cache still matches.
     expect(second.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool']);
     expect(second.messages[0]).toEqual(first.messages[0]);
-    expect(second.messages[0]!.parts.at(-1)).toEqual({ type: 'text', text: 'It is 09:00.' });
+    expect(second.messages[0]!.parts.at(-1)).toEqual({
+      type: 'text',
+      text: `${TAIL_MARKER}\nIt is 09:00.`,
+    });
 
     // The next turn renders it afresh, on its own opening request.
     const next = Turn.create({
@@ -159,7 +163,10 @@ describe('ContextBuilder: placement and order (S23)', () => {
     await append('assistant', text('Nine.'));
     await append('user', text('And now?'), next.id);
     const third = await builder.build(session, next);
-    expect(third.messages.at(-1)!.parts.at(-1)).toEqual({ type: 'text', text: 'It is 09:01.' });
+    expect(third.messages.at(-1)!.parts.at(-1)).toEqual({
+      type: 'text',
+      text: `${TAIL_MARKER}\nIt is 09:01.`,
+    });
     expect(third.messages[0]!.parts).toEqual(text('What is the time?'));
   });
 
@@ -176,7 +183,9 @@ describe('ContextBuilder: placement and order (S23)', () => {
     const built = await builder.build(session, turn);
 
     expect(built.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'user']);
-    expect(built.messages.at(-1)!.parts).toEqual([{ type: 'text', text: 'It is 09:00.' }]);
+    expect(built.messages.at(-1)!.parts).toEqual([
+      { type: 'text', text: `${TAIL_MARKER}\nIt is 09:00.` },
+    ]);
   });
 
   it('renders a once injectable only in its first call of a session', async () => {
@@ -384,5 +393,23 @@ describe('ContextBuilder: tool call ordering (#64)', () => {
     const built = await builder.build(session, turn);
 
     expect(built.messages.map((m) => m.role)).toEqual(['user']);
+  });
+});
+
+describe('ContextBuilder: the tail says where it comes from (#66)', () => {
+  it('marks the tail as Shitsuji context, apart from the owner text', async () => {
+    const { builder, session, turn, append } = await fixture([
+      new Note('clock', 'tail', 2, 'Current local date and time for your owner: 2:43 PM (UTC).'),
+    ]);
+    await append('user', text('typed yes'));
+
+    const built = await builder.build(session, turn);
+
+    const owner = built.messages.at(-1)!;
+    expect(owner.parts[0]).toEqual({ type: 'text', text: 'typed yes' });
+    expect(owner.parts[1]).toEqual({
+      type: 'text',
+      text: "[Context from Shitsuji, not the owner's words]\nCurrent local date and time for your owner: 2:43 PM (UTC).",
+    });
   });
 });
