@@ -169,4 +169,46 @@ describe('PolicyEngine: standing rules (S34, F11)', () => {
       verdict: 'deny',
     });
   });
+
+  it('applies "never" and "always ask" to reads too (#62)', () => {
+    const read = (action: StandingRule['action'], detail?: string) =>
+      decide('read', 'auto-edits', [
+        rule({ action, tool: 'test.tool', ...(detail && { detail }) }),
+      ]);
+    const compute = (action: StandingRule['action'], detail?: string) =>
+      decide('compute', 'trusted', [
+        rule({ action, tool: 'test.tool', ...(detail && { detail }) }),
+      ]);
+
+    expect(read('deny', 'never read notes')).toMatchObject({
+      verdict: 'deny',
+      reason: 'A standing rule forbids it: "never read notes".',
+    });
+    expect(compute('ask', 'ask before computing')).toMatchObject({
+      verdict: 'ask',
+      reason: 'A standing rule says to ask first: "ask before computing".',
+    });
+  });
+
+  it('applies "never" and "always ask" to workspace changes (#62)', () => {
+    const inWorkspace = (
+      effect: ToolEffect,
+      level: ApprovalLevel,
+      action: StandingRule['action'],
+      detail?: string,
+    ) => decide(effect, level, [rule({ action, tool: 'test.tool', ...(detail && { detail }) })]);
+
+    // The natural use of a rule: ask before running a command, forbid a workspace tool.
+    expect(
+      inWorkspace('write_local', 'trusted', 'ask', 'ask before running commands'),
+    ).toMatchObject({
+      verdict: 'ask',
+      reason: 'A standing rule says to ask first: "ask before running commands".',
+    });
+    expect(inWorkspace('write_local', 'auto-edits', 'deny', 'never write files')).toMatchObject({
+      verdict: 'deny',
+    });
+    // "Go ahead" still cannot loosen the level's ask.
+    expect(inWorkspace('write_local', 'ask', 'allow')).toMatchObject({ verdict: 'ask' });
+  });
 });
