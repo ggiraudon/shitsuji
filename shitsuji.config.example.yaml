@@ -58,11 +58,11 @@ budget:
 # Standing trust rules (F11, #58): a rule decides before the judge. `verdict` is allow, ask or deny;
 # deny beats ask, which beats allow. `payment` still always asks (P6). `detail` is shown in the receipt.
 trust:
-  rules:
-    # The shipped default (X4): sending you a file is the job, so it does not raise a card. Remove it
-    # or add an ask/deny rule for workspace.send if you would rather be asked.
-    - { tool: workspace.send, verdict: allow }
+  # Your rules. A shipped rule always allows workspace.send (X4), the file you asked for; add an
+  # ask or deny rule for workspace.send below to override it. Deny beats ask, which beats allow.
+  rules: []
   # - { tool: test.notify, verdict: ask, detail: always ask before notifying }
+  # - { tool: workspace.send, verdict: ask, detail: ask me before sending files }
   # - { tool: 'mail.*', verdict: ask, detail: always ask before emailing }
   # - { tool: 'web.*', verdict: allow, detail: reading the web is fine }
   # - { tool: shop.pay, verdict: deny, detail: never spend money }

@@ -94,10 +94,11 @@ tightened by a standing rule.
 and refuses a missing or ambiguous match, and `workspace.find` looks for files by glob, by text, or both.
 `workspace.exec` defaults to ten minutes (at most an hour, still capped by the driver's `maxTimeoutMs`);
 output over 1 MiB keeps its head and tail for the model and the whole of it goes to
-`sessions/<sessionId>/exec-<turnId>.log`. The sandbox opens with `shared/` and `tools/` in place. `workspace.send`
-is `external`, its bytes come over the files port and are staged in `<dataDir>/handoff/outbox` for the
-channel (so an image or a PDF arrives unchanged, whichever driver runs), and the shipped `trust.rules`
-default allows it without a card (X4).
+`sessions/<sessionId>/exec-<turnId>-<n>.log`. The sandbox opens with `shared/` and `tools/` in place.
+`workspace.send` is `external`, its bytes come over the files port and are staged in
+`<dataDir>/handoff/outbox` for the channel (so an image or a PDF arrives unchanged, whichever driver
+runs), and a shipped rule always allows it without a card (X4), merged with the owner's rules so an
+owner's `ask` or `deny` rule still overrides it.
 
 **What S40 builds.** The port above, the tool definitions moved to `application/sandbox/tools`, and the
 `host` driver in `adapters/sandbox/host`: the workspace root, its path confinement, and exec as a child
