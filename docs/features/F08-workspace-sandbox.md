@@ -90,6 +90,17 @@ pipeline, trust checks and receipts, their output is wrapped as untrusted data, 
 `tool_search`. A driver can never change a standard tool's effect; an extra tool's declared effect can be
 tightened by a standing rule.
 
+**What S45 builds.** Our own sandbox: `docker/sandbox` (Debian bookworm on a pinned Node image, Python,
+Node, git, ffmpeg, pandoc, poppler, tesseract, jq, ripgrep, sqlite, user 1000 `agent`), the wire contract
+in `packages/sandbox-protocol` (X1), and `packages/sandbox-daemon` (`sandboxd`) with `GET /health`,
+`GET /capabilities` and the files routes. Every route but health needs `SANDBOX_TOKEN`, compared in
+constant time, and the daemon refuses to start without it. The routes take the model's **relative** path
+and the daemon resolves it in the same request as the I/O: `..`, absolute paths and links that leave
+`/workspace` or `/handoff` are refused on the resolved path, so a symlink planted in the workspace cannot
+reach a host file (tested). `/handoff` is read-only to the sandbox; files leaving go through core's
+staging. Exec is S46, so `/capabilities` reports `exec: null`, and the image joins `compose.yaml` in S48;
+CI builds it and runs the health, token, round-trip and symlink checks against the real image.
+
 **What S42 builds.** One conformance suite, `test/contracts/sandbox.contract.ts`, runs against every
 driver: each test runs only for a capability the driver claims (exec, files, network), and the fork bomb
 only when it contains processes. The `host` driver runs it in unit tests with containment and network

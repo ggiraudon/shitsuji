@@ -79,6 +79,7 @@ Keep this list true as commands change.
 | `pnpm install` | Install all workspace packages |
 | `pnpm build` | Build every package |
 | `pnpm build:shared` | Build the shared contract (`packages/shared`, a submodule) |
+| `pnpm build:protocol` | Build the sandbox wire protocol (`packages/sandbox-protocol`); `@shitsuji/sandbox-daemon` needs its `dist` |
 | `pnpm test` | Unit and contract tests (no network, no Docker) |
 | `pnpm test:integration` | Tests against real Postgres via Testcontainers (needs Docker) |
 | `pnpm lint` | ESLint + Prettier check |
