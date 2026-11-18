@@ -79,7 +79,7 @@ export class SandboxService {
       ...(sandbox.files
         ? workspaceTools(sandbox.files, sandbox.exec, this.deps.exec, this.deps.outbound)
         : []),
-      ...(driver.extraTools?.() ?? []),
+      ...this.extraToolsOf(driver),
     ];
     this.opened = { sandbox, capabilities, tools };
     this.deps.log.info('Sandbox open', {
@@ -100,6 +100,32 @@ export class SandboxService {
       this.deps.driver.id,
     );
     return { ok: true };
+  }
+
+  /**
+   * A driver's own tools must be named `<id>.*`, so they cannot shadow a standard tool (`workspace.*`,
+   * `tool_search`, …) or another driver's, and each name appears once (F08, S42).
+   */
+  private extraToolsOf(driver: SandboxDriver): readonly Tool[] {
+    const extras = driver.extraTools?.() ?? [];
+    const seen = new Set<string>();
+    for (const tool of extras) {
+      if (!tool.name.startsWith(`${driver.id}.`)) {
+        throw new SandboxUnavailable(
+          `The ${driver.id} sandbox offered the tool "${tool.name}"; a driver's own tools must be ` +
+            `named "${driver.id}.*", so they cannot shadow a standard tool.`,
+          { driver: driver.id, tool: tool.name },
+        );
+      }
+      if (seen.has(tool.name)) {
+        throw new SandboxUnavailable(`The ${driver.id} sandbox offered "${tool.name}" twice.`, {
+          driver: driver.id,
+          tool: tool.name,
+        });
+      }
+      seen.add(tool.name);
+    }
+    return extras;
   }
 
   async close(): Promise<void> {

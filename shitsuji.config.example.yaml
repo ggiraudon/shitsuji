@@ -72,6 +72,12 @@ trust:
 # tools off; there is no fallback to `host` (decision X3).
 sandbox:
   driver: host
+  # What the egress check tries from inside the sandbox (X2); core's API and Postgres are always
+  # tried too. `requireIsolation: true` refuses a driver that cannot show the LAN is blocked; the
+  # host driver cannot, so it is refused with it.
+  probes:
+    lan: [192.168.1.1]
+    requireIsolation: false
 
 # The sandbox's command tool (F08). The driver may cap the timeout lower; output over maxOutputBytes
 # keeps head and tail for the model, and the full log goes to sessions/<sessionId>/.

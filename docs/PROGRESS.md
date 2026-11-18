@@ -80,7 +80,10 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
       *(`workspace.edit` and `workspace.find`; exec at 10 min/60 min with head and tail over 1 MiB and the
       full log in the session folder; `shared/` and `tools/` created at open; `workspace.send` external
       with the shipped allow rule (X4) and byte-exact staging for the channel.)*
-- [ ] **S42** The conformance suite and the egress probes
+- [x] **S42** The conformance suite and the egress probes
+      *(One suite gated by capability, run by the host in unit tests; `EgressProbe` refuses a
+      contradicted `lanBlocked` claim (or one that cannot be checked) and honours
+      `sandbox.probes.requireIsolation`; extra tools must be named after their driver.)*
 - [ ] **S43** OpenSandbox spike
 - [ ] **S44** The `opensandbox` driver
 - [ ] **S45** The `sandbox` image and `sandboxd` files API

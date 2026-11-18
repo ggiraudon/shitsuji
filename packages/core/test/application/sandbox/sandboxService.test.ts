@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod/v4';
 import { EgressProbe, type EgressTarget } from '../../../src/application/sandbox/EgressProbe.js';
 import { SandboxService } from '../../../src/application/sandbox/SandboxService.js';
 import { SandboxUnavailable } from '../../../src/domain/errors.js';
@@ -54,6 +55,18 @@ const driver = (
 });
 
 const LAN: EgressTarget = { label: 'LAN', host: '192.168.1.1', port: 80 };
+
+/** A tool with the fields a driver's extra tool needs. */
+const fakeTool = (name: string) => ({
+  name,
+  description: name,
+  input: z.object({}),
+  effect: 'read' as const,
+  target: 'workspace' as const,
+  deferred: false,
+  untrustedOutput: false,
+  run: async () => ({ content: '' }),
+});
 
 const service = (d: SandboxDriver) => {
   const services = testServices();
@@ -154,6 +167,37 @@ describe('SandboxService (F08, S40)', () => {
 
     reachesLan = true;
     await expect(sandbox.health()).rejects.toThrow(SandboxUnavailable);
+  });
+
+  it('registers a driver tool named after it, and refuses one that is not (S42 review)', async () => {
+    const good = {
+      ...driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: false, credentialSwap: false },
+      }),
+      extraTools: () => [fakeTool('fake.hello')],
+    };
+    const sandbox = service(good);
+    await sandbox.start();
+    expect(names(sandbox)).toContain('fake.hello');
+
+    const shadowing = {
+      ...driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: false, credentialSwap: false },
+      }),
+      extraTools: () => [fakeTool('workspace.read')],
+    };
+    await expect(service(shadowing).start()).rejects.toThrow(/must be named "fake\.\*"/);
+
+    const twice = {
+      ...driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: false, credentialSwap: false },
+      }),
+      extraTools: () => [fakeTool('fake.hello'), fakeTool('fake.hello')],
+    };
+    await expect(service(twice).start()).rejects.toThrow(/twice/);
   });
 
   it('closes the sandbox and forgets its tools on close', async () => {
