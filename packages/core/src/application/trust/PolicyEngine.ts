@@ -24,9 +24,10 @@ export interface PolicyOptions {
  * any standing rule or model judge. Rules and judgement arrive in S35; until then a `judge` verdict is
  * resolved by the caller (the Trust middleware refuses it, because nothing can judge yet).
  *
- * The order is the one in F11's decision diagram: read and compute run; workspace changes follow the
- * level; anything outside the workspace checks the owner's standing rules first, then goes to the
- * judge (S35). Money always asks.
+ * The order is the one in F11's decision diagram: a "never" or "always ask" rule binds every effect,
+ * reads and workspace changes included; then read and compute run, workspace changes follow the level,
+ * and anything outside the workspace checks the owner's "go ahead" rules, then goes to the judge
+ * (S35). Money always asks.
  */
 export class PolicyEngine {
   private readonly level: ApprovalLevel;
@@ -41,6 +42,13 @@ export class PolicyEngine {
   decide(request: ActionRequest, rules: readonly StandingRule[] = []): TrustDecision {
     const base = { actionHash: request.hash };
     const allRules = [...this.rules, ...rules];
+    const rule = strongestRule(allRules, request);
+
+    // A "never" or "always ask" rule binds every effect, reads included (#62): forbidding a tool or
+    // asking before running a command is the most natural standing rule. Only "go ahead" is limited
+    // to the effects below, where it cannot unlock money or a change to Shitsuji itself.
+    if (rule?.action === 'deny') return denyByRule(rule, base);
+    if (rule?.action === 'ask') return askByRule(rule, base);
 
     switch (request.effect) {
       case 'read':
@@ -74,9 +82,6 @@ export class PolicyEngine {
 
       case 'payment': {
         // Whatever the level, and whichever rule allows: money is never spent unasked (P6).
-        const rule = strongestRule(allRules, request);
-        if (rule?.action === 'deny') return denyByRule(rule, base);
-        if (rule?.action === 'ask') return askByRule(rule, base);
         return {
           ...base,
           verdict: 'ask',
@@ -87,9 +92,6 @@ export class PolicyEngine {
 
       case 'write_self':
       case 'external': {
-        const rule = strongestRule(allRules, request);
-        if (rule?.action === 'deny') return denyByRule(rule, base);
-        if (rule?.action === 'ask') return askByRule(rule, base);
         // A "go ahead" rule covers outside actions, never a change to Shitsuji itself (F11).
         if (rule?.action === 'allow' && request.effect !== 'write_self') {
           return {

@@ -36,6 +36,7 @@ const readerWith = (provider: ModelProvider) => {
   return {
     reader: new TypedApprovalReader({ models: routerFor(provider), log: services.log }),
     provider,
+    log: services.log,
   };
 };
 
@@ -73,5 +74,45 @@ describe('TypedApprovalReader (S37, F11)', () => {
       },
     };
     expect(await readerWith(broken).reader.read('yes', approval)).toBe('unclear');
+  });
+
+  it('leaves room for the reasoning before the answer, and warns on a cut-off reply (#63)', async () => {
+    const reasoner = new ScriptedProvider(
+      [
+        {
+          reasoning: 'The owner said yes plainly, with no condition attached.',
+          content: fixture('typed-yes.json'),
+        },
+      ],
+      'fake',
+    );
+    const { reader, log } = readerWith(reasoner);
+
+    expect(await reader.read('Yes, go ahead.', approval)).toBe('approve');
+    // 20 tokens ended deepseek-flash mid-reasoning, so a plain yes counted as unclear.
+    expect(reasoner.requests[0]!.maxOutputTokens).toBe(400);
+    expect(log.records.some((r) => /token limit/.test(r.message))).toBe(false);
+
+    const truncated = readerWith(
+      new ScriptedProvider(
+        [
+          {
+            reasoning: 'The owner said yes plainly, so this is an unconditional approval.',
+            content: '{"answer": "app',
+            finishReason: 'length',
+          },
+        ],
+        'fake',
+      ),
+    );
+
+    expect(await truncated.reader.read('Yes, go ahead.', approval)).toBe('unclear');
+    expect(
+      truncated.log.records.some(
+        (r) =>
+          r.level === 'warn' &&
+          r.message === 'Typed approval answer stopped at its token limit; treating it as unclear',
+      ),
+    ).toBe(true);
   });
 });

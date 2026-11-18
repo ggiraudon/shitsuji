@@ -171,6 +171,11 @@ checks or approvals.
 header injectable's output with the previous call in the same session. If one changes on every call, it
 logs a warning naming the injectable, which catches a clock or a mood slipping into the cached part.
 
+**Tool results stay with their call.** When the context is built, each assistant `tool_call` is followed
+immediately by its `tool_result`s. A message the owner steered in while the tool ran is moved after
+those results, an orphan result is dropped, and a call with no result (a crash) gets a synthetic error
+result, so every provider receives a valid history (#64).
+
 **Conditions** are fixed and extended:
 - `tool_used` reads the turn's tool calls (bug 8, fixed in S8);
 - `once` is tracked per session;

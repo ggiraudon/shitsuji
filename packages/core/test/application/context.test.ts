@@ -306,3 +306,83 @@ describe('ContextBuilder: header stability check (S23)', () => {
     expect(log.records.filter((r) => r.level === 'warn')).toEqual([]);
   });
 });
+
+describe('ContextBuilder: tool call ordering (#64)', () => {
+  const call = (id: string): ContentPart => ({
+    type: 'tool_call',
+    call: { id: asId<ToolCallId>(id), name: 'test.notify', arguments: {} },
+  });
+  const result = (id: string, content = 'sent'): ContentPart => ({
+    type: 'tool_result',
+    toolCallId: asId<ToolCallId>(id),
+    content,
+    isError: false,
+  });
+
+  it('puts a tool result right after its call when the owner steered a message in between', async () => {
+    const { builder, session, turn, append } = await fixture([]);
+    await append('user', text('Notify the team.'));
+    await append('assistant', [call('c1')]);
+    await append('user', text('yes'));
+    await append('tool', [result('c1')]);
+
+    const built = await builder.build(session, turn);
+
+    expect(built.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'user']);
+    expect(built.messages[2]!.parts).toEqual([
+      { type: 'tool_result', toolCallId: 'c1', content: 'sent', isError: false },
+    ]);
+    expect(built.messages[3]!.parts).toEqual([{ type: 'text', text: 'yes' }]);
+  });
+
+  it('keeps every result of two calls together when a message arrives between them', async () => {
+    const { builder, session, turn, append } = await fixture([]);
+    await append('user', text('Do both.'));
+    await append('assistant', [call('c1'), call('c2')]);
+    await append('tool', [result('c1', 'one')]);
+    await append('user', text('still there?'));
+    await append('tool', [result('c2', 'two')]);
+
+    const built = await builder.build(session, turn);
+
+    expect(built.messages.map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+      'user',
+    ]);
+    const results = built.messages
+      .filter((m) => m.role === 'tool')
+      .flatMap((m) => m.parts)
+      .map((p) => (p.type === 'tool_result' ? p.toolCallId : undefined));
+    expect(results).toEqual(['c1', 'c2']);
+    expect(built.messages[4]!.parts).toEqual([{ type: 'text', text: 'still there?' }]);
+  });
+
+  it('synthesises a missing result so a crashed tool call still leaves a valid history', async () => {
+    const { builder, session, turn, append } = await fixture([]);
+    await append('user', text('Run it.'));
+    await append('assistant', [call('c1')]);
+
+    const built = await builder.build(session, turn);
+
+    expect(built.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool']);
+    expect(built.messages[2]!.parts[0]).toMatchObject({
+      type: 'tool_result',
+      toolCallId: 'c1',
+      isError: true,
+    });
+    expect((built.messages[2]!.parts[0] as { content: string }).content).toMatch(/did not finish/);
+  });
+
+  it('drops an orphan tool result with no call before it', async () => {
+    const { builder, session, turn, append } = await fixture([]);
+    await append('user', text('Hello.'));
+    await append('tool', [result('missing')]);
+
+    const built = await builder.build(session, turn);
+
+    expect(built.messages.map((m) => m.role)).toEqual(['user']);
+  });
+});

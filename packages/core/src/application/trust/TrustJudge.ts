@@ -64,7 +64,8 @@ export class TrustJudge {
             },
           ],
           temperature: 0,
-          maxOutputTokens: 300,
+          // deepseek-flash reasons before answering; 300 was close for long cases (#63).
+          maxOutputTokens: 1_000,
           metadata: {
             ...(options.turnId && { turnId: options.turnId }),
             ...(options.sessionId && { sessionId: options.sessionId }),
@@ -72,6 +73,11 @@ export class TrustJudge {
         },
         { signal: this.signalFor(options.signal) },
       );
+      if (response.finishReason === 'length') {
+        this.deps.log.warn('Trust judgement stopped at its token limit; asking the owner', {
+          tool: request.tool,
+        });
+      }
       return parseReply(response.text, quoteRequired);
     } catch (error) {
       this.deps.log.warn('Trust judgement failed; asking the owner', {

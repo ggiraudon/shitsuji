@@ -114,6 +114,9 @@ stateDiagram-v2
 The Ask level does not spend a judgement at all: nothing could come of it but a question. A standing
 rule can make any of these stricter ("never", "always ask") and, at the levels that consult the judge,
 looser ("go ahead"); it never lets a payment run unasked, and never covers a change to Shitsuji itself.
+"Never" and "always ask" bind every effect, `read` and `compute` included, so a rule can forbid a tool
+outright or ask before running a command (`workspace.exec` is a workspace change, #62); "go ahead" only
+loosens `external`, and only at a level that would otherwise consult the judge.
 
 There is deliberately no "full access, never ask" level for external actions.
 
@@ -138,6 +141,12 @@ error, or a 10-second timeout becomes `ask`. `QuoteVerifier` accepts the allow o
 a verbatim substring of one owner message; a made-up or paraphrased quote becomes `ask`. The receipt
 records `allowedBy: { kind: 'quote', detail: … }`. Approvals are still S36, so an `ask` refuses for
 now.
+
+The trust calls leave room for a reasoning model: 1,000 output tokens for the judge and 400 for the
+typed-approval reader, because deepseek-flash reasons before it answers and a smaller cap cut the JSON
+off. A reply that stops on `length` is still handled the safe way (`ask` / unclear) and logs a warning
+naming the limit, so a truncated answer is visible in the log instead of silently confusing the owner
+(#63).
 
 ### What S36 builds
 
@@ -169,7 +178,9 @@ ask, which beats allow; `detail` is the owner's words, and it appears in the rec
 refusal. A rule is checked before the judge, so an `ask` rule forces a card even when the owner's words
 would have allowed the action, and a `deny` rule refuses without a model call. `payment` still always
 asks, whatever a rule says (P6), and a `go ahead` rule never covers a change to Shitsuji itself. An
-unknown verdict, an empty pattern or an unknown target is a config error at startup (#58).
+unknown verdict, an empty pattern or an unknown target is a config error at startup (#58). `deny` and
+`ask` apply to every effect, so `{ tool: workspace.exec, verdict: ask }` really asks before a command runs
+and `{ tool: workspace.write, verdict: deny }` refuses it (#62); `allow` only loosens `external`.
 
 ### Matching an answer to a card
 - **A new owner message supersedes.** When the owner writes again in a session, its pending cards
