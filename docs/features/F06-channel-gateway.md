@@ -138,7 +138,8 @@ task routing waits for [F15](F15-tasks-and-subagents.md); buttons and attachment
   `bot.catch` logs a handler failure instead of letting grammY stop polling.)*
 - Files: documents, photos and voice notes are downloaded into the handoff folder; sent files go back as
   documents. Voice notes are stored for [F23](F23-voice.md), which answers that it cannot listen yet.
-- Commands: `/stop`, `/tasks`, `/status`, `/new` (reset thread, with confirmation).
+- Commands: `/stop`, `/tasks`, `/status`, `/new` (reset thread, with confirmation). A turn the owner
+  stopped answers once, "Stopped."; the cancelled turn is not also reported as an error (#68).
 
 S32 builds the adapter: grammY long polling behind a narrow transport, the bot token from
 `channels.telegram.token` (a `Secret`, from `SHITSUJI_TELEGRAM_TOKEN`), Markdown to Telegram HTML with
