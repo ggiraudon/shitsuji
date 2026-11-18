@@ -84,7 +84,10 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
       *(One suite gated by capability, run by the host in unit tests; `EgressProbe` refuses a
       contradicted `lanBlocked` claim (or one that cannot be checked) and honours
       `sandbox.probes.requireIsolation`; extra tools must be named after their driver.)*
-- [ ] **S43** OpenSandbox spike
+- [x] **S43** OpenSandbox spike
+      *(The server, sandboxes, exec, files and `dns+nft` egress all work on Docker Desktop; without a
+      policy there is no egress control, and the server needs the Docker socket. GO for S44 with
+      conditions — the findings are in F08's risks.)*
 - [ ] **S44** The `opensandbox` driver
 - [ ] **S45** The `sandbox` image and `sandboxd` files API
 - [ ] **S46** The exec supervisor
