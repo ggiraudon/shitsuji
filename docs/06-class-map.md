@@ -179,9 +179,14 @@ classDiagram
     +parentTaskId
   }
   class Approval {
+    +id
+    +tool
+    +effect
+    +target
     +actionHash
     +state
-    +question
+    +summary
+    +reason
   }
   class ApprovalState {
     <<enumeration>>
@@ -189,15 +194,16 @@ classDiagram
     approved
     declined
     expired
+    executed
     uncertain
   }
   class ActionRequest {
     <<command>>
     +tool
-    +args
+    +arguments
     +effect
     +target
-    +hash()
+    +hash
   }
   class Matter {
     +sourceRecord
@@ -213,7 +219,7 @@ classDiagram
   Session "1" *-- "many" StoredMessage
   Task "1" --> "1" Session : runs in
   Task o-- Task : sub-tasks
-  Turn "1" o-- "0..1" Approval : waits on
+  Turn "1" o-- "0..*" Approval : records
   Approval --> ApprovalState
   Approval --> ActionRequest : bound to exactly
   Owner "1" o-- "many" Matter
@@ -515,16 +521,31 @@ classDiagram
     +id
     +capabilities ChannelCapabilities
     +start(sink InboundSink)
-    +send(target, message) DeliveryReceipt
+    +deliver(target, message) DeliveryReceipt
+    +edit(receipt, message)
+    +typing(target)
     +stop()
   }
   class BaseChannelAdapter {
     <<abstract>>
-    #renderer MessageRenderer
+    #sink InboundSink
   }
   class TelegramChannelAdapter
-  class WebChannelAdapter
+  class WebChannelAdapter {
+    later
+  }
   class WebhookChannelAdapter
+  class TelegramTransport {
+    <<interface>>
+    +sendMessage(chatId, html, plain)
+    +sendApproval(chatId, html, buttons)
+    +answerCallback(id, text)
+    +editMessage(chatId, id, html)
+    +downloadFile(fileId)
+  }
+  class GrammyTelegramTransport
+  class TelegramRenderer
+  class HandoffStore
   class MessageRenderer {
     <<interface>>
     +render(outbound, capabilities)
@@ -533,22 +554,21 @@ classDiagram
     +markdown
     +buttons
     +files
-    +editMessages
+    +edits
     +voice
   }
   class ChannelRegistry {
     +get(id) ChannelAdapter
   }
   class ChannelGateway {
-    +onInbound(message)
-    +deliver(target, outbound)
+    +receive(message) InboundResult
+    +accepts(chat) bool
   }
   class InboundSink {
     <<interface>>
-    +accept(InboundMessage)
+    +receive(message) InboundResult
+    +accepts(chat) bool
   }
-  class VoiceNoteHandler
-  class CodeGuard
 
   ChannelAdapter <|.. BaseChannelAdapter
   BaseChannelAdapter <|-- TelegramChannelAdapter
@@ -558,16 +578,18 @@ classDiagram
   ChannelAdapter --> ChannelCapabilities
   ChannelRegistry o-- ChannelAdapter
   ChannelGateway --> ChannelRegistry
+  ChannelGateway --> PairingService
+  ChannelGateway --> ApprovalService
   InboundSink <|.. ChannelGateway
-  ChannelGateway --> ThreadService
-  ChannelGateway --> TaskRouter
-  ChannelGateway --> JobQueue
-  ChannelGateway --> VoiceNoteHandler
-  ChannelGateway --> CodeGuard
+  TelegramChannelAdapter --> TelegramTransport
+  TelegramTransport <|.. GrammyTelegramTransport
+  TelegramChannelAdapter --> TelegramRenderer
+  TelegramChannelAdapter --> HandoffStore
 ```
 
-`TelegramChannelAdapter` and `WebChannelAdapter` are *(named here)*; the docs describe them but give no class
-names.
+The Telegram classes exist as shown (S32–S37). `WebChannelAdapter` waits for the web UI
+([F07](features/F07-web-ui.md)); voice notes are stored and answered without speech-to-text until
+[F23](F23-voice.md).
 
 ## 7. Trust, approvals and secrets
 
@@ -591,6 +613,11 @@ classDiagram
   }
   class PolicyEngine {
     +decide(action, rules) Decision
+  }
+  class StandingRule {
+    +action
+    +tool
+    +target
   }
   class TrustJudge {
     +judge(action, authority) Decision
@@ -641,6 +668,7 @@ classDiagram
   AuthoritySource <|.. SessionAuthority
   SessionAuthority --> AuthorityResolver
   TrustService --> PolicyEngine
+  PolicyEngine --> StandingRule
   TrustService --> TrustJudge
   TrustService --> ApprovalService
   TrustService ..> Decision

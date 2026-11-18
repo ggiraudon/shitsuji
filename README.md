@@ -1,8 +1,10 @@
 # Shitsuji
 
 Shitsuji (執事, "butler") is a personal assistant with its own sandboxed computer, deployed with Docker
-Compose. It is under active development: the foundations, tools, runtime, API and terminal UI are in;
-Telegram, the web UI and the sandbox come next. The plan and progress are in [docs/](docs/README.md).
+Compose. It is under active development: the foundations, tools, runtime, API, terminal UI, **Telegram**
+and **trust with approvals** are in, along with spending limits, the activity log and an evaluation
+harness. The web UI, sandbox and desktop come next. The plan and progress are in
+[docs/](docs/README.md).
 
 ## Quick start (Docker)
 
@@ -31,15 +33,40 @@ Telegram, the web UI and the sandbox come next. The plan and progress are in [do
 
    Enter sends (also while it works, to add to the current request), Esc stops the current turn,
    `/new` starts a new conversation, `/soul` shows the standing instructions' revision and any waiting
-   edit (`/soul apply` keeps it), `/usage` shows spending, `/activity` shows recent tool calls, `/exit`
-   quits.
+   edit (`/soul apply` keeps it), `/pair` pairs a chat, `/approve` and `/decline` answer an approval
+   card, `/usage` shows spending, `/activity` shows recent tool calls, `/exit` quits.
 
 ## Telegram
 
 1. In `.env`, set `SHITSUJI_TELEGRAM_ENABLED=true` and `SHITSUJI_TELEGRAM_TOKEN` (from @BotFather).
-2. Start core, then run `/pair` in the TUI. Send `/start <code>` to the bot in the chat you want to pair.
+2. Start core, then run `/pair` in the TUI. Send `/start <code>` to the bot in a **private** chat. Groups
+   and channels are ignored, so pairing always means one person.
 3. Paired chats can talk to Shitsuji; `/stop`, `/status` and `/new` work there too. Unpaired chats are
-   ignored.
+   ignored. Files you send land in `<dataDir>/handoff`; a file the agent sends comes back as a document;
+   a voice note is stored and answered "I can't listen to voice notes yet.".
+4. When an action outside the workspace needs your approval, the bot sends **Approve / Decline** buttons.
+   A typed "yes" or "no" works when exactly one card is open; with several, it asks you to use the buttons.
+
+## Trust and spending
+
+Reading and computing run freely. Changes inside the workspace run at the default level; actions outside
+it go to a **judge** that sees only your own words and may allow them with a verbatim quote, otherwise it
+asks you. Payments always ask. A card is bound to the exact action and arguments: pressing Approve twice
+runs it once, and Stop expires it. Past `budget.monthlyLimit`, background work is refused and tells you
+why. `/activity` shows what each tool call did and what allowed it.
+
+## Evaluation
+
+```bash
+pnpm eval --offline                  # replay the recorded replies: no key, no network
+pnpm eval --model deepseek/deepseek-flash
+```
+
+Five scenarios (including a poisoned page that tries to email the agent's memory) report pass rate, steps,
+tokens/cost, unsafe actions, and the size of the system prompt plus tool schemas. See
+[evals/README.md](evals/README.md).
+
+The live check from your phone is in [docs/10-live-checks.md](docs/10-live-checks.md).
 
 ## Development
 

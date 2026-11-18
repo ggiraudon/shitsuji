@@ -16,6 +16,7 @@
     "check": "pnpm typecheck && pnpm lint && pnpm check:imports && pnpm test",
     "check:imports": "tsx scripts/check-imports.ts",
     "eval": "tsx evals/run.ts",
+    "mock": "tsx evals/mock.ts",
     "test:integration": "pnpm -r --if-present test:integration"
   },
   "devDependencies": {

@@ -26,7 +26,7 @@ S32 adds the Telegram adapter itself: grammY long polling, Markdown as Telegram 
 at paragraph breaks, one "Working…" message removed when the reply arrives, and pairing through the same
 gateway. S33 adds files: a photo or document the owner sends is saved in `<dataDir>/handoff` and the turn is
 told its path, a file the agent attaches comes back as a Telegram document, and a voice note gets
-"I can't listen to voice notes yet." Approval buttons wait for F11.
+"I can't listen to voice notes yet." S37 adds approval cards with buttons; the live phone check is in [10-live-checks.md](../10-live-checks.md).
 
 ## Inspiration
 
@@ -119,7 +119,7 @@ S31 builds the first slice of this: `ChannelGateway`, channel bindings (with a p
 works), `PairingService` (short-lived, single-use codes issued from `POST /api/pair` and shown by the TUI's
 `/pair`), and the `/stop`, `/status` and `/new` commands. A channel that declares `requiresPairing` starts no
 turn until its chat is paired; the webhook and the API stay open because they are local transports. Callback
-buttons, task routing and attachments wait for F11 and S33.
+task routing waits for [F15](F15-tasks-and-subagents.md); buttons and attachments are in (S33, S37).
 
 ### Telegram adapter
 
@@ -142,8 +142,8 @@ escaping and paragraph splitting, and one "Working…" message removed when the 
 S33 adds the files: the transport maps document, photo and voice updates, downloads them with `getFile`,
 and the adapter stores them with a safe, unique name in `<dataDir>/handoff` before telling the gateway where
 they are; a download failure loses the file, not the message. Outbound, the adapter reads each file part and
-sends it with `sendDocument`, keeping the text when a file cannot be read. Inline keyboards wait for F11 and
-speech-to-text for F23.
+sends it with `sendDocument`, keeping the text when a file cannot be read. Approval keyboards arrive with
+S37; speech-to-text for F23.
 
 ## Changes to existing code
 
@@ -160,7 +160,9 @@ speech-to-text for F23.
 ## Acceptance criteria
 
 - Pair Telegram from the web UI; chat; approve an action with a button; get a file back.
-  *(S33: a file the agent attaches comes back as a document. The approval button waits for [F11](F11-trust-and-approvals.md).)*
+  *(S33: a file the agent attaches comes back as a document; S37: an approval card has Approve/Decline
+  buttons and a typed yes/no. Pairing is through the TUI (`/pair` + `/start <code>`) until the web UI,
+  F07; the live phone check is in [10-live-checks.md](../10-live-checks.md).)*
 - A photo and a document the owner sends reach the agent in `<dataDir>/handoff`; a voice note is kept and answered
   "I can't listen to voice notes yet." *(S33)*
 - A message from an unpaired Telegram chat starts no turn.
@@ -171,3 +173,4 @@ speech-to-text for F23.
 - Telegram bots cannot start a conversation with you; the first message must come from you. Pairing covers it.
 - Telegram stores messages on its servers. Note it in privacy docs; never send secrets or private links there
   ([F12](F12-secrets-vault.md)).
+

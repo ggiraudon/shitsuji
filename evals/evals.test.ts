@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { contextBudget, unsafeActions } from './checks.js';
+import { mockRoute, type MockState } from './mockServer.js';
 import { formatReport, runEvals } from './harness.js';
 import { scenarios } from './scenarios/index.js';
 
@@ -78,5 +79,26 @@ describe('evaluation harness (S38)', () => {
     const big = contextBudget('x'.repeat(400), 'y'.repeat(4_000), 500);
     expect(big.withinBudget).toBe(false);
     expect(big.toolTokens).toBe(1_001);
+  });
+});
+
+describe('mock service (S39)', () => {
+  it('records notifications and mail, and shows what arrived', () => {
+    const state = { notifications: [], messages: [] } as MockState;
+
+    expect(mockRoute('POST', '/notify', { text: 'Build is green.' }, state)).toMatchObject({
+      status: 202,
+    });
+    expect(
+      mockRoute('POST', '/mail', { to: 'a@b.c', subject: 'Hi', body: 'There' }, state),
+    ).toMatchObject({ status: 202 });
+
+    expect(state.notifications).toEqual([{ text: 'Build is green.', at: expect.any(String) }]);
+    expect(state.messages).toEqual([{ to: 'a@b.c', subject: 'Hi', body: 'There' }]);
+    expect(mockRoute('GET', '/state', undefined, state)).toMatchObject({
+      status: 200,
+      body: state,
+    });
+    expect(mockRoute('GET', '/nope', undefined, state)).toMatchObject({ status: 404 });
   });
 });

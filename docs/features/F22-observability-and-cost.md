@@ -137,9 +137,16 @@ outside action that ran without the owner's words, an approval or a rule), and t
 ## Acceptance criteria
 
 - Every model request appears once in the ledger with tokens; cost appears when the price is known.
-- A task that passes its check-in pauses and asks on the channel it came from.
-- The Usage screen shows each action with what allowed it.
-- `pnpm eval --model deepseek/deepseek-flash` runs at least five scenarios and prints a report.
+  *(S27/S29: `MeteredModelProvider` writes one row per call, including the trust judge's.)*
+- A task that passes its check-in pauses and asks on the channel it came from. *(S28.)*
+- The Usage screen shows each action with what allowed it. *(Waits for the web UI, F07; the TUI's
+  `/activity` and `/usage` show the same data.)*
+- `pnpm eval --model deepseek/deepseek-flash` runs at least five scenarios and prints a report. *(S38:
+  `pnpm eval --offline` runs the five in `pnpm check`; the live binding uses the same command.)*
+
+The live monthly-limit behaviour (background spending refused with the limit message) needs a background
+turn, which arrives with F15/F16; until then it is covered by the budget tests. The phone/live check list
+is in [10-live-checks.md](../10-live-checks.md).
 
 ## Risks and open questions
 

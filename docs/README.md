@@ -1,7 +1,8 @@
 # Shitsuji research docs
 
 This folder holds the research and design notes for taking Shitsuji from an early prototype to a capable,
-proactive personal assistant. Implementation follows [09-third-pass-plan.md](09-third-pass-plan.md); the first two passes are done.
+proactive personal assistant. Implementation follows [09-third-pass-plan.md](09-third-pass-plan.md); the first
+three passes are done (the live Telegram check is yours: [10-live-checks.md](10-live-checks.md)).
 
 ## Read in this order
 
@@ -17,8 +18,9 @@ proactive personal assistant. Implementation follows [09-third-pass-plan.md](09-
 | 8 | [06-class-map.md](06-class-map.md) | Mermaid class diagrams of the target code structure, one per area |
 | 9 | [07-first-pass-plan.md](07-first-pass-plan.md) | The first pass (done): F01 + F02 + F03 as steps S1–S14 |
 | 10 | [08-second-pass-plan.md](08-second-pass-plan.md) | The second pass (done): F05 + F04 + HTTP API and TUI as steps S15–S26 |
-| 11 | [09-third-pass-plan.md](09-third-pass-plan.md) | **The current plan**: F22 + F06 + F11 as steps S27–S39 |
-| 12 | [PROGRESS.md](PROGRESS.md) | The checklist: every pass's steps and every feature's acceptance criteria |
+| 11 | [09-third-pass-plan.md](09-third-pass-plan.md) | The third pass (done): F22 + F06 + F11 as steps S27–S39 |
+| 12 | [10-live-checks.md](10-live-checks.md) | The live check only you can run: Telegram on your phone, approvals, `/stop` |
+| 13 | [PROGRESS.md](PROGRESS.md) | The checklist: every pass's steps and every feature's acceptance criteria |
 
 Rules for working on the code (commits, layers, tests) are in [AGENTS.md](../AGENTS.md).
 
