@@ -9,8 +9,8 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "typecheck": "pnpm build:shared && pnpm -r typecheck && tsc -p scripts/tsconfig.json && tsc -p evals/tsconfig.json",
-    "test": "pnpm build:shared && pnpm -r test && vitest run --root scripts && vitest run --root evals",
+    "typecheck": "pnpm build:shared && pnpm build:protocol && pnpm -r typecheck && tsc -p scripts/tsconfig.json && tsc -p evals/tsconfig.json",
+    "test": "pnpm build:shared && pnpm build:protocol && pnpm -r test && vitest run --root scripts && vitest run --root evals",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "check": "pnpm typecheck && pnpm lint && pnpm check:imports && pnpm test",
@@ -18,7 +18,8 @@
     "eval": "tsx evals/run.ts",
     "mock": "tsx evals/mock.ts",
     "test:integration": "pnpm build:shared && pnpm -r --if-present test:integration",
-    "build:shared": "pnpm --filter @shitsuji/shared build"
+    "build:shared": "pnpm --filter @shitsuji/shared build",
+    "build:protocol": "pnpm --filter @shitsuji/sandbox-protocol build"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
