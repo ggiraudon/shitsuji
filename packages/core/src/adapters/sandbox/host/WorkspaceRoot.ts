@@ -101,6 +101,10 @@ export class WorkspaceRoot implements SandboxFiles {
     return fs.readFile(absolute, 'utf8');
   }
 
+  readBytes(absolute: string): Promise<Uint8Array> {
+    return fs.readFile(absolute);
+  }
+
   async stat(absolute: string): Promise<FileStat | undefined> {
     const stat = await fs.stat(absolute).catch(() => undefined);
     return stat && { size: stat.size, isFile: stat.isFile() };
@@ -111,6 +115,10 @@ export class WorkspaceRoot implements SandboxFiles {
     await (options.append
       ? fs.appendFile(absolute, content, 'utf8')
       : fs.writeFile(absolute, content, 'utf8'));
+  }
+
+  async mkdir(absolute: string): Promise<void> {
+    await fs.mkdir(absolute, { recursive: true });
   }
 
   async list(absolute: string): Promise<FileEntry[] | undefined> {

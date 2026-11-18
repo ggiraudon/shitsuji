@@ -246,6 +246,14 @@ describe('Secret', () => {
 });
 
 describe('trust.rules (#58)', () => {
+  it('keeps only the rules the config lists; the shipped ones come from the engine (X4)', () => {
+    const { config } = load();
+
+    // `trust.rules` is the owner's list; composition adds the shipped rules, so an owner's own list
+    // does not lose them.
+    expect(config.trust.rules).toEqual([]);
+  });
+
   it('reads rules and validates their verdict, tool and target', () => {
     writeConfig(
       [

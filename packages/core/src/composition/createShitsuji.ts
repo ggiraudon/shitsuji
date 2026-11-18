@@ -26,6 +26,7 @@ import { ToolPipeline } from '../application/tools/ToolPipeline.js';
 import { PolicyEngine } from '../application/trust/PolicyEngine.js';
 import { ApprovalService } from '../application/trust/ApprovalService.js';
 import type { StandingRule } from '../application/trust/StandingRule.js';
+import { SHIPPED_RULES } from '../application/trust/shippedRules.js';
 import { SessionAuthority, TrustService } from '../application/trust/TrustService.js';
 import { TypedApprovalReader } from '../application/trust/TypedApprovalReader.js';
 import { TrustJudge } from '../application/trust/TrustJudge.js';
@@ -33,6 +34,7 @@ import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
 import { SandboxService } from '../application/sandbox/SandboxService.js';
 import { HostSandboxDriver } from '../adapters/sandbox/host/HostSandboxDriver.js';
+import { NodeOutboundFiles } from '../adapters/files/NodeOutboundFiles.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
 import { ConfigError, SandboxUnavailable, serializeError } from '../domain/errors.js';
@@ -59,6 +61,23 @@ export const OWNER_ID: OwnerId = asId('owner');
 function inMemoryWithWarning(log: CoreServices['log']): Repositories {
   log.warn('No database configured: conversations are kept in memory and lost on restart');
   return new InMemoryRepositories();
+}
+
+/**
+ * The owner's rules from `trust.rules`, with the shipped rules in front (X4). Order does not decide
+ * anything: the engine picks the strongest match, so an owner's `ask` or `deny` rule for a shipped
+ * tool still wins.
+ */
+export function trustRulesOf(config: ShitsujiConfig): StandingRule[] {
+  return [
+    ...SHIPPED_RULES,
+    ...config.trust.rules.map((rule) => ({
+      action: rule.verdict,
+      tool: rule.tool,
+      ...(rule.target && { target: rule.target }),
+      ...(rule.detail && { detail: rule.detail }),
+    })),
+  ];
 }
 
 /** Decision Q1: the tools stay in `<dataDir>/workspace` unless the config names another folder. */
@@ -218,16 +237,10 @@ export async function createShitsuji(
     log,
   });
   // The owner's words come from the session's transcript; the judge is a small model (M3).
-  // Standing rules come from the config; a rule can force a card or refuse before the judge (#58).
-  const trustRules: readonly StandingRule[] = config.trust.rules.map((rule) => ({
-    action: rule.verdict,
-    tool: rule.tool,
-    ...(rule.target && { target: rule.target }),
-    ...(rule.detail && { detail: rule.detail }),
-  }));
-  if (trustRules.length) log.info('Trust rules loaded', { count: trustRules.length });
+  // Standing rules come from the config, merged with the shipped ones (X4); a rule can force a card
+  // or refuse before the judge (#58).
   const trust = new TrustService({
-    engine: new PolicyEngine({ rules: trustRules }),
+    engine: new PolicyEngine({ rules: trustRulesOf(config) }),
     authority: new SessionAuthority(repos.messages),
     judge: new TrustJudge({ models, log }),
     approvals,
@@ -241,6 +254,7 @@ export async function createShitsuji(
     driver: sandboxDriverOf(config),
     lease: { ownerId: OWNER_ID },
     exec: config.tools.exec,
+    outbound: new NodeOutboundFiles(path.join(config.paths.dataDir, 'handoff', 'outbox')),
     log,
   });
   await sandbox.start();

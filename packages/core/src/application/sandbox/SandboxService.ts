@@ -1,5 +1,6 @@
 import { SandboxUnavailable } from '../../domain/errors.js';
 import type { Logger } from '../../ports/Logger.js';
+import type { OutboundFiles } from '../../ports/OutboundFiles.js';
 import type {
   LeaseRequest,
   Sandbox,
@@ -15,6 +16,8 @@ export interface SandboxServiceDeps {
   lease: LeaseRequest;
   /** Timeouts and the output cap for `workspace.exec` (`tools.exec` in the config). */
   exec: ExecOptions;
+  /** Where a file leaving the sandbox is staged for the channel (S41). */
+  outbound: OutboundFiles;
   log: Logger;
 }
 
@@ -59,8 +62,17 @@ export class SandboxService {
     }
     const capabilities = await driver.capabilities();
     const sandbox = await driver.open(this.deps.lease);
+    if (sandbox.files) {
+      // The layout from F08: work any session may read, and forged tools (F20). Session folders are
+      // made when a tool first writes in one.
+      for (const folder of ['shared', 'tools']) {
+        await sandbox.files.mkdir(await sandbox.files.resolve(folder));
+      }
+    }
     const tools = [
-      ...(sandbox.files ? workspaceTools(sandbox.files, sandbox.exec, this.deps.exec) : []),
+      ...(sandbox.files
+        ? workspaceTools(sandbox.files, sandbox.exec, this.deps.exec, this.deps.outbound)
+        : []),
       ...(driver.extraTools?.() ?? []),
     ];
     this.opened = { sandbox, capabilities, tools };

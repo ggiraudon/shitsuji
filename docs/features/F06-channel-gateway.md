@@ -160,7 +160,7 @@ S37; speech-to-text for F23.
 | `channels/CLIChannel.ts` | Removed with decision Q4; the TUI is the terminal interface |
 | `channels/WebhookChannel.ts` | `adapters/channels/WebhookChannelAdapter.ts`: answers its POST with the reply now. Because the caller reads the answer, a POST needs the owner key (`Authorization: Bearer`, 401 without it) and the server listens on `127.0.0.1` unless `channels.webhook.host` is set ([#34](https://github.com/ggiraudon/shitsuji/issues/34)). Signed requests from other services and a real trigger for [F16](F16-scheduler-and-routines.md) come later |
 | `adapters/files/HandoffStore.ts` | New (S33): saves channel attachments in `<dataDir>/handoff` with a safe, unique name (T2) |
-| `adapters/tools/workspace.ts` | New `workspace.send` (S33, effect `read`); `resolveRead` lets the read and list tools reach the handoff folder, and `WorkspaceRoot` gained read-only extra roots |
+| `adapters/tools/workspace.ts` | New `workspace.send` (S33, effect `external` since S41); `resolveRead` lets the read and list tools reach the handoff folder, and `WorkspaceRoot` gained read-only extra roots |
 | `ports/Tool.ts` | `OutboundFile` and `outboundFiles()` (S33): a tool result may name files for the reply |
 
 ## Acceptance criteria

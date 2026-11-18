@@ -202,9 +202,12 @@ export const shitsujiConfigSchema = z
         exec: z
           .object({
             enabled: z.boolean().default(true),
-            defaultTimeoutSeconds: z.number().int().positive().default(60),
-            maxTimeoutSeconds: z.number().int().positive().default(300),
-            maxOutputBytes: z.number().int().positive().default(200_000),
+            /** Ten minutes: long enough for a build or an install. */
+            defaultTimeoutSeconds: z.number().int().positive().default(600),
+            /** An hour; a driver may cap this further with its `maxTimeoutMs`. */
+            maxTimeoutSeconds: z.number().int().positive().default(3_600),
+            /** 1 MiB: over it the model sees head and tail, and the full log goes to the session folder. */
+            maxOutputBytes: z.number().int().positive().default(1_048_576),
           })
           .strict()
           .default({}),

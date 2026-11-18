@@ -16,13 +16,17 @@ const LEASE: LeaseRequest = { ownerId: asId<OwnerId>('owner') };
 const EXEC = { defaultTimeoutSeconds: 10, maxTimeoutSeconds: 60, maxOutputBytes: 1_000 };
 
 /** Enough of the files port for the tools to be built; nothing here reads a real file. */
-const fakeFiles = (): SandboxFiles => ({
+const fakeFiles = (mkdirs: string[] = []): SandboxFiles => ({
   resolve: async (p) => `/workspace/${p}`,
   resolveRead: async (p) => `/workspace/${p}`,
   display: (absolute) => absolute.replace('/workspace/', ''),
   read: async () => '',
+  readBytes: async () => new Uint8Array(),
   stat: async () => undefined,
   write: async () => undefined,
+  mkdir: async (absolute) => {
+    mkdirs.push(absolute);
+  },
   list: async () => [],
 });
 
@@ -45,7 +49,13 @@ const driver = (
 });
 
 const service = (d: SandboxDriver) =>
-  new SandboxService({ driver: d, lease: LEASE, exec: EXEC, log: testServices().log });
+  new SandboxService({
+    driver: d,
+    lease: LEASE,
+    exec: EXEC,
+    outbound: { stage: async (name) => `/outbox/${name}` },
+    log: testServices().log,
+  });
 
 const names = (s: SandboxService) => s.tools().map((tool) => tool.name);
 
@@ -63,11 +73,27 @@ describe('SandboxService (F08, S40)', () => {
 
     expect(names(sandbox)).toEqual([
       'workspace.read',
+      'workspace.edit',
+      'workspace.find',
       'workspace.write',
       'workspace.list',
       'workspace.send',
     ]);
     expect(names(sandbox)).not.toContain('workspace.exec');
+  });
+
+  it('creates the shared and tools folders at open (F08)', async () => {
+    const mkdirs: string[] = [];
+    const sandbox = service(
+      driver(
+        { files: { roots: ['/workspace'] }, egress: { lanBlocked: false, credentialSwap: false } },
+        { files: fakeFiles(mkdirs) },
+      ),
+    );
+
+    await sandbox.start();
+
+    expect(mkdirs).toEqual(['/workspace/shared', '/workspace/tools']);
   });
 
   it('adds workspace.exec when the driver can run programs', async () => {

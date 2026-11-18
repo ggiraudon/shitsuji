@@ -94,9 +94,13 @@ export interface SandboxFiles {
   /** The path as the owner should see it: relative to the workspace. */
   display(absolute: string): string;
   read(absolute: string): Promise<string>;
+  /** The file's bytes, unchanged: an image or a PDF is not text. */
+  readBytes(absolute: string): Promise<Uint8Array>;
   /** Undefined when nothing is there. */
   stat(absolute: string): Promise<FileStat | undefined>;
   write(absolute: string, content: string, options: { append: boolean }): Promise<void>;
+  /** Creates a folder (and its parents) inside the roots. */
+  mkdir(absolute: string): Promise<void>;
   /** Undefined when the folder is not there. */
   list(absolute: string): Promise<FileEntry[] | undefined>;
 }

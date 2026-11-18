@@ -3,7 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  WorkspaceEditTool,
   WorkspaceExecTool,
+  WorkspaceFindTool,
   WorkspaceListTool,
   WorkspaceReadTool,
   WorkspaceSendTool,
@@ -11,6 +13,7 @@ import {
 } from '../../../../src/application/sandbox/tools/workspace.js';
 import { WorkspaceRoot } from '../../../../src/adapters/sandbox/host/WorkspaceRoot.js';
 import { HostExec } from '../../../../src/adapters/sandbox/host/HostExec.js';
+import { NodeOutboundFiles } from '../../../../src/adapters/files/NodeOutboundFiles.js';
 import type { ToolContext } from '../../../../src/ports/Tool.js';
 import { testServices } from '../../../helpers.js';
 
@@ -84,6 +87,126 @@ describe('workspace file tools', () => {
   });
 });
 
+describe('workspace.edit (S41)', () => {
+  const edit = () => new WorkspaceEditTool(ws);
+
+  it('replaces one exact match and leaves the rest of the file alone', async () => {
+    await new WorkspaceWriteTool(ws).run({
+      path: 'src/app.ts',
+      content: 'const a = 1;\nconst b = 2;\n',
+      append: false,
+    });
+
+    const out = await edit().run({
+      path: 'src/app.ts',
+      old: 'const b = 2;',
+      new: 'const b = 3;',
+      all: false,
+    });
+
+    expect(out.isError).toBeFalsy();
+    expect((await new WorkspaceReadTool(ws).run({ path: 'src/app.ts' })).content).toBe(
+      'const a = 1;\nconst b = 3;\n',
+    );
+  });
+
+  it('refuses an ambiguous match and says how many there are', async () => {
+    await new WorkspaceWriteTool(ws).run({
+      path: 'notes.md',
+      content: 'todo\ntodo\ntodo\n',
+      append: false,
+    });
+
+    const out = await edit().run({ path: 'notes.md', old: 'todo', new: 'done', all: false });
+
+    expect(out.isError).toBe(true);
+    expect(out.content).toMatch(/matches 3 places/);
+    expect(out.content).toMatch(/all: true/);
+    // Nothing is changed.
+    expect((await new WorkspaceReadTool(ws).run({ path: 'notes.md' })).content).toBe(
+      'todo\ntodo\ntodo\n',
+    );
+  });
+
+  it('replaces every match when asked to, and refuses text that is not there', async () => {
+    await new WorkspaceWriteTool(ws).run({
+      path: 'notes.md',
+      content: 'todo\ntodo\ntodo\n',
+      append: false,
+    });
+
+    const all = await edit().run({ path: 'notes.md', old: 'todo', new: 'done', all: true });
+    expect(all.isError).toBeFalsy();
+    expect((await new WorkspaceReadTool(ws).run({ path: 'notes.md' })).content).toBe(
+      'done\ndone\ndone\n',
+    );
+
+    const missing = await edit().run({ path: 'notes.md', old: 'absent', new: 'x', all: false });
+    expect(missing).toMatchObject({ isError: true });
+    expect(missing.content).toMatch(/does not contain/);
+  });
+
+  it('reports a missing file and refuses a path outside the workspace', async () => {
+    expect(await edit().run({ path: 'nope.md', old: 'a', new: 'b', all: false })).toMatchObject({
+      isError: true,
+    });
+    await expect(
+      edit().run({ path: '../outside.md', old: 'a', new: 'b', all: false }),
+    ).rejects.toThrow(/outside/);
+  });
+});
+
+describe('workspace.find (S41)', () => {
+  const find = () => new WorkspaceFindTool(ws);
+
+  beforeEach(async () => {
+    const write = new WorkspaceWriteTool(ws);
+    await write.run({ path: 'notes.md', content: 'the chestnut is here', append: false });
+    await write.run({ path: 'docs/a.md', content: 'a chestnut', append: false });
+    await write.run({ path: 'docs/b.txt', content: 'nothing', append: false });
+    await write.run({ path: 'src/app.ts', content: 'const chestnut = 1;', append: false });
+  });
+
+  it('finds files by glob, matching the name or the whole path', async () => {
+    await fs.promises.mkdir(path.join(base, 'workspace', 'src', 'deep'), { recursive: true });
+    await fs.promises.writeFile(path.join(base, 'workspace', 'src', 'deep', 'c.md'), 'c');
+
+    expect((await find().run({ path: '.', glob: '*.md', limit: 100 })).content).toBe(
+      'docs/a.md\nnotes.md\nsrc/deep/c.md',
+    );
+    expect((await find().run({ path: '.', glob: 'src/**/*.ts', limit: 100 })).content).toBe(
+      'src/app.ts',
+    );
+  });
+
+  it('finds files by text, and by glob and text together', async () => {
+    expect((await find().run({ path: '.', text: 'chestnut', limit: 100 })).content).toBe(
+      ['docs/a.md', 'notes.md', 'src/app.ts'].join('\n'),
+    );
+    expect(
+      (await find().run({ path: '.', glob: '*.md', text: 'chestnut', limit: 100 })).content,
+    ).toBe(['docs/a.md', 'notes.md'].join('\n'));
+  });
+
+  it('says when nothing matched, and stops at the limit', async () => {
+    expect((await find().run({ path: '.', text: 'no-such-text', limit: 100 })).content).toMatch(
+      /No matches/,
+    );
+
+    const limited = await find().run({ path: '.', text: 'chestnut', limit: 2 });
+    expect(limited.content.split('\n').length).toBe(3);
+    expect(limited.content).toMatch(/stopped at 2/);
+  });
+
+  it('refuses an empty search and a missing folder, and keeps to the roots', async () => {
+    expect(await find().run({ path: '.', limit: 100 })).toMatchObject({ isError: true });
+    expect(await find().run({ path: 'nope', glob: '*.md', limit: 100 })).toMatchObject({
+      isError: true,
+    });
+    await expect(find().run({ path: '../..', glob: '*', limit: 100 })).rejects.toThrow(/outside/);
+  });
+});
+
 describe('workspace.exec', () => {
   const exec = (opts: Partial<{ defaultTimeoutSeconds: number }> = {}) => {
     const options = {
@@ -154,6 +277,62 @@ describe('workspace.exec', () => {
     expect(out.content).toMatch(/timed out after 1s/);
   });
 
+  it('keeps head and tail of long output and saves the full log (S41)', async () => {
+    const options = { defaultTimeoutSeconds: 20, maxTimeoutSeconds: 60, maxOutputBytes: 200 };
+    const tool = new WorkspaceExecTool(
+      ws,
+      new HostExec({ maxTimeoutMs: options.maxTimeoutSeconds * 1000 }),
+      options,
+    );
+    const out = await tool.run(
+      {
+        program: node,
+        args: ['-e', 'process.stdout.write("A".repeat(500) + "MIDDLE" + "Z".repeat(500))'],
+        cwd: '.',
+      },
+      ctx(),
+    );
+
+    expect(out.isError).toBe(false);
+    // 100 bytes of head and 100 of tail keep the cap, with a marker where the middle was.
+    expect(out.content).toMatch(/^exit code 0\nA{100}\n\[/);
+    expect(out.content).toMatch(/\]\nZ{100}$/);
+    expect(out.content).toContain('bytes omitted');
+    expect(out.content).not.toContain('MIDDLE');
+
+    const logPath = (out.data as { logPath?: string }).logPath;
+    expect(logPath).toBeTruthy();
+    expect(logPath!.split(path.sep).join('/')).toContain('/sessions/s/exec-t-1.log');
+    const log = fs.readFileSync(logPath!, 'utf8');
+    expect(log).toContain('MIDDLE');
+    expect(log).toHaveLength(1006);
+  });
+
+  it('gives each over-cap command its own log (S41 review)', async () => {
+    const options = { defaultTimeoutSeconds: 20, maxTimeoutSeconds: 60, maxOutputBytes: 200 };
+    const tool = new WorkspaceExecTool(
+      ws,
+      new HostExec({ maxTimeoutMs: options.maxTimeoutSeconds * 1000 }),
+      options,
+    );
+    const call = () =>
+      tool.run(
+        { program: node, args: ['-e', 'process.stdout.write("A".repeat(500))'], cwd: '.' },
+        ctx(),
+      );
+
+    const first = await call();
+    const second = await call();
+    const a = (first.data as { logPath?: string }).logPath;
+    const b = (second.data as { logPath?: string }).logPath;
+
+    expect(a).toBeTruthy();
+    expect(b).toBeTruthy();
+    expect(a).not.toBe(b);
+    expect(fs.readFileSync(a!, 'utf8')).toHaveLength(500);
+    expect(fs.readFileSync(b!, 'utf8')).toHaveLength(500);
+  });
+
   it('stops the program on Stop', async () => {
     const controller = new AbortController();
     const started = Date.now();
@@ -176,6 +355,8 @@ describe('Handoff reads and workspace.send (S33)', () => {
   });
 
   const readRoot = () => new WorkspaceRoot(path.join(base, 'workspace'), [handoff]);
+  const outbox = () => path.join(base, 'outbox');
+  const send = () => new WorkspaceSendTool(readRoot(), new NodeOutboundFiles(outbox()));
 
   it('reads a handoff file by relative name and by absolute path', async () => {
     fs.writeFileSync(path.join(handoff, 'report.txt'), 'hello');
@@ -200,11 +381,17 @@ describe('Handoff reads and workspace.send (S33)', () => {
     const file = path.join(handoff, 'report.pdf');
     fs.writeFileSync(file, 'pdf');
 
-    const output = await new WorkspaceSendTool(readRoot()).run({ path: file }, ctx());
+    const output = await send().run({ path: file }, ctx());
 
     expect(output.isError).toBeFalsy();
     expect(output.data).toEqual({
-      files: [{ path: file, name: 'report.pdf', mediaType: 'application/pdf' }],
+      files: [
+        {
+          path: path.join(outbox(), 'report.pdf'),
+          name: 'report.pdf',
+          mediaType: 'application/pdf',
+        },
+      ],
     });
   });
 
@@ -212,25 +399,31 @@ describe('Handoff reads and workspace.send (S33)', () => {
     fs.mkdirSync(path.join(base, 'workspace'), { recursive: true });
     fs.writeFileSync(path.join(base, 'workspace', 'photo.png'), 'png');
 
-    const output = await new WorkspaceSendTool(readRoot()).run(
-      { path: 'photo.png', caption: 'The photo' },
-      ctx(),
-    );
+    const output = await send().run({ path: 'photo.png', caption: 'The photo' }, ctx());
 
     expect(output.data).toMatchObject({
       files: [{ name: 'photo.png', mediaType: 'image/png', caption: 'The photo' }],
     });
   });
 
+  it('delivers a binary file byte for byte (S41)', async () => {
+    // A PNG header and a few bytes that are not valid UTF-8.
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xfe]);
+    fs.mkdirSync(path.join(base, 'workspace'), { recursive: true });
+    fs.writeFileSync(path.join(base, 'workspace', 'photo.png'), bytes);
+
+    const output = await send().run({ path: 'photo.png' }, ctx());
+
+    const staged = (output.data as { files: { path: string }[] }).files[0]!.path;
+    expect(fs.readFileSync(staged).equals(bytes)).toBe(true);
+    expect(staged.endsWith('photo.png')).toBe(true);
+  });
+
   it('refuses a file outside the roots and reports one that is missing', async () => {
     const outside = path.join(base, 'secret.txt');
     fs.writeFileSync(outside, 'secret');
 
-    await expect(new WorkspaceSendTool(readRoot()).run({ path: outside }, ctx())).rejects.toThrow(
-      /outside/,
-    );
-    expect(
-      await new WorkspaceSendTool(readRoot()).run({ path: 'missing.pdf' }, ctx()),
-    ).toMatchObject({ isError: true });
+    await expect(send().run({ path: outside }, ctx())).rejects.toThrow(/outside/);
+    expect(await send().run({ path: 'missing.pdf' }, ctx())).toMatchObject({ isError: true });
   });
 });

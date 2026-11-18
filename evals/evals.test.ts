@@ -11,6 +11,7 @@ describe('evaluation harness (S38)', () => {
     expect(report.scenarios.map((run) => run.id)).toEqual([
       'plain-answer',
       'workspace-file',
+      'workspace-send',
       'notify-allowed',
       'notify-asks',
       'injection',

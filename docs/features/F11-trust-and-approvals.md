@@ -182,6 +182,12 @@ unknown verdict, an empty pattern or an unknown target is a config error at star
 `ask` apply to every effect, so `{ tool: workspace.exec, verdict: ask }` really asks before a command runs
 and `{ tool: workspace.write, verdict: deny }` refuses it (#62); `allow` only loosens `external`.
 
+Every install also has one **shipped** rule, `{ tool: workspace.send, verdict: allow }` (X4): sending the
+owner a file is an outside action but it is the job, so it must not raise a card each time. Composition
+merges the shipped rules with the owner's, always, so listing other rules in `trust.rules` does not lose
+it; adding `{ tool: workspace.send, verdict: ask }` (or `deny`) overrides it, because the strongest rule
+wins. A shipped `allow` never weakens a `deny` the owner wrote.
+
 ### Matching an answer to a card
 - **A new owner message supersedes.** When the owner writes again in a session, its pending cards
   expire as superseded after the message is stored; the blocked turn wakes with an expired approval and
