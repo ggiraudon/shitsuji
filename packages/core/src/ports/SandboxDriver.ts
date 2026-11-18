@@ -46,7 +46,17 @@ export interface Sandbox {
   files?: SandboxFiles;
   desktop?: DesktopCapability;
   browser?: BrowserCapability;
+  /** Answers whether an address is reachable from inside this sandbox (S42). */
+  egress?: SandboxEgress;
   close(): Promise<void>;
+}
+
+/**
+ * The egress probe's way in: can the sandbox open a TCP connection to this address? It runs where the
+ * commands run, so an `exec` host and a container answer for their own network.
+ */
+export interface SandboxEgress {
+  reachable(host: string, port: number, timeoutMs: number): Promise<boolean>;
 }
 
 /** Runs one program. No shell: each argument is passed as itself. */

@@ -4,6 +4,7 @@ import type {
   LeaseRequest,
   Sandbox,
 } from '../../../ports/SandboxDriver.js';
+import { HostEgress } from './HostEgress.js';
 import { HostExec } from './HostExec.js';
 import { WorkspaceRoot } from './WorkspaceRoot.js';
 
@@ -47,6 +48,7 @@ export class HostSandboxDriver implements SandboxDriver {
       ...(this.execEnabled && {
         exec: new HostExec({ maxTimeoutMs: this.options.exec!.maxTimeoutSeconds * 1000 }),
       }),
+      egress: new HostEgress(),
       // Nothing to tear down yet: the host has no container. `sandboxd` closes its session here.
       close: async () => undefined,
     };
