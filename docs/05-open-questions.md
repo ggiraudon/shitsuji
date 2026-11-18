@@ -55,6 +55,17 @@ Decisions to make together before implementation starts. Each has a proposal so 
 D4 now reads "one long-lived sandbox": per-task sandboxes come later through the driver's `lifecycle.perTask`
 capability (F15).
 
+### Fourth pass (decided 2026-11-18)
+
+| # | Decision |
+|---|----------|
+| X1 | The `core` ↔ `sandboxd` wire types live in a new workspace package, **`packages/sandbox-protocol`**, in this repo. `shitsuji-shared` stays the client contract; the protocol can be split out later if a client ever needs it |
+| X2 | The startup egress probes always try `core`'s API and `postgres:5432`, plus the addresses in `sandbox.probes.lan`, which defaults to `[192.168.1.1]` (the owner's router) |
+| X3 | Default driver: **`host` when running from source** (`pnpm dev`), **`shitsuji` in `compose.yaml`** from S49. A driver refused at startup leaves the sandbox tools off; there is **no fallback to `host`** |
+| X4 | `workspace.send` is `external` (sending the owner a file). The shipped default `trust.rules` holds `{ tool: workspace.send, verdict: allow }`, so it runs without asking; the owner can remove the rule |
+| X5 | **No copy:** the sandbox mounts the existing workspace folder of the `coredata` volume as `/workspace` (Compose `volume.subpath`), and `handoff` the same way in both containers. With the `shitsuji` driver, `core` never reads `/data/workspace` directly; every file operation goes through `sandboxd` |
+| X6 | OpenSandbox gets one spike step (S43). If it does not run on Docker Desktop (WSL2), the findings go in F08 and its driver waits; the `shitsuji` driver does not depend on it |
+
 Still open: D2 for the web UI, D3–D5, M2, M4, P3–P5.
 
 ## Architecture

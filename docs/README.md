@@ -1,8 +1,8 @@
 # Shitsuji research docs
 
 This folder holds the research and design notes for taking Shitsuji from an early prototype to a capable,
-proactive personal assistant. Implementation follows [09-third-pass-plan.md](09-third-pass-plan.md); the first
-three passes are done (the live Telegram check is yours: [10-live-checks.md](10-live-checks.md)).
+proactive personal assistant. Implementation follows [11-fourth-pass-plan.md](11-fourth-pass-plan.md); the first
+three passes are done, including the live Telegram check ([10-live-checks.md](10-live-checks.md)).
 
 ## Read in this order
 
@@ -20,6 +20,7 @@ three passes are done (the live Telegram check is yours: [10-live-checks.md](10-
 | 10 | [08-second-pass-plan.md](08-second-pass-plan.md) | The second pass (done): F05 + F04 + HTTP API and TUI as steps S15–S26 |
 | 11 | [09-third-pass-plan.md](09-third-pass-plan.md) | The third pass (done): F22 + F06 + F11 as steps S27–S39 |
 | 12 | [10-live-checks.md](10-live-checks.md) | The live check only you can run: Telegram on your phone, approvals, `/stop` |
+| 13 | [11-fourth-pass-plan.md](11-fourth-pass-plan.md) | The fourth pass: F08 sandbox drivers as steps S40–S49 |
 | 13 | [PROGRESS.md](PROGRESS.md) | The checklist: every pass's steps and every feature's acceptance criteria |
 
 Rules for working on the code (commits, layers, tests) are in [AGENTS.md](../AGENTS.md).
