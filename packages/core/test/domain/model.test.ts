@@ -60,6 +60,7 @@ describe('Turn state machine', () => {
     ['running', 'waiting'],
     ['running', 'failed'],
     ['running', 'cancelled'],
+    ['waiting', 'succeeded'],
     ['waiting', 'cancelled'],
   ];
   const all: TurnStatus[] = ['queued', 'running', 'waiting', 'succeeded', 'failed', 'cancelled'];
