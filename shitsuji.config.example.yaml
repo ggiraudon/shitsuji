@@ -55,6 +55,15 @@ budget:
   backgroundAllowance: 5 # what background work (no owner message) may spend per month
   checkIn: 1 # a session pauses to ask after this much since your last message (S28)
 
+# Standing trust rules (F11, #58): a rule decides before the judge. `verdict` is allow, ask or deny;
+# deny beats ask, which beats allow. `payment` still always asks (P6). `detail` is shown in the receipt.
+trust:
+  rules: []
+  # - { tool: test.notify, verdict: ask, detail: always ask before notifying }
+  # - { tool: 'mail.*', verdict: ask, detail: always ask before emailing }
+  # - { tool: 'web.*', verdict: allow, detail: reading the web is fine }
+  # - { tool: shop.pay, verdict: deny, detail: never spend money }
+
 channels:
   webhook: # POST with `Authorization: Bearer <owner key>`; answers with the reply
     enabled: true
