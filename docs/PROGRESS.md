@@ -135,13 +135,16 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 - [ ] Secrets typed in settings never come back from the API (only "configured: yes").
 - [ ] Every API route rejects requests without the owner key.
 
-### [F08 — Workspace sandbox container](features/F08-workspace-sandbox.md)
+### [F08 — Sandbox drivers and the workspace](features/F08-workspace-sandbox.md)
 
 - [ ] `workspace.exec("python3 -c 'print(1)'")` returns `1`; the command never runs on the host.
 - [ ] A fork bomb or `sleep infinity &` is contained (PID limit) and cleaned up on Stop.
 - [ ] The workspace has no route to Postgres or the `core` admin API (network test).
 - [ ] `env` inside the workspace shows no model keys, only placeholders for the run's declared secrets.
 - [ ] `curl` to a LAN address or to `core` fails; `pip install` works through the proxy.
+- [ ] The `opensandbox` and `shitsuji` drivers both pass the conformance suite for every capability they claim,
+      and switching `sandbox.driver` changes no tool name, schema or effect.
+- [ ] A driver that claims `lanBlocked` while a probe gets through is refused at startup.
 
 ### [F09 — Browser automation](features/F09-browser.md)
 
@@ -153,7 +156,7 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 ### [F10 — Desktop environment and computer use](features/F10-desktop.md)
 
 - [ ] `docker compose up` starts the desktop; the web UI shows it live.
-- [ ] The agent opens LibreOffice Calc, types numbers, saves a file to `/handoff`, and the workspace can read it.
+- [ ] The agent opens LibreOffice Calc, types numbers, saves a file to `/workspace`, and `workspace.exec` can read it.
 - [ ] The same Calc task completes **using only `desktop.inspect` / `desktop.act`**, with no screenshot sent to
       the model; an eval ([F22](features/F22-observability-and-cost.md)) compares its tokens and success rate with the
       screenshot-only run.

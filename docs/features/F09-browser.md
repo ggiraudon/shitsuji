@@ -25,7 +25,9 @@ browser to you when a sign-in or CAPTCHA needs a person. Profiles persist, so lo
 
 ### Connection
 
-`core` connects with Playwright `chromium.connectOverCDP('http://desktop:9222')` through the sandbox network.
+The browser is the `browser` capability of a sandbox driver ([F08](F08-workspace-sandbox.md#the-driver-port)).
+With the `shitsuji` driver, `core` connects with Playwright `chromium.connectOverCDP('http://sandbox:9222')`
+through the sandbox network.
 One **browser context per session** (chat, each task, each helper), so tasks do not fight over tabs. Named
 **profiles** (a persistent user-data directory per profile) hold cookies for sites you signed in to.
 

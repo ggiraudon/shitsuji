@@ -41,6 +41,20 @@ Decisions to make together before implementation starts. Each has a proposal so 
 | T1 | Telegram through **grammY**, with long polling, inside `core` as a plugin adapter |
 | T2 | Until F08, Telegram attachments go to `<dataDir>/handoff`, next to the workspace folder; the file tools may read it |
 
+### Sandbox design (decided 2026-11-17)
+
+| # | Decision |
+|---|----------|
+| W1 | **One `sandbox` service instead of separate `workspace` and `desktop` containers.** Both run untrusted work and hold no secrets, so splitting them protects nothing, while one container shares one filesystem (no handoff dance between a download and a script), one daemon, one egress path and one set of limits. The image is built in two layers: `shitsuji/sandbox` (shell, files, CLI tools: F08) and `shitsuji/sandbox-desktop` on top of it (X, XFCE, Chromium, LibreOffice, AT-SPI, noVNC: F10, F09). `core` never runs inside it. `egress-proxy` stays its own container, since it is trusted and talks to `core`. One `packages/sandbox-daemon` replaces the `workspace-daemon` and `desktop-daemon` packages planned in A1 |
+| W2 | **Sandbox drivers behind a `SandboxDriver` port.** A driver is a plugin (`provides: ['sandbox']`), selected in config (`sandbox.driver`). It advertises its **capabilities** (exec, files, desktop, browser, lifecycle, egress); `core` registers tools only for the capabilities the active driver has |
+| W3 | **Core owns the standard tools; drivers implement them.** Names, input schemas and effects of `workspace.*`, `desktop.*`, `computer.*` and `browser.*` are defined once in `core`, so trust rules, receipts, evals and the prompt do not depend on the driver. A driver may add extra tools, always namespaced by its id (`opensandbox.*`), through the same pipeline and trust checks. A driver can never change a standard tool's effect |
+| W4 | **Safety capabilities are checked, not trusted.** A driver declares `egress.lanBlocked` and `egress.credentialSwap`. At startup `core` probes from inside the sandbox (a LAN address, `core` itself, Postgres) and refuses a driver whose claim does not hold. Without `lanBlocked` the sandbox gets no network; without `credentialSwap` it never receives a credential placeholder (F12) |
+| W5 | **One conformance suite for every driver**, like the channel contract tests: each test runs when the driver claims the capability it covers, and a driver ships only when it passes everything it claims |
+| W6 | **Order: a `host` driver first (today's tools, unchanged), then an `opensandbox` driver to test against early, then our own `shitsuji` driver** (sandboxd + egress-proxy), which becomes the default when it passes the suite. [OpenSandbox](https://github.com/opensandbox-group/OpenSandbox) (Apache-2.0, self-hosted) is used as a **running service through its TypeScript SDK**, not as copied code; it is optional and off by default. Our desktop layer (F10) is ours regardless, since accessibility-first desktop control is not something it offers |
+
+D4 now reads "one long-lived sandbox": per-task sandboxes come later through the driver's `lifecycle.perTask`
+capability (F15).
+
 Still open: D2 for the web UI, D3–D5, M2, M4, P3–P5.
 
 ## Architecture
@@ -59,7 +73,7 @@ Still open: D2 for the web UI, D3–D5, M2, M4, P3–P5.
 |---|----------|----------|---------|
 | D1 | Where will it run first: your PC (Docker Desktop on Windows) or a home server / VPS? | Develop on Docker Desktop; design for a Linux host | all containers |
 | D2 | Remote access: none, Tailscale, or a public domain with HTTPS? | Tailscale first (no open ports); Caddy profile for a domain later | F06, F07 |
-| D3 | Egress filtering for workspace and desktop (block LAN and `core`)? | Yes, from M3: the `egress-proxy` service is their only way out; it also swaps credential placeholders (F12) | F08, F09, F10, F12 |
+| D3 | Egress filtering for the sandbox (block LAN and `core`)? | Yes, from M3: the `egress-proxy` service is their only way out; it also swaps credential placeholders (F12) | F08, F09, F10, F12 |
 | D5 | Credential proxy: own Node service or mitmproxy with an addon? | Own small Node service, intercepting TLS only for hosts with a credential binding | F12 |
 | D4 | One desktop container, or start one on demand per task? | One long-lived desktop; idle stop; revisit later | F10, F15 |
 
