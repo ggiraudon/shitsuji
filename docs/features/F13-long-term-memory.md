@@ -119,8 +119,15 @@ folders of PDFs, old projects) is a separate job that could come later behind it
 - A `KnowledgeStore` port (search, add documents, remove documents, report sources), implemented by one or
   more plugins (`provides: ['knowledge']`). Several stores can be active at once, and the agent queries them
   through one read-only tool.
-- Candidate plugins to evaluate then: a plain pgvector store, and a graph-based one such as
-  [LightRAG](https://github.com/HKUDS/LightRAG), which pays off for questions that span many documents.
+- **Default candidate: a built-in indexer in Postgres**, with no new service. It splits files from the
+  workspace, the handoff folder and folders the owner picks into passages, stores them with a full-text
+  index (`tsvector`) and, optionally, a pgvector embedding, and merges keyword and meaning-based results.
+  It re-indexes changed files and drops deleted ones. Text extraction (PDF, OCR, Office files) runs in the
+  sandbox with the tools its image already has, so `core` never parses untrusted files. The same search
+  code could serve `history.search`. A separate engine (Meilisearch, Typesense) would only come as another
+  plugin if Postgres is outgrown.
+- Optional extra on top: a graph-based store such as [LightRAG](https://github.com/HKUDS/LightRAG), which
+  pays off for questions that span many documents.
 - Rules carried over from memory: what a store returns is **context, not permission**; a store never writes
   memory notes; every result names the document it came from, so the owner can check it.
 - To analyse before deciding: the indexing cost in model calls, whether it can reuse Postgres instead of a
