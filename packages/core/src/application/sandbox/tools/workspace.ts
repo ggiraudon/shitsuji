@@ -152,6 +152,108 @@ export class WorkspaceListTool extends BaseTool<typeof listInput> {
   }
 }
 
+const findInput = z.object({
+  path: z
+    .string()
+    .default('.')
+    .describe('Folder to search, relative to the workspace or the handoff folder'),
+  glob: z
+    .string()
+    .optional()
+    .describe('Glob for the name or path, e.g. "*.md" or "src/**/*.ts"; ** crosses folders'),
+  text: z.string().optional().describe('Only files that contain this exact text'),
+  limit: z.number().int().min(1).max(500).default(100).describe('Stop after this many files'),
+});
+
+/** Files bigger than this are not read for a text search; use list and read instead. */
+const MAX_FIND_BYTES = 1_000_000;
+const SKIP_FOLDERS = new Set(['.git', 'node_modules']);
+
+/**
+ * workspace.find looks for files by name (glob) and/or by content (text) inside the roots. It is a
+ * read: the results are paths, and reading one is a separate call.
+ */
+export class WorkspaceFindTool extends BaseTool<typeof findInput> {
+  readonly name = 'workspace.find';
+  readonly description =
+    'Find files in the workspace or handoff folder by glob, by text they contain, or both. ' +
+    'Returns matching paths, one per line.';
+  readonly input = findInput;
+  readonly effect = 'read' as const;
+  override readonly target = 'workspace' as const;
+  constructor(private readonly files: SandboxFiles) {
+    super();
+  }
+
+  async run({ path: root, glob, text, limit }: z.infer<typeof findInput>): Promise<ToolOutput> {
+    if (!glob && !text) {
+      return { content: 'Give a glob, a text, or both.', isError: true };
+    }
+    const dir = await this.files.resolveRead(root);
+    const entries = await this.files.list(dir);
+    if (!entries) return { content: `No such folder: ${root}`, isError: true };
+    const matches = glob ? globToRegExp(glob) : undefined;
+    const found: string[] = [];
+    let stopped = false;
+    const walk = async (absolute: string, relative: string): Promise<void> => {
+      if (stopped) return;
+      const listing = await this.files.list(absolute);
+      for (const entry of listing ?? []) {
+        if (stopped) return;
+        const childAbsolute = `${absolute}/${entry.name}`;
+        const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
+        if (entry.directory) {
+          if (SKIP_FOLDERS.has(entry.name)) continue;
+          await walk(childAbsolute, childRelative);
+          continue;
+        }
+        if (matches && !matches.test(childRelative) && !matches.test(entry.name)) continue;
+        if (text !== undefined) {
+          const stat = await this.files.stat(childAbsolute);
+          if (!stat?.isFile || stat.size > MAX_FIND_BYTES) continue;
+          const content = await this.files.read(childAbsolute).catch(() => undefined);
+          if (content === undefined || !content.includes(text)) continue;
+        }
+        found.push(childRelative);
+        if (found.length >= limit) {
+          stopped = true;
+          return;
+        }
+      }
+    };
+    await walk(dir, '');
+    if (!found.length) return { content: 'No matches.', data: { matches: 0 } };
+    found.sort();
+    const lines = [...found, ...(stopped ? [`[stopped at ${limit} matches]`] : [])];
+    return { content: lines.join('\n'), data: { matches: found.length } };
+  }
+}
+
+/** A glob for a workspace path: `*` stays in one folder, `**` crosses them, `?` is one character. */
+function globToRegExp(glob: string): RegExp {
+  let body = '';
+  for (let i = 0; i < glob.length; i++) {
+    const char = glob[i]!;
+    if (char === '*') {
+      if (glob[i + 1] === '*') {
+        body += '.*';
+        i++;
+        if (glob[i + 1] === '/') {
+          body += '\\/?';
+          i++;
+        }
+      } else {
+        body += '[^/]*';
+      }
+    } else if (char === '?') {
+      body += '[^/]';
+    } else {
+      body += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  return new RegExp(`^${body}$`);
+}
+
 const sendInput = z.object({
   path: z.string().min(1).describe('File path in the workspace or the handoff folder'),
   caption: z.string().max(1024).optional().describe('A short caption for the recipient'),

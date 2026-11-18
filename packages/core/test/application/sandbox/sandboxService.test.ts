@@ -64,6 +64,7 @@ describe('SandboxService (F08, S40)', () => {
     expect(names(sandbox)).toEqual([
       'workspace.read',
       'workspace.edit',
+      'workspace.find',
       'workspace.write',
       'workspace.list',
       'workspace.send',

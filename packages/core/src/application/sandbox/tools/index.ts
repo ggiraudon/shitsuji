@@ -3,6 +3,7 @@ import type { Tool } from '../../../ports/Tool.js';
 import {
   WorkspaceEditTool,
   WorkspaceExecTool,
+  WorkspaceFindTool,
   WorkspaceListTool,
   WorkspaceReadTool,
   WorkspaceSendTool,
@@ -25,6 +26,7 @@ export function workspaceTools(
   return [
     new WorkspaceReadTool(files),
     new WorkspaceEditTool(files),
+    new WorkspaceFindTool(files),
     new WorkspaceWriteTool(files),
     new WorkspaceListTool(files),
     new WorkspaceSendTool(files),

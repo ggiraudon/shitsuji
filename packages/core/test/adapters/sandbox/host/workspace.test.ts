@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   WorkspaceEditTool,
   WorkspaceExecTool,
+  WorkspaceFindTool,
   WorkspaceListTool,
   WorkspaceReadTool,
   WorkspaceSendTool,
@@ -151,6 +152,57 @@ describe('workspace.edit (S41)', () => {
     await expect(
       edit().run({ path: '../outside.md', old: 'a', new: 'b', all: false }),
     ).rejects.toThrow(/outside/);
+  });
+});
+
+describe('workspace.find (S41)', () => {
+  const find = () => new WorkspaceFindTool(ws);
+
+  beforeEach(async () => {
+    const write = new WorkspaceWriteTool(ws);
+    await write.run({ path: 'notes.md', content: 'the chestnut is here', append: false });
+    await write.run({ path: 'docs/a.md', content: 'a chestnut', append: false });
+    await write.run({ path: 'docs/b.txt', content: 'nothing', append: false });
+    await write.run({ path: 'src/app.ts', content: 'const chestnut = 1;', append: false });
+  });
+
+  it('finds files by glob, matching the name or the whole path', async () => {
+    await fs.promises.mkdir(path.join(base, 'workspace', 'src', 'deep'), { recursive: true });
+    await fs.promises.writeFile(path.join(base, 'workspace', 'src', 'deep', 'c.md'), 'c');
+
+    expect((await find().run({ path: '.', glob: '*.md', limit: 100 })).content).toBe(
+      'docs/a.md\nnotes.md\nsrc/deep/c.md',
+    );
+    expect((await find().run({ path: '.', glob: 'src/**/*.ts', limit: 100 })).content).toBe(
+      'src/app.ts',
+    );
+  });
+
+  it('finds files by text, and by glob and text together', async () => {
+    expect((await find().run({ path: '.', text: 'chestnut', limit: 100 })).content).toBe(
+      ['docs/a.md', 'notes.md', 'src/app.ts'].join('\n'),
+    );
+    expect(
+      (await find().run({ path: '.', glob: '*.md', text: 'chestnut', limit: 100 })).content,
+    ).toBe(['docs/a.md', 'notes.md'].join('\n'));
+  });
+
+  it('says when nothing matched, and stops at the limit', async () => {
+    expect((await find().run({ path: '.', text: 'no-such-text', limit: 100 })).content).toMatch(
+      /No matches/,
+    );
+
+    const limited = await find().run({ path: '.', text: 'chestnut', limit: 2 });
+    expect(limited.content.split('\n').length).toBe(3);
+    expect(limited.content).toMatch(/stopped at 2/);
+  });
+
+  it('refuses an empty search and a missing folder, and keeps to the roots', async () => {
+    expect(await find().run({ path: '.', limit: 100 })).toMatchObject({ isError: true });
+    expect(await find().run({ path: 'nope', glob: '*.md', limit: 100 })).toMatchObject({
+      isError: true,
+    });
+    await expect(find().run({ path: '../..', glob: '*', limit: 100 })).rejects.toThrow(/outside/);
   });
 });
 
