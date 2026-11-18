@@ -370,13 +370,13 @@ it("sends an approval card to the turn's channel (S37)", async () => {
   await shitsuji.stop();
 });
 
-  it('exposes the approval service for the evaluation harness (S38)', async () => {
-    const { plugin } = fakes([]);
-    const shitsuji = await createShitsuji(config(), {
-      services: testServices(),
-      plugins: [plugin],
-    });
-
-    expect(shitsuji.approvals).toBeDefined();
-    expect(typeof shitsuji.approvals?.resolve).toBe('function');
+it('exposes the approval service for the evaluation harness (S38)', async () => {
+  const { plugin } = fakes([]);
+  const shitsuji = await createShitsuji(config(), {
+    services: testServices(),
+    plugins: [plugin],
   });
+
+  expect(shitsuji.approvals).toBeDefined();
+  expect(typeof shitsuji.approvals?.resolve).toBe('function');
+});
