@@ -108,3 +108,27 @@ continuity and the weekly review.
   recall works without either.
 - Should the agent be allowed to write `projects` notes from its own work (not your words)? Proposal: no, put
   that in the daily log and task results, keep memory owner-sourced.
+
+## Later, optional: knowledge stores
+
+> **Status:** an idea to analyse later, not part of F13 and not planned yet.
+
+Memory notes stay small, owner-sourced facts. Retrieving from **large collections** (an email archive,
+folders of PDFs, old projects) is a separate job that could come later behind its own port:
+
+- A `KnowledgeStore` port (search, add documents, remove documents, report sources), implemented by one or
+  more plugins (`provides: ['knowledge']`). Several stores can be active at once, and the agent queries them
+  through one read-only tool.
+- **Default candidate: a built-in indexer in Postgres**, with no new service. It splits files from the
+  workspace, the handoff folder and folders the owner picks into passages, stores them with a full-text
+  index (`tsvector`) and, optionally, a pgvector embedding, and merges keyword and meaning-based results.
+  It re-indexes changed files and drops deleted ones. Text extraction (PDF, OCR, Office files) runs in the
+  sandbox with the tools its image already has, so `core` never parses untrusted files. The same search
+  code could serve `history.search`. A separate engine (Meilisearch, Typesense) would only come as another
+  plugin if Postgres is outgrown.
+- Optional extra on top: a graph-based store such as [LightRAG](https://github.com/HKUDS/LightRAG), which
+  pays off for questions that span many documents.
+- Rules carried over from memory: what a store returns is **context, not permission**; a store never writes
+  memory notes; every result names the document it came from, so the owner can check it.
+- To analyse before deciding: the indexing cost in model calls, whether it can reuse Postgres instead of a
+  new database, how deletion and updates work, and the risk of poisoned documents.
