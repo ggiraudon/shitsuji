@@ -337,6 +337,9 @@ export interface ExecOptions {
   maxTimeoutSeconds: number;
   maxOutputBytes: number;
 }
+
+/** The most of a command's output kept in memory for the session log; the rest is dropped. */
+const MAX_LOG_BYTES = 64 * 1024 * 1024;
 const execInput = z.object({
   program: z.string().min(1).describe('The program to run, e.g. "python3" or "git"'),
   args: z.array(z.string()).default([]).describe('Arguments, one per item; no shell is involved'),
@@ -375,7 +378,7 @@ export class WorkspaceExecTool extends BaseTool<typeof execInput> {
     );
     const chunks: Buffer[] = [];
     let bytes = 0;
-    let truncated = false;
+    let logCapped = false;
     let exit: Extract<ExecEvent, { type: 'exit' }> | undefined;
     try {
       for await (const event of this.exec.run(
@@ -386,20 +389,35 @@ export class WorkspaceExecTool extends BaseTool<typeof execInput> {
           exit = event;
           continue;
         }
-        if (bytes >= this.options.maxOutputBytes) {
-          truncated = true;
+        if (bytes >= MAX_LOG_BYTES) {
+          logCapped = true;
           continue;
         }
-        const chunk = Buffer.from(event.text);
-        chunks.push(chunk.subarray(0, this.options.maxOutputBytes - bytes));
-        bytes += chunk.length;
+        chunks.push(Buffer.from(event.text));
+        bytes += Buffer.byteLength(event.text);
       }
     } catch (error) {
       return { content: (error as Error).message, isError: true };
     }
     if (!exit) return { content: 'The command ended without an exit code', isError: true };
-    const output =
-      Buffer.concat(chunks).toString('utf8') + (truncated ? '\n[output truncated]' : '');
+    const full = Buffer.concat(chunks);
+    // Long output keeps its head and tail for the model; the whole of it goes to the session folder.
+    let output: string;
+    let logPath: string | undefined;
+    if (full.length > this.options.maxOutputBytes) {
+      const log = await this.saveLog(ctx, full, logCapped);
+      logPath = log.path;
+      const head = Math.floor(this.options.maxOutputBytes / 2);
+      const tail = this.options.maxOutputBytes - head;
+      const omitted = full.length - head - tail;
+      output =
+        full.subarray(0, head).toString('utf8') +
+        `\n[... ${omitted} bytes omitted; the full output is in ${this.files.display(log.path)}` +
+        `${logCapped ? ', which itself was capped' : ''} ...]\n` +
+        full.subarray(full.length - tail).toString('utf8');
+    } else {
+      output = full.toString('utf8');
+    }
     const status = exit.timedOut
       ? `timed out after ${timeoutS}s`
       : exit.signal
@@ -408,7 +426,26 @@ export class WorkspaceExecTool extends BaseTool<typeof execInput> {
     return {
       content: `${status}\n${output}`.trimEnd(),
       isError: exit.code !== 0,
-      data: { exitCode: exit.code, signal: exit.signal, timedOut: exit.timedOut },
+      data: {
+        exitCode: exit.code,
+        signal: exit.signal,
+        timedOut: exit.timedOut,
+        ...(logPath && { logPath }),
+      },
     };
+  }
+
+  /** The whole output, in `sessions/<sessionId>/`, so the owner can read what the model could not. */
+  private async saveLog(
+    ctx: ToolContext,
+    output: Buffer,
+    capped: boolean,
+  ): Promise<{ path: string }> {
+    const file = await this.files.resolve(`sessions/${ctx.sessionId}/exec-${ctx.turnId}.log`);
+    const text =
+      output.toString('utf8') +
+      (capped ? `\n[the log itself was capped at ${MAX_LOG_BYTES} bytes]` : '');
+    await this.files.write(file, text, { append: false });
+    return { path: file };
   }
 }

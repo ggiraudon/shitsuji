@@ -276,6 +276,37 @@ describe('workspace.exec', () => {
     expect(out.content).toMatch(/timed out after 1s/);
   });
 
+  it('keeps head and tail of long output and saves the full log (S41)', async () => {
+    const options = { defaultTimeoutSeconds: 20, maxTimeoutSeconds: 60, maxOutputBytes: 200 };
+    const tool = new WorkspaceExecTool(
+      ws,
+      new HostExec({ maxTimeoutMs: options.maxTimeoutSeconds * 1000 }),
+      options,
+    );
+    const out = await tool.run(
+      {
+        program: node,
+        args: ['-e', 'process.stdout.write("A".repeat(500) + "MIDDLE" + "Z".repeat(500))'],
+        cwd: '.',
+      },
+      ctx(),
+    );
+
+    expect(out.isError).toBe(false);
+    // 100 bytes of head and 100 of tail keep the cap, with a marker where the middle was.
+    expect(out.content).toMatch(/^exit code 0\nA{100}\n\[/);
+    expect(out.content).toMatch(/\]\nZ{100}$/);
+    expect(out.content).toContain('bytes omitted');
+    expect(out.content).not.toContain('MIDDLE');
+
+    const logPath = (out.data as { logPath?: string }).logPath;
+    expect(logPath).toBeTruthy();
+    expect(logPath!.split(path.sep).join('/')).toContain('/sessions/s/exec-t.log');
+    const log = fs.readFileSync(logPath!, 'utf8');
+    expect(log).toContain('MIDDLE');
+    expect(log).toHaveLength(1006);
+  });
+
   it('stops the program on Stop', async () => {
     const controller = new AbortController();
     const started = Date.now();
