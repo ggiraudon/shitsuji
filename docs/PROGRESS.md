@@ -68,6 +68,24 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
       *(The docs are synced and every criterion this pass can meet is ticked. The live phone check needs
       your bot token and phone: [10-live-checks.md](10-live-checks.md).)*
 
+## Fourth pass steps
+
+See [11-fourth-pass-plan.md](11-fourth-pass-plan.md). Each step is also a GitHub issue (#69–#79); tick
+both until every agent can reach the issues. Decisions X1–X6 are made.
+
+- [x] **S40** The SandboxDriver port and the host driver
+      *(The port from F08 and the `host` driver; the tools moved behind it with no behaviour change, and
+      a driver without `exec` gets no `workspace.exec`.)*
+- [ ] **S41** The standard workspace tools, complete
+- [ ] **S42** The conformance suite and the egress probes
+- [ ] **S43** OpenSandbox spike
+- [ ] **S44** The `opensandbox` driver
+- [ ] **S45** The `sandbox` image and `sandboxd` files API
+- [ ] **S46** The exec supervisor
+- [ ] **S47** `egress-proxy`
+- [ ] **S48** The `shitsuji` driver
+- [ ] **S49** Switch the default, live check and docs
+
 ## Acceptance criteria by feature
 
 ### [F01 — Core architecture and composition root](features/F01-core-architecture.md)
