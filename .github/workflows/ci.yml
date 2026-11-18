@@ -23,3 +23,35 @@ jobs:
       # Postgres in Docker via Testcontainers (the runner has Docker).
       - run: pnpm test:integration
       - run: pnpm build
+
+  # Builds Shitsuji's own sandbox image and checks that the daemon inside it answers, authenticates
+  # and refuses to leave its roots (F08, S45). Not part of the stack yet (S48).
+  sandbox-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the sandbox image
+        run: docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox:ci .
+      - name: sandboxd answers, authenticates and stays confined
+        run: |
+          docker run -d --name sandbox-ci -e SANDBOX_TOKEN=ci-token -p 127.0.0.1:4555:4555 shitsuji/sandbox:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4555/health > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4555/health | grep -q '"ok":true'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4555/files/read)" = "401"
+          curl -fsS -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' \
+            -d '{"root":"workspace","path":"notes/a.txt","content":"chestnut"}' \
+            http://127.0.0.1:4555/files/write > /dev/null
+          curl -fsS -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' \
+            -d '{"root":"workspace","path":"notes/a.txt"}' \
+            http://127.0.0.1:4555/files/read | grep -q chestnut
+          docker exec sandbox-ci ln -s /etc /workspace/etc-link
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-sandbox-token: ci-token' \
+            -H 'content-type: application/json' -d '{"root":"workspace","path":"etc-link/passwd"}' \
+            http://127.0.0.1:4555/files/read)" = "403"
+          docker rm -f sandbox-ci
+      - name: Show the daemon log on failure
+        if: failure()
+        run: docker logs sandbox-ci || true
