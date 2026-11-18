@@ -1,7 +1,7 @@
 # Third pass plan: F22 + F06 + F11
 
-> **Status:** steps S27–S39 are implemented; the only remaining check needs your phone and bot token.
-> It is written out in [10-live-checks.md](10-live-checks.md).
+> **Status:** done. Steps S27–S39 are implemented, and the live Telegram check passed on 2026-11-18 after
+> fixes #60, #65 and #67 ([10-live-checks.md](10-live-checks.md)).
 
 The third pass starts Phase 1 ("reach me and keep me in control"). It makes Shitsuji reachable from your phone
 and safe to leave running:

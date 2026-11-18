@@ -83,7 +83,7 @@ sandbox:
 |------|-------|--------|-------|
 | `workspace.exec` | `exec` | `write_local` | Default timeout 10 min, max 60 (capped by the driver's `maxTimeoutMs`); output head+tail to the model, full log to a file |
 | `workspace.read` / `write` / `edit` / `list` / `find` | `files` | `read` / `write_local` | Edits by exact string replacement, like coding agents |
-| `workspace.send` | `files` | `external` (to you) | Delivers a sandbox file through the gateway |
+| `workspace.send` | `files` | `external` (to you) | Delivers a sandbox file through the gateway; the shipped default rule allows it without asking (X4) |
 
 Tools whose capability the driver lacks are not registered. A driver's extra tools go through the same
 pipeline, trust checks and receipts, their output is wrapped as untrusted data, and they are found through
@@ -134,16 +134,22 @@ sandbox:
   mem_limit: 4g
   cpus: 2
   volumes:
-    - sandbox-work:/workspace        # project files, per-session folders
+    - type: volume                   # project files, per-session folders: the existing
+      source: coredata               # workspace folder, no copy (X5)
+      target: /workspace
+      volume: { subpath: workspace }
+    - type: volume                   # shared with core: channel attachments in, files to send out
+      source: coredata
+      target: /handoff
+      volume: { subpath: handoff }
     - sandbox-home:/home/agent       # pip/npm installs, later browser profiles
-    - handoff:/handoff               # shared with core: channel attachments in, files to send out
   networks: [sandbox]                # internet only through egress-proxy
   environment:
     SANDBOX_TOKEN: ${SANDBOX_TOKEN}  # only secret: authenticates core to sandboxd
 ```
 
 **sandboxd**, a small TypeScript daemon in `packages/sandbox-daemon`, sharing types with `core` through
-`@shitsuji/shared`, listening only on the `sandbox` network:
+`packages/sandbox-protocol` (X1), listening only on the `sandbox` network:
 
 | Endpoint | Purpose |
 |----------|---------|
