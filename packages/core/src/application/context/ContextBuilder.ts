@@ -1,5 +1,5 @@
 import type { Message } from '../../domain/model/Message.js';
-import { textOf, toolCallsOf } from '../../domain/model/Message.js';
+import { textOf, toolCallsOf, type ContentPart } from '../../domain/model/Message.js';
 import type { OwnerId, SessionId } from '../../domain/model/ids.js';
 import type { Session } from '../../domain/model/Session.js';
 import type { Turn } from '../../domain/model/Turn.js';
@@ -107,7 +107,6 @@ export class ContextBuilder {
     const sources = windowMessages(stored.slice(covered), this.deps.historyLimit, turn.id);
     const lastAssistant = latestWithRole(sources, 'assistant');
     const lastUser = latestWithRole(sources, 'user');
-
     const ctx: AgentRenderContext = {
       session: sessionNow,
       messages: sources,
@@ -137,7 +136,9 @@ export class ContextBuilder {
       if (injectable.condition.type === 'once') this.markRendered(session.id, injectable.id);
     }
 
-    const messages = toModelMessages(trimToWholeExchanges(sources));
+    const visible = trimToWholeExchanges(sources).filter((message) => !message.withdrawn);
+    const ordered = normaliseToolOrder(visible);
+    const messages: ModelMessage[] = ordered.map((m) => ({ role: m.role, parts: m.parts }));
     const notes: ModelMessage[] = rendered.context.map((note) => ({
       role: 'system',
       parts: [{ type: 'text', text: note.text }],
@@ -153,7 +154,7 @@ export class ContextBuilder {
           : undefined;
     remember(this.turnTails, session.id, { turnId: turn.id, text: tail });
     this.checkHeaderStability(session.id, rendered.header);
-    const open = openRequestIndex(sources, turn.id);
+    const open = openRequestIndex(ordered, turn.id);
     const anchor = open === -1 ? -1 : notes.length + open;
 
     return {
@@ -245,13 +246,10 @@ function remember<V>(map: Map<SessionId, V>, key: SessionId, value: V): void {
 }
 
 /**
- * Where the turn's opening owner message sits among the model messages, or -1. It is found the same
- * way the model messages are made: whole exchanges, withdrawn messages left out.
+ * Where the turn's opening owner message sits among the ordered messages, or -1.
  */
-function openRequestIndex(sources: Message[], turnId: Turn['id']): number {
-  return trimToWholeExchanges(sources)
-    .filter((m) => !m.withdrawn)
-    .findIndex((m) => m.turnId === turnId && m.role === 'user');
+function openRequestIndex(messages: Message[], turnId: Turn['id']): number {
+  return messages.findIndex((m) => m.turnId === turnId && m.role === 'user');
 }
 
 interface HeaderState {
@@ -290,9 +288,67 @@ function trimToWholeExchanges(messages: Message[]): Message[] {
   return first === -1 ? messages : messages.slice(first);
 }
 
-/** Stored messages → model messages; withdrawn messages are left out. */
-function toModelMessages(messages: Message[]): ModelMessage[] {
-  return messages.filter((m) => !m.withdrawn).map((m) => ({ role: m.role, parts: m.parts }));
+/**
+ * Keeps every tool result directly after the assistant message that made its call (#64). A message
+ * steered in while a tool ran is stored before the result, which leaves a `tool_call` not followed by
+ * `tool_result`; providers reject that. Interleaved messages move after the results, an orphan result
+ * is dropped, and a call with no result (a crash) gets a synthetic error result so the history stays
+ * valid.
+ */
+function normaliseToolOrder(messages: Message[]): Message[] {
+  const out: Message[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]!;
+    const calls = message.role === 'assistant' ? toolCallsOf(message) : [];
+    if (calls.length === 0) {
+      // A tool result with no call before it would be rejected by every provider.
+      if (message.role !== 'tool') out.push(message);
+      continue;
+    }
+    out.push(message);
+    const wanted = new Set(calls.map((call) => call.id));
+    const collected = new Set<string>();
+    const results: Message[] = [];
+    const between: Message[] = [];
+    while (i + 1 < messages.length && messages[i + 1]!.role !== 'assistant') {
+      i++;
+      const next = messages[i]!;
+      if (next.role === 'tool') {
+        const matched = next.parts.filter(
+          (part): part is Extract<ContentPart, { type: 'tool_result' }> =>
+            part.type === 'tool_result' &&
+            wanted.has(part.toolCallId) &&
+            !collected.has(part.toolCallId),
+        );
+        if (matched.length) {
+          for (const part of matched) collected.add(part.toolCallId);
+          results.push({ ...next, parts: matched });
+        }
+      } else {
+        between.push(next);
+      }
+    }
+    out.push(...results);
+    for (const call of calls) {
+      if (collected.has(call.id)) continue;
+      out.push({
+        ...message,
+        role: 'tool',
+        author: 'system',
+        parts: [
+          {
+            type: 'tool_result',
+            toolCallId: call.id,
+            content:
+              'The tool did not finish, so its result is missing (the turn was interrupted).',
+            isError: true,
+          },
+        ],
+      });
+    }
+    out.push(...between);
+  }
+  return out;
 }
 
 /**
