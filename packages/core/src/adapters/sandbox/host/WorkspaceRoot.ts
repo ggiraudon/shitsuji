@@ -101,6 +101,10 @@ export class WorkspaceRoot implements SandboxFiles {
     return fs.readFile(absolute, 'utf8');
   }
 
+  readBytes(absolute: string): Promise<Uint8Array> {
+    return fs.readFile(absolute);
+  }
+
   async stat(absolute: string): Promise<FileStat | undefined> {
     const stat = await fs.stat(absolute).catch(() => undefined);
     return stat && { size: stat.size, isFile: stat.isFile() };

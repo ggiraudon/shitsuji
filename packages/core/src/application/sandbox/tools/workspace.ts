@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { z } from 'zod/v4';
 import type { ExecEvent, SandboxExec, SandboxFiles } from '../../../ports/SandboxDriver.js';
+import type { OutboundFiles } from '../../../ports/OutboundFiles.js';
 import { BaseTool, type ToolContext, type ToolOutput } from '../../../ports/Tool.js';
 
 const MAX_READ_BYTES = 1_000_000;
@@ -263,8 +264,9 @@ const sendInput = z.object({
 const MAX_SEND_BYTES = 48 * 1024 * 1024;
 
 /**
- * workspace.send attaches a file to the reply (F06, S33). It only reads (the channel does the sending),
- * so it stays inside the fixed trust policy; the path is confined to the workspace and handoff roots.
+ * workspace.send attaches a file to the reply (F06, S33). The sandbox may be a container `core`
+ * cannot read, so the bytes come through the files port and are staged on core's disk for the
+ * channel; a binary file arrives byte for byte.
  */
 export class WorkspaceSendTool extends BaseTool<typeof sendInput> {
   readonly name = 'workspace.send';
@@ -275,7 +277,10 @@ export class WorkspaceSendTool extends BaseTool<typeof sendInput> {
   readonly effect = 'read' as const;
   override readonly target = 'workspace' as const;
 
-  constructor(private readonly files: SandboxFiles) {
+  constructor(
+    private readonly files: SandboxFiles,
+    private readonly outbound: OutboundFiles,
+  ) {
     super();
   }
 
@@ -294,12 +299,13 @@ export class WorkspaceSendTool extends BaseTool<typeof sendInput> {
       };
     }
     const name = path.basename(file);
+    const staged = await this.outbound.stage(name, await this.files.readBytes(file));
     return {
       content: `Attached ${name}.`,
       data: {
         files: [
           {
-            path: file,
+            path: staged,
             name,
             mediaType: mediaTypeOf(name),
             ...(caption ? { caption } : {}),

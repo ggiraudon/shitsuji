@@ -1,3 +1,4 @@
+import type { OutboundFiles } from '../../../ports/OutboundFiles.js';
 import type { SandboxExec, SandboxFiles } from '../../../ports/SandboxDriver.js';
 import type { Tool } from '../../../ports/Tool.js';
 import {
@@ -22,6 +23,7 @@ export function workspaceTools(
   files: SandboxFiles,
   exec: SandboxExec | undefined,
   options: ExecOptions,
+  outbound: OutboundFiles,
 ): Tool[] {
   return [
     new WorkspaceReadTool(files),
@@ -29,7 +31,7 @@ export function workspaceTools(
     new WorkspaceFindTool(files),
     new WorkspaceWriteTool(files),
     new WorkspaceListTool(files),
-    new WorkspaceSendTool(files),
+    new WorkspaceSendTool(files, outbound),
     ...(exec ? [new WorkspaceExecTool(files, exec, options)] : []),
   ];
 }

@@ -13,6 +13,7 @@ import {
 } from '../../../../src/application/sandbox/tools/workspace.js';
 import { WorkspaceRoot } from '../../../../src/adapters/sandbox/host/WorkspaceRoot.js';
 import { HostExec } from '../../../../src/adapters/sandbox/host/HostExec.js';
+import { NodeOutboundFiles } from '../../../../src/adapters/files/NodeOutboundFiles.js';
 import type { ToolContext } from '../../../../src/ports/Tool.js';
 import { testServices } from '../../../helpers.js';
 
@@ -329,6 +330,8 @@ describe('Handoff reads and workspace.send (S33)', () => {
   });
 
   const readRoot = () => new WorkspaceRoot(path.join(base, 'workspace'), [handoff]);
+  const outbox = () => path.join(base, 'outbox');
+  const send = () => new WorkspaceSendTool(readRoot(), new NodeOutboundFiles(outbox()));
 
   it('reads a handoff file by relative name and by absolute path', async () => {
     fs.writeFileSync(path.join(handoff, 'report.txt'), 'hello');
@@ -353,11 +356,17 @@ describe('Handoff reads and workspace.send (S33)', () => {
     const file = path.join(handoff, 'report.pdf');
     fs.writeFileSync(file, 'pdf');
 
-    const output = await new WorkspaceSendTool(readRoot()).run({ path: file }, ctx());
+    const output = await send().run({ path: file }, ctx());
 
     expect(output.isError).toBeFalsy();
     expect(output.data).toEqual({
-      files: [{ path: file, name: 'report.pdf', mediaType: 'application/pdf' }],
+      files: [
+        {
+          path: path.join(outbox(), 'report.pdf'),
+          name: 'report.pdf',
+          mediaType: 'application/pdf',
+        },
+      ],
     });
   });
 
@@ -365,25 +374,31 @@ describe('Handoff reads and workspace.send (S33)', () => {
     fs.mkdirSync(path.join(base, 'workspace'), { recursive: true });
     fs.writeFileSync(path.join(base, 'workspace', 'photo.png'), 'png');
 
-    const output = await new WorkspaceSendTool(readRoot()).run(
-      { path: 'photo.png', caption: 'The photo' },
-      ctx(),
-    );
+    const output = await send().run({ path: 'photo.png', caption: 'The photo' }, ctx());
 
     expect(output.data).toMatchObject({
       files: [{ name: 'photo.png', mediaType: 'image/png', caption: 'The photo' }],
     });
   });
 
+  it('delivers a binary file byte for byte (S41)', async () => {
+    // A PNG header and a few bytes that are not valid UTF-8.
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xfe]);
+    fs.mkdirSync(path.join(base, 'workspace'), { recursive: true });
+    fs.writeFileSync(path.join(base, 'workspace', 'photo.png'), bytes);
+
+    const output = await send().run({ path: 'photo.png' }, ctx());
+
+    const staged = (output.data as { files: { path: string }[] }).files[0]!.path;
+    expect(fs.readFileSync(staged).equals(bytes)).toBe(true);
+    expect(staged.endsWith('photo.png')).toBe(true);
+  });
+
   it('refuses a file outside the roots and reports one that is missing', async () => {
     const outside = path.join(base, 'secret.txt');
     fs.writeFileSync(outside, 'secret');
 
-    await expect(new WorkspaceSendTool(readRoot()).run({ path: outside }, ctx())).rejects.toThrow(
-      /outside/,
-    );
-    expect(
-      await new WorkspaceSendTool(readRoot()).run({ path: 'missing.pdf' }, ctx()),
-    ).toMatchObject({ isError: true });
+    await expect(send().run({ path: outside }, ctx())).rejects.toThrow(/outside/);
+    expect(await send().run({ path: 'missing.pdf' }, ctx())).toMatchObject({ isError: true });
   });
 });

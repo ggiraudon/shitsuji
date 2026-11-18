@@ -33,6 +33,7 @@ import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
 import { SandboxService } from '../application/sandbox/SandboxService.js';
 import { HostSandboxDriver } from '../adapters/sandbox/host/HostSandboxDriver.js';
+import { NodeOutboundFiles } from '../adapters/files/NodeOutboundFiles.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
 import { ConfigError, SandboxUnavailable, serializeError } from '../domain/errors.js';
@@ -241,6 +242,7 @@ export async function createShitsuji(
     driver: sandboxDriverOf(config),
     lease: { ownerId: OWNER_ID },
     exec: config.tools.exec,
+    outbound: new NodeOutboundFiles(path.join(config.paths.dataDir, 'handoff', 'outbox')),
     log,
   });
   await sandbox.start();

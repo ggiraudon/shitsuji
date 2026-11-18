@@ -205,11 +205,14 @@ describe('createShitsuji', () => {
     await until(() => channel.sent.length > 0);
 
     expect(channel.sent[0]!.message).toContain('Here is the report.');
+    // The bytes come out of the sandbox and are staged for the channel, unchanged (S41).
+    const staged = path.join(dataDir, 'handoff', 'outbox', 'report.pdf');
+    expect(fs.readFileSync(staged, 'utf8')).toBe('pdf');
     expect(channel.delivered[0]!.parts).toEqual([
       { kind: 'text', markdown: 'Here is the report.' },
       {
         kind: 'file',
-        fileRef: { name: 'report.pdf', path: file, mediaType: 'application/pdf' },
+        fileRef: { name: 'report.pdf', path: staged, mediaType: 'application/pdf' },
         caption: 'The report',
       },
     ]);

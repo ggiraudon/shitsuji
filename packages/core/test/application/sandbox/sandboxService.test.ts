@@ -21,6 +21,7 @@ const fakeFiles = (mkdirs: string[] = []): SandboxFiles => ({
   resolveRead: async (p) => `/workspace/${p}`,
   display: (absolute) => absolute.replace('/workspace/', ''),
   read: async () => '',
+  readBytes: async () => new Uint8Array(),
   stat: async () => undefined,
   write: async () => undefined,
   mkdir: async (absolute) => {
@@ -48,7 +49,13 @@ const driver = (
 });
 
 const service = (d: SandboxDriver) =>
-  new SandboxService({ driver: d, lease: LEASE, exec: EXEC, log: testServices().log });
+  new SandboxService({
+    driver: d,
+    lease: LEASE,
+    exec: EXEC,
+    outbound: { stage: async (name) => `/outbox/${name}` },
+    log: testServices().log,
+  });
 
 const names = (s: SandboxService) => s.tools().map((tool) => tool.name);
 
