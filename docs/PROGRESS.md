@@ -76,7 +76,10 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
 - [x] **S40** The SandboxDriver port and the host driver
       *(The port from F08 and the `host` driver; the tools moved behind it with no behaviour change, and
       a driver without `exec` gets no `workspace.exec`.)*
-- [ ] **S41** The standard workspace tools, complete
+- [x] **S41** The standard workspace tools, complete
+      *(`workspace.edit` and `workspace.find`; exec at 10 min/60 min with head and tail over 1 MiB and the
+      full log in the session folder; `shared/` and `tools/` created at open; `workspace.send` external
+      with the shipped allow rule (X4) and byte-exact staging for the channel.)*
 - [ ] **S42** The conformance suite and the egress probes
 - [ ] **S43** OpenSandbox spike
 - [ ] **S44** The `opensandbox` driver

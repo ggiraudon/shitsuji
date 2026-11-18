@@ -73,6 +73,15 @@ trust:
 sandbox:
   driver: host
 
+# The sandbox's command tool (F08). The driver may cap the timeout lower; output over maxOutputBytes
+# keeps head and tail for the model, and the full log goes to sessions/<sessionId>/.
+tools:
+  exec:
+    enabled: true
+    defaultTimeoutSeconds: 600
+    maxTimeoutSeconds: 3600
+    maxOutputBytes: 1048576
+
 channels:
   webhook: # POST with `Authorization: Bearer <owner key>`; answers with the reply
     enabled: true

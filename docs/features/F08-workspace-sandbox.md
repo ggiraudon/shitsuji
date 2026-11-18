@@ -90,6 +90,15 @@ pipeline, trust checks and receipts, their output is wrapped as untrusted data, 
 `tool_search`. A driver can never change a standard tool's effect; an extra tool's declared effect can be
 tightened by a standing rule.
 
+**What S41 builds.** The standard tools are complete: `workspace.edit` replaces an exact piece of text
+and refuses a missing or ambiguous match, and `workspace.find` looks for files by glob, by text, or both.
+`workspace.exec` defaults to ten minutes (at most an hour, still capped by the driver's `maxTimeoutMs`);
+output over 1 MiB keeps its head and tail for the model and the whole of it goes to
+`sessions/<sessionId>/exec-<turnId>.log`. The sandbox opens with `shared/` and `tools/` in place. `workspace.send`
+is `external`, its bytes come over the files port and are staged in `<dataDir>/handoff/outbox` for the
+channel (so an image or a PDF arrives unchanged, whichever driver runs), and the shipped `trust.rules`
+default allows it without a card (X4).
+
 **What S40 builds.** The port above, the tool definitions moved to `application/sandbox/tools`, and the
 `host` driver in `adapters/sandbox/host`: the workspace root, its path confinement, and exec as a child
 process, exactly as before. `SandboxService` opens the sandbox named by `sandbox.driver` (default `host`)
