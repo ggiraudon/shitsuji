@@ -246,6 +246,12 @@ describe('Secret', () => {
 });
 
 describe('trust.rules (#58)', () => {
+  it('ships an allow rule for workspace.send, so files leave without a card (X4)', () => {
+    const { config } = load();
+
+    expect(config.trust.rules).toContainEqual({ tool: 'workspace.send', verdict: 'allow' });
+  });
+
   it('reads rules and validates their verdict, tool and target', () => {
     writeConfig(
       [

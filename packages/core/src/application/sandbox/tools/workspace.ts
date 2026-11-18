@@ -274,7 +274,8 @@ export class WorkspaceSendTool extends BaseTool<typeof sendInput> {
     'Attach a file from the workspace or the handoff folder to your reply. Telegram sends it as a ' +
     'document. Use it after creating or receiving the file.';
   readonly input = sendInput;
-  readonly effect = 'read' as const;
+  /** Sending the owner a file is an outside action (X4); the shipped rule allows it. */
+  readonly effect = 'external' as const;
   override readonly target = 'workspace' as const;
 
   constructor(

@@ -37,6 +37,13 @@ const purposeMap = <T extends z.ZodTypeAny>(value: T) =>
     )
     .strict();
 
+/**
+ * Rules every install starts with (X4). Sending the owner a file is an outside action but it is the
+ * job; the rule lets it run without a card, and an owner who wants to be asked can remove it (or add
+ * a `deny`/`ask` rule for it) in `trust.rules`.
+ */
+export const DEFAULT_TRUST_RULES = [{ tool: 'workspace.send', verdict: 'allow' }] as const;
+
 export const shitsujiConfigSchema = z
   .object({
     owner: z
@@ -138,7 +145,7 @@ export const shitsujiConfigSchema = z
               })
               .strict(),
           )
-          .default([]),
+          .default([...DEFAULT_TRUST_RULES]),
       })
       .strict()
       .default({}),

@@ -122,7 +122,7 @@ selectors (`workspace.*`, `mcp:gmail:*`). Exclude wins. An unknown selector sele
 |-------|---------|
 | `CalculatorTool` | `math.evaluate` (`compute`), core |
 | `FileReadTool`, `FileWriteTool`, `FileListTool` | `workspace.read`, `workspace.write`, `workspace.list` — run in the workspace container ([F08](F08-workspace-sandbox.md)), not on the host |
-| — | `workspace.send` (S33): attaches a file from the workspace or the handoff folder to the reply; effect `read`, because the channel does the sending ([F06](F06-channel-gateway.md)) |
+| — | `workspace.send` (S33): attaches a file from the workspace or the handoff folder to the reply; effect `external` since S41 (X4), with a shipped `trust.rules` allow so it runs without a card ([F06](F06-channel-gateway.md)) |
 | `ExecuteCommandTool` | `workspace.exec` in the sandbox; the prefix allowlist is removed because the container is the boundary |
 | `SystemInfoTool` | `system.status`: Shitsuji's own health, not the host's |
 | `WebSearchTool` | `web.search` behind a `SearchProvider` port (SearXNG container, Brave, Tavily…); `web.fetch` for readable page text; both `untrustedOutput` |
