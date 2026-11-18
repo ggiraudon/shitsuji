@@ -132,7 +132,8 @@ task routing waits for [F15](F15-tasks-and-subagents.md); buttons and attachment
 - Inline keyboards for approvals and choices; callback data carries only an opaque ID.
   *(S37: an approval card's buttons call back `y:<id>` / `n:<id>`, so the data names only the decision
   and the approval, never the action; a typed yes or no is read on its own by the trust model.)*
-- Progress: one "working…" message edited in place, removed when the turn ends.
+- Progress: one "working…" message edited in place, removed when the turn ends. *(#42: a Working message that arrives after the reply is deleted too, and
+  `bot.catch` logs a handler failure instead of letting grammY stop polling.)*
 - Files: documents, photos and voice notes are downloaded into the handoff folder; sent files go back as
   documents. Voice notes are stored for [F23](F23-voice.md), which answers that it cannot listen yet.
 - Commands: `/stop`, `/tasks`, `/status`, `/new` (reset thread, with confirmation).
