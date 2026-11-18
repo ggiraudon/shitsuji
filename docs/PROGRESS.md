@@ -88,7 +88,9 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
       *(The server, sandboxes, exec, files and `dns+nft` egress all work on Docker Desktop; without a
       policy there is no egress control, and the server needs the Docker socket. GO for S44 with
       conditions — the findings are in F08's risks.)*
-- [ ] **S44** The `opensandbox` driver
+- [ ] **S44** The `opensandbox` driver — **deferred by the owner** (2026-11-18, #74): the S43 findings
+      (socket is root on the host, deprecated server proxy) made the cost outweigh the benefit for now;
+      the spike's GO conditions stay in F08 if it is picked up again.
 - [ ] **S45** The `sandbox` image and `sandboxd` files API
 - [ ] **S46** The exec supervisor
 - [ ] **S47** `egress-proxy`
