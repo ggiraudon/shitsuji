@@ -1,4 +1,4 @@
-import type { SandboxFiles } from '../../../ports/SandboxDriver.js';
+import type { SandboxExec, SandboxFiles } from '../../../ports/SandboxDriver.js';
 import type { Tool } from '../../../ports/Tool.js';
 import {
   WorkspaceExecTool,
@@ -16,13 +16,14 @@ import {
  */
 export function workspaceTools(
   files: SandboxFiles,
-  exec: (ExecOptions & { enabled: boolean }) | undefined,
+  exec: SandboxExec | undefined,
+  options: ExecOptions,
 ): Tool[] {
   return [
     new WorkspaceReadTool(files),
     new WorkspaceWriteTool(files),
     new WorkspaceListTool(files),
     new WorkspaceSendTool(files),
-    ...(exec?.enabled ? [new WorkspaceExecTool(files, exec)] : []),
+    ...(exec ? [new WorkspaceExecTool(files, exec, options)] : []),
   ];
 }

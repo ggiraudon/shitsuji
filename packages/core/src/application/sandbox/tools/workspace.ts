@@ -1,7 +1,6 @@
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { z } from 'zod/v4';
-import type { SandboxFiles } from '../../../ports/SandboxDriver.js';
+import type { ExecEvent, SandboxExec, SandboxFiles } from '../../../ports/SandboxDriver.js';
 import { BaseTool, type ToolContext, type ToolOutput } from '../../../ports/Tool.js';
 
 const MAX_READ_BYTES = 1_000_000;
@@ -189,6 +188,7 @@ export class WorkspaceExecTool extends BaseTool<typeof execInput> {
 
   constructor(
     private readonly files: SandboxFiles,
+    private readonly exec: SandboxExec,
     private readonly options: ExecOptions,
   ) {
     super();
@@ -199,56 +199,44 @@ export class WorkspaceExecTool extends BaseTool<typeof execInput> {
     const timeoutS = Math.min(
       args.timeoutSeconds ?? this.options.defaultTimeoutSeconds,
       this.options.maxTimeoutSeconds,
+      Math.floor(this.exec.maxTimeoutMs / 1000),
     );
-    return new Promise<ToolOutput>((resolve) => {
-      const chunks: Buffer[] = [];
-      let bytes = 0;
-      let truncated = false;
-      const child = spawn(args.program, args.args, {
-        cwd,
-        shell: false,
-        windowsHide: true,
-        signal: ctx.signal,
-        timeout: timeoutS * 1000,
-        killSignal: 'SIGKILL',
-        env: { PATH: process.env.PATH ?? '', HOME: cwd, LANG: 'C.UTF-8' },
-      });
-      const collect = (b: Buffer) => {
-        if (bytes >= this.options.maxOutputBytes) return void (truncated = true);
-        chunks.push(b.subarray(0, this.options.maxOutputBytes - bytes));
-        bytes += b.length;
-      };
-      child.stdout.on('data', collect);
-      child.stderr.on('data', collect);
-      let failure: string | undefined;
-      child.on('error', (error: NodeJS.ErrnoException) => {
-        // No process was started: answer now. Otherwise wait for 'close', so the process has really
-        // exited (and released its working folder) before the tool returns.
-        if (error.code === 'ENOENT') {
-          resolve({ content: `Program not found: ${args.program}`, isError: true });
-          return;
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let truncated = false;
+    let exit: Extract<ExecEvent, { type: 'exit' }> | undefined;
+    try {
+      for await (const event of this.exec.run(
+        { program: args.program, args: args.args, cwd, timeoutMs: timeoutS * 1000 },
+        ctx.signal,
+      )) {
+        if (event.type === 'exit') {
+          exit = event;
+          continue;
         }
-        failure = error.name === 'AbortError' ? 'Stopped' : error.message;
-      });
-      child.on('close', (code, signal) => {
-        if (failure) {
-          resolve({ content: failure, isError: true, data: { exitCode: code, signal } });
-          return;
+        if (bytes >= this.options.maxOutputBytes) {
+          truncated = true;
+          continue;
         }
-        const output =
-          Buffer.concat(chunks).toString('utf8') + (truncated ? '\n[output truncated]' : '');
-        const timedOut = signal === 'SIGKILL' && !ctx.signal.aborted;
-        const status = timedOut
-          ? `timed out after ${timeoutS}s`
-          : signal
-            ? `killed (${signal})`
-            : `exit code ${code}`;
-        resolve({
-          content: `${status}\n${output}`.trimEnd(),
-          isError: code !== 0,
-          data: { exitCode: code, signal, timedOut },
-        });
-      });
-    });
+        const chunk = Buffer.from(event.text);
+        chunks.push(chunk.subarray(0, this.options.maxOutputBytes - bytes));
+        bytes += chunk.length;
+      }
+    } catch (error) {
+      return { content: (error as Error).message, isError: true };
+    }
+    if (!exit) return { content: 'The command ended without an exit code', isError: true };
+    const output =
+      Buffer.concat(chunks).toString('utf8') + (truncated ? '\n[output truncated]' : '');
+    const status = exit.timedOut
+      ? `timed out after ${timeoutS}s`
+      : exit.signal
+        ? `killed (${exit.signal})`
+        : `exit code ${exit.code}`;
+    return {
+      content: `${status}\n${output}`.trimEnd(),
+      isError: exit.code !== 0,
+      data: { exitCode: exit.code, signal: exit.signal, timedOut: exit.timedOut },
+    };
   }
 }

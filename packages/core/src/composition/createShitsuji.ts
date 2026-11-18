@@ -32,6 +32,7 @@ import { TrustJudge } from '../application/trust/TrustJudge.js';
 import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
 import { workspaceTools } from '../application/sandbox/tools/index.js';
+import { HostExec } from '../adapters/sandbox/host/HostExec.js';
 import { WorkspaceRoot } from '../adapters/sandbox/host/WorkspaceRoot.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
@@ -218,8 +219,11 @@ export async function createShitsuji(
   const files = new WorkspaceRoot(workspaceDirOf(config), [
     path.join(config.paths.dataDir, 'handoff'),
   ]);
+  const hostExec = config.tools.exec.enabled
+    ? new HostExec({ maxTimeoutMs: config.tools.exec.maxTimeoutSeconds * 1000 })
+    : undefined;
   const tools = new ToolCatalog(plugins.tools());
-  for (const tool of workspaceTools(files, config.tools.exec)) tools.add(tool);
+  for (const tool of workspaceTools(files, hostExec, config.tools.exec)) tools.add(tool);
   tools.add(new ToolSearchTool(() => tools.list()));
   tools.add(new ToolCallGateway());
   const pipeline = new ToolPipeline(
