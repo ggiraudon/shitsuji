@@ -64,6 +64,12 @@ trust:
   # - { tool: 'web.*', verdict: allow, detail: reading the web is fine }
   # - { tool: shop.pay, verdict: deny, detail: never spend money }
 
+# Where commands and files run (F08). `host` is the core process itself (today's behaviour);
+# `opensandbox` and `shitsuji` arrive with S44 and S48. A driver that cannot start leaves the sandbox
+# tools off; there is no fallback to `host` (decision X3).
+sandbox:
+  driver: host
+
 channels:
   webhook: # POST with `Authorization: Bearer <owner key>`; answers with the reply
     enabled: true

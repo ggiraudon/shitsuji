@@ -90,6 +90,14 @@ pipeline, trust checks and receipts, their output is wrapped as untrusted data, 
 `tool_search`. A driver can never change a standard tool's effect; an extra tool's declared effect can be
 tightened by a standing rule.
 
+**What S40 builds.** The port above, the tool definitions moved to `application/sandbox/tools`, and the
+`host` driver in `adapters/sandbox/host`: the workspace root, its path confinement, and exec as a child
+process, exactly as before. `SandboxService` opens the sandbox named by `sandbox.driver` (default `host`)
+once for the owner, registers the tools its capabilities allow, and closes it on stop. Tool names, schemas,
+effects, receipts and the config's `tools.exec.enabled` are unchanged, so nothing about a turn differs
+from the old code; naming a driver this build does not have yet is a `SandboxUnavailable` error at
+startup, never a fallback to `host`.
+
 ### Safety claims are checked
 
 `egress.lanBlocked` and `egress.credentialSwap` are claims, and `core` tests them:

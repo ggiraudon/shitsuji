@@ -11,6 +11,7 @@ import { loadPluginsFromDirectory } from '../../src/composition/loadPluginsFromD
 import type { ShitsujiPlugin } from '../../src/ports/Plugin.js';
 import { BaseTool, type ToolOutput } from '../../src/ports/Tool.js';
 import { Turn } from '../../src/domain/model/Turn.js';
+import { SandboxUnavailable } from '../../src/domain/errors.js';
 import { asId, type SessionId, type TurnId } from '../../src/domain/model/ids.js';
 import type {
   ModelProvider,
@@ -99,6 +100,17 @@ describe('createShitsuji', () => {
     expect(provider.requests[0]!.model).toBe('test-model');
     await shitsuji.stop();
     expect(channel.stopped).toBe(1);
+  });
+
+  it('refuses a sandbox driver this build does not have yet (#70)', async () => {
+    const { plugin } = fakes([]);
+
+    await expect(
+      createShitsuji(config({ sandbox: { driver: 'shitsuji' } }), {
+        services: testServices(),
+        plugins: [plugin],
+      }),
+    ).rejects.toThrow(SandboxUnavailable);
   });
 
   it('shows only "Stopped." when the owner stops a turn (#68)', async () => {

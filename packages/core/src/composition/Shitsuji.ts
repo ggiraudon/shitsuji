@@ -18,6 +18,7 @@ import type { TypedAnswer } from '../application/trust/TypedApprovalReader.js';
 import type { Approval } from '../domain/model/Approval.js';
 import { asId, type OwnerId, type TurnId } from '../domain/model/ids.js';
 import type { Repositories } from '../ports/Repositories.js';
+import type { SandboxService } from '../application/sandbox/SandboxService.js';
 
 export interface ShitsujiParts {
   agent: Agent;
@@ -33,6 +34,8 @@ export interface ShitsujiParts {
   repos: Repositories;
   ownerId: OwnerId;
   clock: Clock;
+  /** The sandbox core's tools run in (F08, S40); closed on stop. */
+  sandbox?: SandboxService;
   /** Cards waiting for the owner; Telegram sends them with buttons (S37). */
   approvals?: ApprovalService;
   /** Reads a typed answer to an open card; only an unconditional yes approves (S37). */
@@ -72,6 +75,7 @@ export class Shitsuji {
   private readonly clock: Clock;
   private readonly approvalsService?: ApprovalService;
   private readonly readTypedApproval?: (text: string, approval: Approval) => Promise<TypedAnswer>;
+  private readonly sandbox?: SandboxService;
   private gateway?: ChannelGateway;
 
   constructor(parts: ShitsujiParts) {
@@ -93,6 +97,7 @@ export class Shitsuji {
     this.clock = parts.clock;
     this.approvalsService = parts.approvals;
     this.readTypedApproval = parts.readTypedApproval;
+    this.sandbox = parts.sandbox;
   }
 
   async start(): Promise<void> {
@@ -184,6 +189,11 @@ export class Shitsuji {
       await this.jobs.stop();
     } catch (error) {
       this.log.error('Job queue stop failed', { error: serializeError(error) });
+    }
+    try {
+      await this.sandbox?.close();
+    } catch (error) {
+      this.log.error('Sandbox close failed', { error: serializeError(error) });
     }
     await this.plugins.disposeAll();
     for (const close of this.onStop) {

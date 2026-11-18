@@ -6,12 +6,13 @@ import {
   WorkspaceExecTool,
   WorkspaceListTool,
   WorkspaceReadTool,
-  WorkspaceRoot,
   WorkspaceSendTool,
   WorkspaceWriteTool,
-} from '../../../src/adapters/tools/workspace.js';
-import type { ToolContext } from '../../../src/ports/Tool.js';
-import { testServices } from '../../helpers.js';
+} from '../../../../src/application/sandbox/tools/workspace.js';
+import { WorkspaceRoot } from '../../../../src/adapters/sandbox/host/WorkspaceRoot.js';
+import { HostExec } from '../../../../src/adapters/sandbox/host/HostExec.js';
+import type { ToolContext } from '../../../../src/ports/Tool.js';
+import { testServices } from '../../../helpers.js';
 
 let base: string;
 let ws: WorkspaceRoot;
@@ -84,12 +85,18 @@ describe('workspace file tools', () => {
 });
 
 describe('workspace.exec', () => {
-  const exec = (opts: Partial<{ defaultTimeoutSeconds: number }> = {}) =>
-    new WorkspaceExecTool(ws, {
+  const exec = (opts: Partial<{ defaultTimeoutSeconds: number }> = {}) => {
+    const options = {
       defaultTimeoutSeconds: opts.defaultTimeoutSeconds ?? 20,
       maxTimeoutSeconds: 60,
       maxOutputBytes: 10_000,
-    });
+    };
+    return new WorkspaceExecTool(
+      ws,
+      new HostExec({ maxTimeoutMs: options.maxTimeoutSeconds * 1000 }),
+      options,
+    );
+  };
   const node = process.execPath;
 
   it('runs a program in the workspace and returns exit code and output', async () => {
