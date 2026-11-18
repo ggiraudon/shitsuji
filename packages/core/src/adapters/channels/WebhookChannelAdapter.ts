@@ -13,6 +13,7 @@ import type {
 } from '../../ports/ChannelAdapter.js';
 import { BaseChannelAdapter } from '../../ports/ChannelAdapter.js';
 import type { Logger } from '../../ports/Logger.js';
+import type { TurnId } from '../../domain/model/ids.js';
 
 const webhookBody = z
   .object({
@@ -42,8 +43,11 @@ export interface WebhookChannelOptions {
 
 interface PendingRequest {
   messageId: string;
+  chatId: string;
   timer: NodeJS.Timeout;
   respond(body: unknown, status: number): void;
+  /** The turn this request was steered into, once receive() returns it (#35). */
+  turnId?: TurnId;
 }
 
 /**
@@ -73,7 +77,12 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
   private readonly replyTimeoutMs: number;
   private readonly authorize: (key: string | undefined) => boolean;
   private readonly renderer = new PlainTextRenderer();
-  private readonly pending = new Map<string, PendingRequest[]>();
+  /** Every in-flight request by its message id. */
+  private readonly waiting = new Map<string, PendingRequest>();
+  /** Plain replies (commands) still use the destination queue. */
+  private readonly byDestination = new Map<string, PendingRequest[]>();
+  /** Requests waiting on a particular turn; steering puts several here (#35). */
+  private readonly byTurn = new Map<TurnId, PendingRequest[]>();
   private server: Server | null = null;
   private actualPort?: number;
 
@@ -108,13 +117,13 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
   }
 
   override async stop(): Promise<void> {
-    for (const queue of this.pending.values()) {
-      for (const pending of queue) {
-        clearTimeout(pending.timer);
-        pending.respond({ success: false, error: 'stopping' }, 503);
-      }
+    for (const pending of [...this.waiting.values()]) {
+      clearTimeout(pending.timer);
+      pending.respond({ success: false, error: 'stopping' }, 503);
     }
-    this.pending.clear();
+    this.waiting.clear();
+    this.byDestination.clear();
+    this.byTurn.clear();
     const server = this.server;
     this.server = null;
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -122,26 +131,38 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     this.log.info('Webhook channel stopped');
   }
 
+  /**
+   * Answers every request waiting on `target.turnId`, so a message steered into a running turn gets
+   * that turn's reply instead of the next request in the queue (#35). A delivery without a turn id (a
+   * command answered by the gateway) uses the destination queue.
+   */
   async deliver(target: ChannelTarget, message: OutboundMessage): Promise<DeliveryReceipt> {
     const rendered = this.renderer.render(message, this.capabilities);
-    const pending = this.pending.get(target.chatId)?.shift();
-    if (!pending) {
+    const waiters = target.turnId
+      ? this.takeTurn(target.turnId)
+      : this.takeDestination(target.chatId);
+    if (!waiters.length) {
       this.log.warn('Webhook reply has no waiting request', {
         intent: message.intent,
         length: rendered.text.length,
       });
       return { delivered: false, reason: 'no waiting request' };
     }
-    pending.respond(
-      {
-        success: true,
-        messageId: pending.messageId,
-        reply: rendered.text,
-        intent: message.intent,
-      },
-      200,
-    );
-    return { delivered: true, externalId: pending.messageId };
+    let first: string | undefined;
+    for (const pending of waiters) {
+      clearTimeout(pending.timer);
+      pending.respond(
+        {
+          success: true,
+          messageId: pending.messageId,
+          reply: rendered.text,
+          intent: message.intent,
+        },
+        200,
+      );
+      first ??= pending.messageId;
+    }
+    return first === undefined ? { delivered: true } : { delivered: true, externalId: first };
   }
 
   /** The port it listens on; useful when constructed with port 0. */
@@ -218,42 +239,86 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
         resolve();
       };
       const timer = setTimeout(() => {
-        this.removeByMessageId(data.destination, messageId);
+        this.remove(pending);
         respond({ success: true, messageId, pending: true }, 202);
       }, this.replyTimeoutMs);
       timer.unref();
-      const pending: PendingRequest = { messageId, timer, respond };
+      const pending: PendingRequest = { messageId, chatId: data.destination, timer, respond };
+      this.waiting.set(messageId, pending);
       this.enqueue(data.destination, pending);
 
       this.sink!.receive(inbound).then(
         (result) => {
+          if (result.kind === 'turn') {
+            this.attachToTurn(pending, result.turnId);
+            return;
+          }
           if (result.kind !== 'ignored') return;
-          this.removeByMessageId(data.destination, messageId);
+          this.remove(pending);
           respond({ success: false, ignored: true, reason: result.reason }, 403);
         },
         (error: unknown) => {
           this.log.error('Webhook message failed', {
             error: { name: (error as Error)?.name, message: (error as Error)?.message },
           });
-          this.removeByMessageId(data.destination, messageId);
+          this.remove(pending);
           respond({ success: false, error: (error as Error)?.message ?? 'Message failed' }, 500);
         },
       );
     });
   }
 
-  private enqueue(chatId: string, pending: PendingRequest): void {
-    const queue = this.pending.get(chatId) ?? [];
+  private attachToTurn(pending: PendingRequest, turnId: TurnId): void {
+    pending.turnId = turnId;
+    this.removeFromDestination(pending);
+    const queue = this.byTurn.get(turnId) ?? [];
     queue.push(pending);
-    this.pending.set(chatId, queue);
+    this.byTurn.set(turnId, queue);
   }
 
-  private removeByMessageId(chatId: string, messageId: string): void {
-    const queue = this.pending.get(chatId);
+  private enqueue(chatId: string, pending: PendingRequest): void {
+    const queue = this.byDestination.get(chatId) ?? [];
+    queue.push(pending);
+    this.byDestination.set(chatId, queue);
+  }
+
+  /** Takes every request waiting on a turn; one reply reaches all of them. */
+  private takeTurn(turnId: TurnId): PendingRequest[] {
+    const queue = this.byTurn.get(turnId) ?? [];
+    this.byTurn.delete(turnId);
+    for (const pending of queue) this.waiting.delete(pending.messageId);
+    return queue;
+  }
+
+  private takeDestination(chatId: string): PendingRequest[] {
+    const queue = this.byDestination.get(chatId);
+    if (!queue?.length) return [];
+    const pending = queue.shift()!;
+    if (!queue.length) this.byDestination.delete(chatId);
+    this.waiting.delete(pending.messageId);
+    return [pending];
+  }
+
+  private remove(pending: PendingRequest): void {
+    this.waiting.delete(pending.messageId);
+    clearTimeout(pending.timer);
+    this.removeFromDestination(pending);
+    if (pending.turnId) {
+      const queue = this.byTurn.get(pending.turnId);
+      if (queue) {
+        const at = queue.indexOf(pending);
+        if (at !== -1) queue.splice(at, 1);
+        if (!queue.length) this.byTurn.delete(pending.turnId);
+      }
+    }
+  }
+
+  private removeFromDestination(pending: PendingRequest): void {
+    const queue = this.byDestination.get(pending.chatId ?? '');
     if (!queue) return;
-    const at = queue.findIndex((pending) => pending.messageId === messageId);
+    const at = queue.indexOf(pending);
     if (at !== -1) queue.splice(at, 1);
-    if (!queue.length) this.pending.delete(chatId);
+    if (!queue.length) this.byDestination.delete(pending.chatId ?? '');
   }
 
   private async readBody(req: IncomingMessage): Promise<string> {

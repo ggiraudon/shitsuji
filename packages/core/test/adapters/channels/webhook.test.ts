@@ -25,7 +25,7 @@ const started = async (
         setTimeout(
           () =>
             void adapter.deliver(
-              { chatId: message.chatId },
+              { chatId: message.chatId, turnId: asId<TurnId>('turn') },
               { parts: [{ kind: 'text', markdown: options.reply! }], intent: 'final' },
             ),
           5,
@@ -159,3 +159,67 @@ describeChannelContract(
   'webhook',
   () => new WebhookChannelAdapter(logger(), { port: 0, replyTimeoutMs: 10, authorize }),
 );
+
+describe('WebhookChannelAdapter: steering (#35)', () => {
+  it("gives every request steered into a turn that turn's reply, not the next caller's", async () => {
+    const adapter = new WebhookChannelAdapter(logger(), {
+      port: 0,
+      authorize,
+      replyTimeoutMs: 2_000,
+    });
+    const received: InboundMessage[] = [];
+    const turnIds = ['t1', 't1', 't2'];
+    await adapter.start({
+      receive: async (message) => {
+        received.push(message);
+        const turnId = asId<TurnId>(turnIds[received.length - 1]!);
+        return {
+          kind: 'turn',
+          sessionId: asId<SessionId>('session'),
+          turnId,
+          steered: received.length > 1,
+        };
+      },
+    });
+    const post = (body: unknown) =>
+      fetch(`http://127.0.0.1:${adapter.getPort()}/webhook`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${KEY}` },
+        body: JSON.stringify(body),
+      });
+    const until = async (check: () => boolean) => {
+      const start = Date.now();
+      while (!check()) {
+        if (Date.now() - start > 1_000) throw new Error('Timed out');
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    };
+    const turn = (id: string) => ({
+      parts: [{ kind: 'text' as const, markdown: `${id} reply` }],
+      intent: 'final' as const,
+    });
+
+    const a = post({ content: 'A', destination: 'd1' });
+    await until(() => received.length === 1);
+    const b = post({ content: 'B', destination: 'd1' });
+    await until(() => received.length === 2);
+
+    await adapter.deliver({ chatId: 'd1', turnId: asId<TurnId>('t1') }, turn('t1'));
+
+    expect(await (await a).json()).toMatchObject({
+      reply: 't1 reply',
+      messageId: expect.any(String),
+    });
+    expect(await (await b).json()).toMatchObject({
+      reply: 't1 reply',
+      messageId: expect.any(String),
+    });
+
+    const c = post({ content: 'C', destination: 'd1' });
+    await until(() => received.length === 3);
+    await adapter.deliver({ chatId: 'd1', turnId: asId<TurnId>('t2') }, turn('t2'));
+
+    expect(await (await c).json()).toMatchObject({ reply: 't2 reply' });
+    await adapter.stop();
+  });
+});

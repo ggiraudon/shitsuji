@@ -112,7 +112,7 @@ export class Shitsuji {
             ? (e.question ?? '')
             : `Error: ${e.error ?? e.status}`;
       const intent: OutboundIntent = e.status === 'waiting' ? 'question' : 'final';
-      void this.deliver(e.replyChannel, text, intent, e.files);
+      void this.deliver(e.replyChannel, text, intent, e.files, asId<TurnId>(e.turnId));
     });
     await this.agent.start();
     await this.prepare?.();
@@ -199,9 +199,10 @@ export class Shitsuji {
     text: string,
     intent: OutboundIntent,
     files: readonly OutboundFile[] = [],
+    turnId?: TurnId,
   ): Promise<void> {
     const { channelId, chatId } = splitReplyChannel(replyChannel);
-    await this.deliverTo(channelId, chatId, text, intent, files);
+    await this.deliverTo(channelId, chatId, text, intent, files, turnId);
   }
 
   /** Sends an approval card to the chat whose turn is waiting (S37). */
@@ -263,6 +264,7 @@ export class Shitsuji {
     text: string,
     intent: OutboundIntent,
     files: readonly OutboundFile[] = [],
+    turnId?: TurnId,
   ): Promise<void> {
     const channel = this.started.find((c) => c.id === channelId);
     if (!channel) return;
@@ -281,7 +283,10 @@ export class Shitsuji {
     }
     if (!parts.length) return;
     try {
-      const receipt = await channel.deliver({ chatId }, { parts, intent });
+      const receipt = await channel.deliver(
+        { chatId, ...(turnId && { turnId }) },
+        { parts, intent },
+      );
       if (!receipt.delivered) {
         this.log.warn('Reply not delivered', { channel: channelId, reason: receipt.reason });
       }

@@ -20,6 +20,8 @@ export interface ChannelCapabilities {
 export interface ChannelTarget {
   /** The channel's own conversation id: a chat, a webhook destination, a web session. */
   chatId: string;
+  /** The turn this delivery answers, when the channel can route by it (the webhook, F06 #35). */
+  turnId?: TurnId;
   /** The message being answered, when the channel can thread. */
   replyTo?: MessageRef;
 }

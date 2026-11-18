@@ -108,7 +108,9 @@ class ChannelGateway implements InboundSink {
   already-paired chat answers "Already paired." without a model call, and an unpaired chat is logged once
   per minute with a count of what it sent (#39).
 - **Reply routing.** A reply to a task's message goes to that task's session; anything else goes to the main
-  chat session ([F15](F15-tasks-and-subagents.md)).
+  chat session ([F15](F15-tasks-and-subagents.md)). The webhook keys each waiting POST by the turn it
+  started or was steered into, so a steered message gets that turn's reply and not the next caller's
+  (#35).
 - **Attachments** are stored in `<dataDir>/handoff` (decision T2) and the turn is told the absolute paths.
   The file tools may read that folder but never write it; until F08 the workspace container can take it over.
   An adapter asks the gateway (`accepts`) before downloading, so an unpaired chat stores nothing and gets
