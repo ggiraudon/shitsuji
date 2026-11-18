@@ -79,6 +79,25 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # OpenSandbox, used only as a running service from its published images (S43 spike, F08). Off by
+  # default: `docker compose --profile opensandbox up -d`. It creates sibling containers for each
+  # sandbox, so it needs the Docker socket — that is root on this host; never run it with anything
+  # else on the machine that matters.
+  opensandbox:
+    profiles: ['opensandbox']
+    image: opensandbox/server:release-1.1.0@sha256:68ca0212a2749b2c73096ce2ec0264455c64442c45f81007db442f52bf84c9d1
+    environment:
+      SANDBOX_CONFIG_PATH: /etc/opensandbox/config.toml
+      OPENSANDBOX_SERVER_API_KEY: ${OPENSANDBOX_API_KEY:-shitsuji-spike-local}
+    ports:
+      # 8080 often falls in a Windows excluded range (Hyper-V), so the spike uses 18080 by default.
+      - '127.0.0.1:${OPENSANDBOX_PORT:-18080}:8080'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker/opensandbox/sandbox.toml:/etc/opensandbox/config.toml:ro
+      - opensandbox-data:/var/lib/opensandbox
+    restart: 'no'
+
 networks:
   # No route to the outside world: only services on this network can reach Postgres.
   internal:
@@ -89,3 +108,5 @@ networks:
 volumes:
   pgdata:
   coredata:
+  # OpenSandbox's SQLite store for the spike; separate from the stack's data.
+  opensandbox-data:
