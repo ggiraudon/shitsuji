@@ -79,7 +79,8 @@ jobs:
           run '{"argv":["sleep","30"],"timeoutMs":60000}' > /tmp/exec.ndjson &
           sleep 1
           ID=$(head -1 /tmp/exec.ndjson | sed -E 's/.*"id":"([^"]+)".*/\1/')
-          api -d '{}' "http://127.0.0.1:4555/exec/$ID/signal" | grep -q '"stopped":true'
+          api -d '{}' "http://127.0.0.1:4555/exec/$ID/signal" > /tmp/signal.json
+          grep -q '"stopped":true' /tmp/signal.json
           wait
           grep -q '"signal":"SIGTERM"' /tmp/exec.ndjson
           run '{"argv":["sleep","30"],"timeoutMs":500}' | grep -q '"timedOut":true'
