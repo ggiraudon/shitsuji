@@ -104,9 +104,13 @@ class ChannelGateway implements InboundSink {
 - **Binding and pairing.** A new Telegram chat must be paired once: the web UI shows a code, you send
   `/start <code>` to the bot. Messages from unpaired chats are ignored. This is the access control for chat
   channels. Only **private** chats are accepted: a group or channel message is dropped by the Telegram
-  adapter, because pairing a chat would otherwise let every member act as the owner (#38).
+  adapter, because pairing a chat would otherwise let every member act as the owner (#38). `/start` in an
+  already-paired chat answers "Already paired." without a model call, and an unpaired chat is logged once
+  per minute with a count of what it sent (#39).
 - **Reply routing.** A reply to a task's message goes to that task's session; anything else goes to the main
-  chat session ([F15](F15-tasks-and-subagents.md)).
+  chat session ([F15](F15-tasks-and-subagents.md)). The webhook keys each waiting POST by the turn it
+  started or was steered into, so a steered message gets that turn's reply and not the next caller's
+  (#35).
 - **Attachments** are stored in `<dataDir>/handoff` (decision T2) and the turn is told the absolute paths.
   The file tools may read that folder but never write it; until F08 the workspace container can take it over.
   An adapter asks the gateway (`accepts`) before downloading, so an unpaired chat stores nothing and gets
@@ -130,7 +134,8 @@ task routing waits for [F15](F15-tasks-and-subagents.md); buttons and attachment
 - Inline keyboards for approvals and choices; callback data carries only an opaque ID.
   *(S37: an approval card's buttons call back `y:<id>` / `n:<id>`, so the data names only the decision
   and the approval, never the action; a typed yes or no is read on its own by the trust model.)*
-- Progress: one "working…" message edited in place, removed when the turn ends.
+- Progress: one "working…" message edited in place, removed when the turn ends. *(#42: a Working message that arrives after the reply is deleted too, and
+  `bot.catch` logs a handler failure instead of letting grammY stop polling.)*
 - Files: documents, photos and voice notes are downloaded into the handoff folder; sent files go back as
   documents. Voice notes are stored for [F23](F23-voice.md), which answers that it cannot listen yet.
 - Commands: `/stop`, `/tasks`, `/status`, `/new` (reset thread, with confirmation).

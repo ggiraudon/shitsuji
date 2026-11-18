@@ -43,9 +43,9 @@ stateDiagram-v2
   running --> waiting : asked a question / approval
   running --> failed
   running --> cancelled : Stop
+  waiting --> succeeded : the owner answers
   waiting --> cancelled
   succeeded --> [*]
-  waiting --> [*] : a resume turn continues
   failed --> [*]
   cancelled --> [*]
 ```
@@ -54,8 +54,9 @@ stateDiagram-v2
 an illegal one. The repository persists them with compare-and-set ([F02](F02-persistence.md)).
 
 A `waiting` turn's question is stored as Shitsuji's reply, so it is part of the transcript; the owner's
-next message in that session starts a `resume` turn ([F22](F22-observability-and-cost.md) check-in is the
-first producer, [F11](F11-trust-and-approvals.md) approvals the next).
+next message in that session ends the waiting turn (`succeeded`, "answered") and starts a `resume` turn
+([F22](F22-observability-and-cost.md) check-in is the first producer, [F11](F11-trust-and-approvals.md)
+approvals the next).
 
 ### Classes
 

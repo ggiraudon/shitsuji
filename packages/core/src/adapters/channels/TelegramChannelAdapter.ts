@@ -39,7 +39,7 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
   };
 
   /** The "Working…" message per chat, removed when the turn's reply is delivered. */
-  private readonly working = new Map<string, number>();
+  private readonly working = new Map<string, { messageId?: number }>();
   private readonly handoff?: HandoffStore;
   private readonly renderer: TelegramRenderer;
 
@@ -127,11 +127,20 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
   /** Shows that the turn is working: one message, replaced by the reply when it arrives. */
   async typing(target: ChannelTarget): Promise<void> {
     if (this.working.has(target.chatId)) return;
+    // Record the attempt before the first await: a reply that lands meanwhile must still clear it.
+    const marker: { messageId?: number } = {};
+    this.working.set(target.chatId, marker);
     try {
       await this.transport.sendTyping(target.chatId);
       const messageId = await this.transport.sendMessage(target.chatId, 'Working…', 'Working…');
-      this.working.set(target.chatId, messageId);
+      if (this.working.get(target.chatId) !== marker) {
+        // The reply went out while this was being sent; remove it now (#42).
+        await this.transport.deleteMessage(target.chatId, messageId).catch(() => undefined);
+        return;
+      }
+      marker.messageId = messageId;
     } catch (error) {
+      if (this.working.get(target.chatId) === marker) this.working.delete(target.chatId);
       this.log.warn('Could not show Telegram typing', {
         error: { name: (error as Error)?.name, message: (error as Error)?.message },
       });
@@ -258,11 +267,13 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
   }
 
   private async clearWorking(chatId: string): Promise<void> {
-    const messageId = this.working.get(chatId);
-    if (messageId === undefined) return;
+    const marker = this.working.get(chatId);
+    if (!marker) return;
     this.working.delete(chatId);
+    // The message id is not known yet: typing() deletes the message when it arrives (#42).
+    if (marker.messageId === undefined) return;
     try {
-      await this.transport.deleteMessage(chatId, messageId);
+      await this.transport.deleteMessage(chatId, marker.messageId);
     } catch (error) {
       this.log.warn('Could not remove the working message', {
         error: { name: (error as Error)?.name, message: (error as Error)?.message },

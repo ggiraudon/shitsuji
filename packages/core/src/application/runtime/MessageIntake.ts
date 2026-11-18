@@ -55,9 +55,10 @@ export class MessageIntake {
       const turns = await repos.turns.listBySession(session.id, tx);
       const running = turns.find((t) => t.status === 'running');
       const queued = turns.find((t) => t.status === 'queued');
-      // A waiting turn asked a question or paused at the check-in; the owner's next message
-      // continues that session as a resume turn (F04, S28).
-      const waiting = turns.at(-1)?.status === 'waiting';
+      // A waiting turn asked a question or paused at the check-in; the owner's next message ends it
+      // and continues the session as a resume turn (F04, S28, #30).
+      const waiting =
+        !running && !queued && turns.at(-1)?.status === 'waiting' ? turns.at(-1) : undefined;
       const turn =
         running ??
         queued ??
@@ -68,7 +69,13 @@ export class MessageIntake {
           createdAt: clock.now(),
           replyChannel: opts.replyChannel,
         });
-      if (!running && !queued) await repos.turns.insert(turn, tx);
+      if (!running && !queued) {
+        if (waiting) {
+          waiting.answered(clock.now());
+          await repos.turns.update(waiting, 'waiting', tx);
+        }
+        await repos.turns.insert(turn, tx);
+      }
       await repos.messages.append(
         {
           id: newId(),

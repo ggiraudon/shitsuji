@@ -30,6 +30,8 @@ class FakeTelegram implements TelegramTransport {
   started = 0;
   stopped = 0;
   failDownload = false;
+  /** When set, a "Working…" message waits for it, so a reply can overtake it (#42). */
+  workingGate?: Promise<void>;
   private handler?: (message: TelegramIncoming) => void;
 
   async start(onMessage: (message: TelegramIncoming) => void): Promise<void> {
@@ -41,6 +43,7 @@ class FakeTelegram implements TelegramTransport {
     this.handler = undefined;
   }
   async sendMessage(chatId: string, html: string, plain: string): Promise<number> {
+    if (html === 'Working…' && this.workingGate) await this.workingGate;
     this.sent.push({ chatId, html, plain });
     return this.sent.length;
   }
@@ -528,5 +531,24 @@ describe('TelegramChannelAdapter: approval cards (S37)', () => {
     await until(() => transport.answered.length === 1);
     expect(transport.answered[0]).toEqual({ id: 'cb-2', text: 'This card is no longer open.' });
     expect(transport.edits).toEqual([]);
+  });
+});
+
+describe('TelegramChannelAdapter: the Working message (#42)', () => {
+  it('removes a Working message that arrives after the reply', async () => {
+    const { adapter, transport } = await setup();
+    let release!: () => void;
+    transport.workingGate = new Promise<void>((resolve) => (release = resolve));
+
+    const typing = adapter.typing({ chatId: '42' });
+    await until(() => transport.typed.length === 1);
+    await adapter.deliver({ chatId: '42' }, reply('Done.'));
+    release();
+    await typing;
+
+    // "Done." went out first (id 1), then the late Working message (id 2), which is deleted again.
+    expect(transport.sent[0]!.html).toBe('Done.');
+    expect(transport.sent[1]!.html).toMatch(/^Working/);
+    expect(transport.deleted).toEqual([{ chatId: '42', messageId: 2 }]);
   });
 });

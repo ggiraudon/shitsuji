@@ -89,10 +89,12 @@ function setup(options: { reject?: 'parse' | 'other' } = {}) {
     },
     client: { fetch: fetchMock, apiRoot: 'https://telegram.test' },
   });
+  const log = new MemoryLogger();
   return {
-    transport: new GrammyTelegramTransport(bot, new MemoryLogger(), fetchMock),
+    transport: new GrammyTelegramTransport(bot, log, fetchMock),
     bot,
     calls,
+    log,
   };
 }
 
@@ -314,5 +316,20 @@ describe('GrammyTelegramTransport: approval buttons (S37)', () => {
 
     const call = calls.find((c) => c.url.endsWith('/answerCallbackQuery'))!;
     expect(call.body).toMatchObject({ callback_query_id: 'cb-1', text: 'Approved.' });
+  });
+});
+
+describe('GrammyTelegramTransport: handler failures (#42)', () => {
+  it('logs a handler failure and keeps polling', () => {
+    const { bot, log } = setup();
+    const handler = (bot as unknown as { errorHandler?: (error: unknown) => void }).errorHandler;
+
+    expect(handler).toBeTypeOf('function');
+    handler!({ error: new Error('mapping broke') });
+
+    const record = log.records.find(
+      (r) => r.message === 'Telegram update failed; polling continues',
+    );
+    expect(record?.context).toMatchObject({ error: { name: 'Error', message: 'mapping broke' } });
   });
 });

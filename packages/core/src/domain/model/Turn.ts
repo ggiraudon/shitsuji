@@ -10,7 +10,7 @@ export type TurnSource = 'user' | 'task' | 'schedule' | 'event' | 'resume';
 const ALLOWED: Record<TurnStatus, readonly TurnStatus[]> = {
   queued: ['running', 'cancelled'],
   running: ['succeeded', 'waiting', 'failed', 'cancelled'],
-  waiting: ['cancelled'],
+  waiting: ['succeeded', 'cancelled'],
   succeeded: [],
   failed: [],
   cancelled: [],
@@ -39,7 +39,8 @@ export interface TurnProps {
 
 /**
  * One run of the agent in a session. A state machine: illegal transitions throw InvalidTransition, so a
- * bug cannot, say, restart a finished turn. Waiting turns end there; a new `resume` turn continues.
+ * bug cannot, say, restart a finished turn. A waiting turn ends when the owner answers (`answered`) or
+ * Stop cancels it; the `resume` turn carries the answer onward.
  */
 export class Turn {
   private constructor(private props: TurnProps) {}
@@ -99,6 +100,15 @@ export class Turn {
   /** The turn asked the owner a question or needs an approval. */
   wait(at: Date): void {
     this.transition('waiting');
+    this.props.endedAt = at;
+  }
+
+  /**
+   * The owner answered a waiting turn. The turn ends here; the `resume` turn that carries the answer
+   * continues the session (#30).
+   */
+  answered(at: Date): void {
+    this.transition('succeeded');
     this.props.endedAt = at;
   }
 

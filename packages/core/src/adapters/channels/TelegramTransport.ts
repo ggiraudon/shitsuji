@@ -79,7 +79,17 @@ export class GrammyTelegramTransport implements TelegramTransport {
     private readonly bot: Bot,
     private readonly log: Logger,
     private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+  ) {
+    // grammY stops polling when a handler throws unless it has a catcher; log and keep going (#42).
+    this.bot.catch((error) => {
+      this.log.error('Telegram update failed; polling continues', {
+        error: {
+          name: (error.error as Error | undefined)?.name,
+          message: (error.error as Error | undefined)?.message,
+        },
+      });
+    });
+  }
 
   /** Attaches the message handlers without starting polling; tests use bot.handleUpdate(). */
   register(onMessage: (message: TelegramIncoming) => void): void {
