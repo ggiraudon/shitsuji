@@ -224,6 +224,16 @@ export const shitsujiConfigSchema = z
       })
       .strict()
       .default({}),
+    /**
+     * Where commands and files run (F08, decisions W1–W6, X3). `host` is today's behaviour: the core
+     * process itself. A driver that cannot start leaves no sandbox tools rather than falling back.
+     */
+    sandbox: z
+      .object({
+        driver: z.enum(['host', 'opensandbox', 'shitsuji']).default('host'),
+      })
+      .strict()
+      .default({}),
     plugins: z
       .object({
         directory: z.string().optional(),

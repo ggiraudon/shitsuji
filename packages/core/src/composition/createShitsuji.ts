@@ -31,12 +31,11 @@ import { TypedApprovalReader } from '../application/trust/TypedApprovalReader.js
 import { TrustJudge } from '../application/trust/TrustJudge.js';
 import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
-import { workspaceTools } from '../application/sandbox/tools/index.js';
-import { HostExec } from '../adapters/sandbox/host/HostExec.js';
-import { WorkspaceRoot } from '../adapters/sandbox/host/WorkspaceRoot.js';
+import { SandboxService } from '../application/sandbox/SandboxService.js';
+import { HostSandboxDriver } from '../adapters/sandbox/host/HostSandboxDriver.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
-import { ConfigError, serializeError } from '../domain/errors.js';
+import { ConfigError, SandboxUnavailable, serializeError } from '../domain/errors.js';
 import { asId, type OwnerId } from '../domain/model/ids.js';
 import { Money } from '../domain/model/Money.js';
 import type { Repositories } from '../ports/Repositories.js';
@@ -65,6 +64,28 @@ function inMemoryWithWarning(log: CoreServices['log']): Repositories {
 /** Decision Q1: the tools stay in `<dataDir>/workspace` unless the config names another folder. */
 export function workspaceDirOf(config: ShitsujiConfig): string {
   return config.tools.workspaceDir ?? path.join(config.paths.dataDir, 'workspace');
+}
+
+/**
+ * The driver the config names (F08, X3). Only `host` exists so far; a driver that is not in this
+ * build is a configuration error rather than a silent fallback to running on the host.
+ */
+function sandboxDriverOf(config: ShitsujiConfig): HostSandboxDriver {
+  switch (config.sandbox.driver) {
+    case 'host':
+      return new HostSandboxDriver({
+        workspaceDir: workspaceDirOf(config),
+        readDirs: [path.join(config.paths.dataDir, 'handoff')],
+        exec: config.tools.exec,
+      });
+    case 'opensandbox':
+    case 'shitsuji':
+      throw new SandboxUnavailable(
+        `sandbox.driver "${config.sandbox.driver}" is not available in this build yet ` +
+          '(S44 adds opensandbox, S48 the shitsuji sandbox). Use "host" for now.',
+        { driver: config.sandbox.driver },
+      );
+  }
 }
 
 export interface CreateShitsujiOptions {
@@ -214,16 +235,17 @@ export async function createShitsuji(
     log,
   });
   const typedApproval = new TypedApprovalReader({ models, log });
-  // The workspace tools come from the sandbox the driver opened; the `host` driver is the core
-  // process itself until another driver lands (F08, S40).
-  const files = new WorkspaceRoot(workspaceDirOf(config), [
-    path.join(config.paths.dataDir, 'handoff'),
-  ]);
-  const hostExec = config.tools.exec.enabled
-    ? new HostExec({ maxTimeoutMs: config.tools.exec.maxTimeoutSeconds * 1000 })
-    : undefined;
+  // One sandbox per owner (F08, S40). The `host` driver is the core process itself until another
+  // driver lands; it opens here so the standard tools can be registered by capability.
+  const sandbox = new SandboxService({
+    driver: sandboxDriverOf(config),
+    lease: { ownerId: OWNER_ID },
+    exec: config.tools.exec,
+    log,
+  });
+  await sandbox.start();
   const tools = new ToolCatalog(plugins.tools());
-  for (const tool of workspaceTools(files, hostExec, config.tools.exec)) tools.add(tool);
+  for (const tool of sandbox.tools()) tools.add(tool);
   tools.add(new ToolSearchTool(() => tools.list()));
   tools.add(new ToolCallGateway());
   const pipeline = new ToolPipeline(
@@ -272,6 +294,7 @@ export async function createShitsuji(
     events,
     version: VERSION,
     jobs,
+    sandbox,
     recovery: new StartupRecovery(repos, services.clock, log),
     bindings: repos.bindings,
     pairing,
