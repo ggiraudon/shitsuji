@@ -6,12 +6,12 @@ import {
   WorkspaceExecTool,
   WorkspaceListTool,
   WorkspaceReadTool,
-  WorkspaceRoot,
   WorkspaceSendTool,
   WorkspaceWriteTool,
-} from '../../../src/adapters/tools/workspace.js';
-import type { ToolContext } from '../../../src/ports/Tool.js';
-import { testServices } from '../../helpers.js';
+} from '../../../../src/application/sandbox/tools/workspace.js';
+import { WorkspaceRoot } from '../../../../src/adapters/sandbox/host/WorkspaceRoot.js';
+import type { ToolContext } from '../../../../src/ports/Tool.js';
+import { testServices } from '../../../helpers.js';
 
 let base: string;
 let ws: WorkspaceRoot;

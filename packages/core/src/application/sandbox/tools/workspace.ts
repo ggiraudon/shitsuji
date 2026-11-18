@@ -1,113 +1,8 @@
 import { spawn } from 'node:child_process';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod/v4';
-import { BaseTool, type ToolContext, type ToolOutput } from '../../ports/Tool.js';
-
-/**
- * The folder the file and exec tools are confined to until the workspace container exists (F08).
- * Every path is resolved inside it; `..`, absolute paths and symlinks pointing outside are refused.
- */
-export class WorkspaceRoot {
-  private real?: string;
-
-  constructor(
-    readonly dir: string,
-    /** Extra folders the read tools may reach, e.g. the handoff folder (T2). Never writable. */
-    private readonly readDirs: readonly string[] = [],
-  ) {}
-
-  /** The real path of the root, created on first use. */
-  async root(): Promise<string> {
-    if (!this.real) {
-      await fs.mkdir(this.dir, { recursive: true });
-      this.real = await fs.realpath(this.dir);
-    }
-    return this.real;
-  }
-
-  /** Resolves a workspace-relative path; throws if it would leave the workspace. */
-  async resolve(relative: string): Promise<string> {
-    const root = await this.root();
-    if (path.isAbsolute(relative) || /^[a-zA-Z]:/.test(relative)) {
-      throw new Error(`"${relative}" is absolute; use a path relative to the workspace`);
-    }
-    const target = path.resolve(root, relative);
-    if (!inside(root, target)) throw new Error(`"${relative}" is outside the workspace`);
-    // Follow symlinks on the deepest existing part of the path.
-    let existing = target;
-    while (!(await exists(existing))) existing = path.dirname(existing);
-    const realExisting = await fs.realpath(existing);
-    if (!inside(root, realExisting)) {
-      throw new Error(`"${relative}" leads outside the workspace through a link`);
-    }
-    return path.join(realExisting, path.relative(existing, target));
-  }
-
-  /**
-   * Resolves a path for reading: the workspace, then the handoff folder. An absolute path is allowed
-   * only inside one of them (the gateway gives the agent absolute handoff paths, S33).
-   */
-  async resolveRead(input: string): Promise<string> {
-    if (path.isAbsolute(input) || /^[a-zA-Z]:/.test(input)) {
-      return this.resolveAbsoluteRead(input);
-    }
-    let workspacePath: string | undefined;
-    try {
-      workspacePath = await this.resolve(input);
-      if (await exists(workspacePath)) return workspacePath;
-    } catch {
-      // not in the workspace; the read folders may still have it
-    }
-    for (const dir of this.readDirs) {
-      try {
-        const candidate = await new WorkspaceRoot(dir).resolve(input);
-        if (await exists(candidate)) return candidate;
-      } catch {
-        // try the next read folder
-      }
-    }
-    if (workspacePath) return workspacePath;
-    throw new Error(`"${input}" is outside the workspace and the handoff folder`);
-  }
-
-  private async resolveAbsoluteRead(input: string): Promise<string> {
-    const roots = [
-      await this.root(),
-      ...(await Promise.all(this.readDirs.map((dir) => new WorkspaceRoot(dir).root()))),
-    ];
-    const target = path.resolve(input);
-    const root = roots.find((candidate) => inside(candidate, target));
-    if (!root) throw new Error(`"${input}" is outside the workspace and the handoff folder`);
-    let existing = target;
-    while (!(await exists(existing))) existing = path.dirname(existing);
-    const realExisting = await fs.realpath(existing);
-    if (!roots.some((candidate) => inside(candidate, realExisting))) {
-      throw new Error(`"${input}" leads outside the workspace through a link`);
-    }
-    return path.join(realExisting, path.relative(existing, target));
-  }
-
-  /** A path for display, relative to the root. */
-  display(absolute: string): string {
-    return (
-      path
-        .relative(this.real ?? this.dir, absolute)
-        .split(path.sep)
-        .join('/') || '.'
-    );
-  }
-}
-
-const inside = (root: string, p: string) => {
-  const rel = path.relative(root, p);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-};
-const exists = (p: string) =>
-  fs.lstat(p).then(
-    () => true,
-    () => false,
-  );
+import type { SandboxFiles } from '../../../ports/SandboxDriver.js';
+import { BaseTool, type ToolContext, type ToolOutput } from '../../../ports/Tool.js';
 
 const MAX_READ_BYTES = 1_000_000;
 
@@ -120,21 +15,22 @@ export class WorkspaceReadTool extends BaseTool<typeof readInput> {
   readonly description = 'Read a text file from the workspace or the handoff folder.';
   readonly input = readInput;
   readonly effect = 'read' as const;
-  constructor(private readonly ws: WorkspaceRoot) {
+  override readonly target = 'workspace' as const;
+  constructor(private readonly files: SandboxFiles) {
     super();
   }
   async run({ path: p }: z.infer<typeof readInput>): Promise<ToolOutput> {
-    const file = await this.ws.resolveRead(p);
-    const stat = await fs.stat(file).catch(() => undefined);
+    const file = await this.files.resolveRead(p);
+    const stat = await this.files.stat(file);
     if (!stat) return { content: `No such file: ${p}`, isError: true };
-    if (!stat.isFile()) return { content: `${p} is not a file`, isError: true };
+    if (!stat.isFile) return { content: `${p} is not a file`, isError: true };
     if (stat.size > MAX_READ_BYTES) {
       return {
         content: `${p} is ${stat.size} bytes; the limit is ${MAX_READ_BYTES}`,
         isError: true,
       };
     }
-    return { content: await fs.readFile(file, 'utf8'), data: { bytes: stat.size } };
+    return { content: await this.files.read(file), data: { bytes: stat.size } };
   }
 }
 
@@ -150,15 +46,15 @@ export class WorkspaceWriteTool extends BaseTool<typeof writeInput> {
     'Write (or append to) a text file in the workspace folder, creating folders as needed.';
   readonly input = writeInput;
   readonly effect = 'write_local' as const;
-  constructor(private readonly ws: WorkspaceRoot) {
+  override readonly target = 'workspace' as const;
+  constructor(private readonly files: SandboxFiles) {
     super();
   }
   async run({ path: p, content, append }: z.infer<typeof writeInput>): Promise<ToolOutput> {
-    const file = await this.ws.resolve(p);
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    await (append ? fs.appendFile(file, content, 'utf8') : fs.writeFile(file, content, 'utf8'));
+    const file = await this.files.resolve(p);
+    await this.files.write(file, content, { append });
     return {
-      content: `${append ? 'Appended' : 'Wrote'} ${Buffer.byteLength(content)} bytes to ${this.ws.display(file)}`,
+      content: `${append ? 'Appended' : 'Wrote'} ${Buffer.byteLength(content)} bytes to ${this.files.display(file)}`,
     };
   }
 }
@@ -172,16 +68,17 @@ export class WorkspaceListTool extends BaseTool<typeof listInput> {
   readonly description = 'List the files and folders in a workspace or handoff folder.';
   readonly input = listInput;
   readonly effect = 'read' as const;
-  constructor(private readonly ws: WorkspaceRoot) {
+  override readonly target = 'workspace' as const;
+  constructor(private readonly files: SandboxFiles) {
     super();
   }
   async run({ path: p }: z.infer<typeof listInput>): Promise<ToolOutput> {
-    const dir = await this.ws.resolveRead(p);
-    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => undefined);
+    const dir = await this.files.resolveRead(p);
+    const entries = await this.files.list(dir);
     if (!entries) return { content: `No such folder: ${p}`, isError: true };
     const lines = entries
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+      .map((entry) => (entry.directory ? `${entry.name}/` : entry.name));
     return { content: lines.length ? lines.join('\n') : '(empty)' };
   }
 }
@@ -205,8 +102,9 @@ export class WorkspaceSendTool extends BaseTool<typeof sendInput> {
     'document. Use it after creating or receiving the file.';
   readonly input = sendInput;
   readonly effect = 'read' as const;
+  override readonly target = 'workspace' as const;
 
-  constructor(private readonly ws: WorkspaceRoot) {
+  constructor(private readonly files: SandboxFiles) {
     super();
   }
 
@@ -214,10 +112,10 @@ export class WorkspaceSendTool extends BaseTool<typeof sendInput> {
     { path: p, caption }: z.infer<typeof sendInput>,
     _ctx: ToolContext,
   ): Promise<ToolOutput> {
-    const file = await this.ws.resolveRead(p);
-    const stat = await fs.stat(file).catch(() => undefined);
+    const file = await this.files.resolveRead(p);
+    const stat = await this.files.stat(file);
     if (!stat) return { content: `No such file: ${p}`, isError: true };
-    if (!stat.isFile()) return { content: `${p} is not a file`, isError: true };
+    if (!stat.isFile) return { content: `${p} is not a file`, isError: true };
     if (stat.size > MAX_SEND_BYTES) {
       return {
         content: `${p} is ${stat.size} bytes; the limit is ${MAX_SEND_BYTES}`,
@@ -277,8 +175,8 @@ const execInput = z.object({
 
 /**
  * workspace.exec: runs one program with arguments (no shell, so no `;`, pipes or globbing), with its
- * working folder in the workspace, a timeout, an output cap, and a kill on Stop. Until F08 the program
- * itself runs with the core process's permissions (decision Q1).
+ * working folder in the workspace, a timeout, an output cap, and a kill on Stop. The program runs in
+ * the sandbox the driver opened; the `host` driver means the core process itself (decision Q1).
  */
 export class WorkspaceExecTool extends BaseTool<typeof execInput> {
   readonly name = 'workspace.exec';
@@ -287,16 +185,17 @@ export class WorkspaceExecTool extends BaseTool<typeof execInput> {
     'No shell: pass each argument separately, and use no pipes, redirects or ";".';
   readonly input = execInput;
   readonly effect = 'write_local' as const;
+  override readonly target = 'workspace' as const;
 
   constructor(
-    private readonly ws: WorkspaceRoot,
+    private readonly files: SandboxFiles,
     private readonly options: ExecOptions,
   ) {
     super();
   }
 
   async run(args: z.infer<typeof execInput>, ctx: ToolContext): Promise<ToolOutput> {
-    const cwd = await this.ws.resolve(args.cwd);
+    const cwd = await this.files.resolve(args.cwd);
     const timeoutS = Math.min(
       args.timeoutSeconds ?? this.options.defaultTimeoutSeconds,
       this.options.maxTimeoutSeconds,

@@ -31,6 +31,8 @@ import { TypedApprovalReader } from '../application/trust/TypedApprovalReader.js
 import { TrustJudge } from '../application/trust/TrustJudge.js';
 import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
+import { workspaceTools } from '../application/sandbox/tools/index.js';
+import { WorkspaceRoot } from '../adapters/sandbox/host/WorkspaceRoot.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
 import { ConfigError, serializeError } from '../domain/errors.js';
@@ -211,7 +213,13 @@ export async function createShitsuji(
     log,
   });
   const typedApproval = new TypedApprovalReader({ models, log });
+  // The workspace tools come from the sandbox the driver opened; the `host` driver is the core
+  // process itself until another driver lands (F08, S40).
+  const files = new WorkspaceRoot(workspaceDirOf(config), [
+    path.join(config.paths.dataDir, 'handoff'),
+  ]);
   const tools = new ToolCatalog(plugins.tools());
+  for (const tool of workspaceTools(files, config.tools.exec)) tools.add(tool);
   tools.add(new ToolSearchTool(() => tools.list()));
   tools.add(new ToolCallGateway());
   const pipeline = new ToolPipeline(
@@ -321,9 +329,6 @@ function builtInPlugins(
     new OpenAICompatiblePlugin(endpoints('openai-compatible')),
     new AnthropicPlugin(endpoints('anthropic')),
     new CoreToolsPlugin({
-      workspaceDir: workspaceDirOf(config),
-      handoffDir: path.join(config.paths.dataDir, 'handoff'),
-      exec: config.tools.exec,
       status,
     }),
     new WebToolsPlugin({
