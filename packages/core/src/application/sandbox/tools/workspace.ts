@@ -58,6 +58,76 @@ export class WorkspaceWriteTool extends BaseTool<typeof writeInput> {
   }
 }
 
+const editInput = z.object({
+  path: z.string().min(1).describe('File path, relative to the workspace'),
+  old: z.string().min(1).describe('The exact text to replace, whitespace and indentation included'),
+  new: z.string().describe('The replacement text'),
+  all: z
+    .boolean()
+    .default(false)
+    .describe('Replace every occurrence instead of refusing an ambiguous match'),
+});
+
+/**
+ * workspace.edit changes a file by exact string replacement, like a coding agent: a missing or
+ * ambiguous match is refused rather than guessed at, so a wrong edit cannot silently hit the wrong
+ * place.
+ */
+export class WorkspaceEditTool extends BaseTool<typeof editInput> {
+  readonly name = 'workspace.edit';
+  readonly description =
+    'Replace an exact piece of text in a workspace file. The text must appear exactly once unless ' +
+    'all is true; include surrounding lines when it is not unique.';
+  readonly input = editInput;
+  readonly effect = 'write_local' as const;
+  override readonly target = 'workspace' as const;
+  constructor(private readonly files: SandboxFiles) {
+    super();
+  }
+  async run({
+    path: p,
+    old,
+    new: replacement,
+    all,
+  }: z.infer<typeof editInput>): Promise<ToolOutput> {
+    const file = await this.files.resolve(p);
+    const stat = await this.files.stat(file);
+    if (!stat) return { content: `No such file: ${p}`, isError: true };
+    if (!stat.isFile) return { content: `${p} is not a file`, isError: true };
+    const content = await this.files.read(file);
+    const count = occurrences(content, old);
+    if (count === 0) {
+      return { content: `${p} does not contain that text.`, isError: true };
+    }
+    if (count > 1 && !all) {
+      return {
+        content:
+          `That text matches ${count} places in ${p}; include more surrounding lines to pick one, ` +
+          'or set all: true to replace every one.',
+        isError: true,
+      };
+    }
+    const next = all ? content.split(old).join(replacement) : content.replace(old, replacement);
+    await this.files.write(file, next, { append: false });
+    const replaced = all ? count : 1;
+    return {
+      content: `Replaced ${replaced} occurrence${replaced === 1 ? '' : 's'} in ${this.files.display(file)}.`,
+      data: { replaced },
+    };
+  }
+}
+
+/** How many times `needle` appears in `text`, without overlapping itself. */
+function occurrences(text: string, needle: string): number {
+  let count = 0;
+  let at = text.indexOf(needle);
+  while (at !== -1) {
+    count++;
+    at = text.indexOf(needle, at + needle.length);
+  }
+  return count;
+}
+
 const listInput = z.object({
   path: z.string().default('.').describe('Folder, relative to the workspace'),
 });

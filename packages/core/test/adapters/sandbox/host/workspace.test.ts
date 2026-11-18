@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  WorkspaceEditTool,
   WorkspaceExecTool,
   WorkspaceListTool,
   WorkspaceReadTool,
@@ -81,6 +82,75 @@ describe('workspace file tools', () => {
       isError: true,
     });
     expect(await new WorkspaceListTool(ws).run({ path: 'nope' })).toMatchObject({ isError: true });
+  });
+});
+
+describe('workspace.edit (S41)', () => {
+  const edit = () => new WorkspaceEditTool(ws);
+
+  it('replaces one exact match and leaves the rest of the file alone', async () => {
+    await new WorkspaceWriteTool(ws).run({
+      path: 'src/app.ts',
+      content: 'const a = 1;\nconst b = 2;\n',
+      append: false,
+    });
+
+    const out = await edit().run({
+      path: 'src/app.ts',
+      old: 'const b = 2;',
+      new: 'const b = 3;',
+      all: false,
+    });
+
+    expect(out.isError).toBeFalsy();
+    expect((await new WorkspaceReadTool(ws).run({ path: 'src/app.ts' })).content).toBe(
+      'const a = 1;\nconst b = 3;\n',
+    );
+  });
+
+  it('refuses an ambiguous match and says how many there are', async () => {
+    await new WorkspaceWriteTool(ws).run({
+      path: 'notes.md',
+      content: 'todo\ntodo\ntodo\n',
+      append: false,
+    });
+
+    const out = await edit().run({ path: 'notes.md', old: 'todo', new: 'done', all: false });
+
+    expect(out.isError).toBe(true);
+    expect(out.content).toMatch(/matches 3 places/);
+    expect(out.content).toMatch(/all: true/);
+    // Nothing is changed.
+    expect((await new WorkspaceReadTool(ws).run({ path: 'notes.md' })).content).toBe(
+      'todo\ntodo\ntodo\n',
+    );
+  });
+
+  it('replaces every match when asked to, and refuses text that is not there', async () => {
+    await new WorkspaceWriteTool(ws).run({
+      path: 'notes.md',
+      content: 'todo\ntodo\ntodo\n',
+      append: false,
+    });
+
+    const all = await edit().run({ path: 'notes.md', old: 'todo', new: 'done', all: true });
+    expect(all.isError).toBeFalsy();
+    expect((await new WorkspaceReadTool(ws).run({ path: 'notes.md' })).content).toBe(
+      'done\ndone\ndone\n',
+    );
+
+    const missing = await edit().run({ path: 'notes.md', old: 'absent', new: 'x', all: false });
+    expect(missing).toMatchObject({ isError: true });
+    expect(missing.content).toMatch(/does not contain/);
+  });
+
+  it('reports a missing file and refuses a path outside the workspace', async () => {
+    expect(await edit().run({ path: 'nope.md', old: 'a', new: 'b', all: false })).toMatchObject({
+      isError: true,
+    });
+    await expect(
+      edit().run({ path: '../outside.md', old: 'a', new: 'b', all: false }),
+    ).rejects.toThrow(/outside/);
   });
 });
 

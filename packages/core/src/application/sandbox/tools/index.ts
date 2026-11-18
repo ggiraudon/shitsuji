@@ -1,6 +1,7 @@
 import type { SandboxExec, SandboxFiles } from '../../../ports/SandboxDriver.js';
 import type { Tool } from '../../../ports/Tool.js';
 import {
+  WorkspaceEditTool,
   WorkspaceExecTool,
   WorkspaceListTool,
   WorkspaceReadTool,
@@ -23,6 +24,7 @@ export function workspaceTools(
 ): Tool[] {
   return [
     new WorkspaceReadTool(files),
+    new WorkspaceEditTool(files),
     new WorkspaceWriteTool(files),
     new WorkspaceListTool(files),
     new WorkspaceSendTool(files),
