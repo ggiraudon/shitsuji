@@ -7,7 +7,11 @@ import {
   execRequestSchema,
   healthReplySchema,
   isRelativePath,
+  mkdirReplySchema,
+  mkdirRequestSchema,
   moveFileRequestSchema,
+  probeReplySchema,
+  probeRequestSchema,
   readFileReplySchema,
   readFileRequestSchema,
   sandboxPathSchema,
@@ -134,18 +138,36 @@ describe('sandbox protocol: exec (S46)', () => {
   });
 });
 
+describe('sandbox protocol: mkdir and probe (S48)', () => {
+  it('defaults a mkdir to creating parents, and validates a probe', () => {
+    expect(mkdirRequestSchema.parse({ root: 'workspace', path: 'shared' })).toEqual({
+      root: 'workspace',
+      path: 'shared',
+      createParents: true,
+    });
+    expect(mkdirReplySchema.parse({ created: true })).toEqual({ created: true });
+    expect(probeRequestSchema.parse({ host: 'core', port: 3001 })).toEqual({
+      host: 'core',
+      port: 3001,
+      timeoutMs: 2_000,
+    });
+    expect(probeReplySchema.parse({ reachable: false })).toEqual({ reachable: false });
+    expect(probeRequestSchema.safeParse({ host: 'core', port: 0 }).success).toBe(false);
+  });
+});
+
 describe('sandbox protocol: health, capabilities and errors', () => {
   it('reports the exec timeout it allows, and a version', () => {
     expect(
       capabilitiesReplySchema.parse({
-        version: 2,
+        version: 3,
         files: { roots: ['workspace', 'handoff'] },
         exec: { maxTimeoutMs: 3_600_000 },
       }),
     ).toMatchObject({ exec: { maxTimeoutMs: 3_600_000 } });
     expect(
       capabilitiesReplySchema.safeParse({
-        version: 2,
+        version: 3,
         files: { roots: ['workspace'] },
         exec: null,
       }).success,
@@ -153,7 +175,7 @@ describe('sandbox protocol: health, capabilities and errors', () => {
   });
 
   it('validates health and the error envelope', () => {
-    expect(healthReplySchema.parse({ ok: true, version: 2 })).toEqual({ ok: true, version: 2 });
+    expect(healthReplySchema.parse({ ok: true, version: 3 })).toEqual({ ok: true, version: 3 });
     expect(
       errorReplySchema.parse({ error: { code: 'outside_root', message: 'no' } }),
     ).toMatchObject({ error: { code: 'outside_root' } });

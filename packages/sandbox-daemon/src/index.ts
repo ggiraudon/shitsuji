@@ -8,4 +8,5 @@ export {
 export { SandboxFilesService } from './files.js';
 export { inside, SandboxPaths, type RootSpec } from './paths.js';
 export { createSandboxServer, type SandboxServerDeps } from './server.js';
+export { probePort } from './probe.js';
 export { SandboxHttpError } from './errors.js';
