@@ -32,7 +32,7 @@ interface Containers {
   gateway: string;
   network: string;
   ctl: string;
-  tokenVolume: string;
+  secretVolume: string;
   dir: string;
   baseUrl: string;
   token: string;
@@ -52,7 +52,7 @@ if (!dockerAvailable) {
     for (const network of [containers.ctl, containers.network]) {
       spawnSync('docker', ['network', 'rm', network], { stdio: 'ignore' });
     }
-    spawnSync('docker', ['volume', 'rm', containers.tokenVolume], { stdio: 'ignore' });
+    spawnSync('docker', ['volume', 'rm', containers.secretVolume], { stdio: 'ignore' });
     fs.rmSync(containers.dir, { recursive: true, force: true });
   });
 
@@ -92,11 +92,74 @@ if (!dockerAvailable) {
       }
     });
   });
+
+  describe('the token is out of a command’s reach (F08, S48)', () => {
+    it('cannot be read, found or grepped by uid 1000', async () => {
+      const sandbox = await driver.open({ ownerId: asId<OwnerId>('owner') });
+      try {
+        const result = await run(sandbox, [
+          'sh',
+          '-c',
+          'cat /run/sandbox-seed/token 2>&1; ' +
+            'ls /run/sandbox-seed 2>&1; ' +
+            'cat /run/sandbox/token 2>&1; ' +
+            'echo "env=$(env | grep -ci token)"; ' +
+            "echo \"find=$(find / -xdev -name '*token*' -readable 2>/dev/null | grep -c -E 'sandbox|seed')\"",
+        ]);
+        expect(result.stdout.match(/Permission denied/g)).toHaveLength(3);
+        expect(result.stdout).toContain('env=0');
+        expect(result.stdout).toContain('find=0');
+        expect(result.stdout).not.toContain(containers.token);
+
+        // The token value itself must not be in any readable file; the value comes through the
+        // command's environment so it never appears in its argv.
+        const grep = await run(
+          sandbox,
+          [
+            'sh',
+            '-c',
+            'grep -rl "$TEST_TOKEN" /etc /home /workspace /tmp /app /usr /opt /var /run 2>/dev/null | wc -l',
+          ],
+          { TEST_TOKEN: containers.token },
+        );
+        expect(grep.stdout.trim()).toBe('0');
+        expect(grep.stdout).not.toContain(containers.token);
+
+        // The seed directory is the protection; check it as root, which owns it.
+        const stat = spawnSync(
+          'docker',
+          [
+            'exec',
+            containers.sandbox,
+            'sh',
+            '-c',
+            'ls -ld /run/sandbox-seed; ls -l /run/sandbox-seed/token',
+          ],
+          { encoding: 'utf8' },
+        );
+        expect(stat.stdout).toMatch(/^drwxrwx---\s+\d+\s+root\s+1002\s+.*\/run\/sandbox-seed$/m);
+        expect(stat.stdout).toContain('-rw-r--r--');
+        // Root (the directory's owner, with no DAC_OVERRIDE) can still read the seed; that is how
+        // the entrypoint installed it.
+        const seed = spawnSync(
+          'docker',
+          ['exec', containers.sandbox, 'cat', '/run/sandbox-seed/token'],
+          {
+            encoding: 'utf8',
+          },
+        );
+        expect(seed.stdout).toBe(containers.token);
+      } finally {
+        await sandbox.close();
+      }
+    });
+  });
 }
 
 async function run(
   sandbox: Awaited<ReturnType<ShitsujiSandboxDriver['open']>>,
   argv: string[],
+  env: Record<string, string> = {},
 ): Promise<{ stdout: string; stderr: string }> {
   const out: string[] = [];
   const err: string[] = [];
@@ -104,6 +167,7 @@ async function run(
   for await (const event of sandbox.exec!.run({
     program: argv[0]!,
     args: argv.slice(1),
+    env,
     cwd: await sandbox.files!.resolve('.'),
     timeoutMs: 30_000,
   })) {
@@ -133,7 +197,7 @@ async function start(): Promise<Containers> {
   const proxy = `shitsuji-egress-${suffix}`;
   const sandbox = `shitsuji-sandbox-${suffix}`;
   const gateway = `shitsuji-gateway-${suffix}`;
-  const tokenVolume = `shitsuji-token-${suffix}`;
+  const secretVolume = `shitsuji-secret-${suffix}`;
 
   try {
     docker([
@@ -178,18 +242,42 @@ async function start(): Promise<Containers> {
     const token = randomBytes(32).toString('hex');
     const port = String(await freePort());
 
-    // The production path: core writes a token into a volume and the sandbox mounts that one file.
-    docker(['volume', 'create', tokenVolume]);
+    // The production path: core writes a token into the secret volume, whose directory is
+    // root:1002 0770; commands (uid/gid 1000) cannot traverse it.
+    docker(['volume', 'create', secretVolume]);
     docker([
       'run',
       '--rm',
+      '--user',
+      '0:0',
+      '--cap-drop',
+      'ALL',
+      '--cap-add',
+      'CHOWN',
+      '--cap-add',
+      'FOWNER',
       '--entrypoint',
       'sh',
       '-v',
-      `${tokenVolume}:/v`,
+      `${secretVolume}:/secret`,
       SANDBOX_IMAGE,
       '-c',
-      `printf %s ${token} > /v/sandbox.token && chown 1000:1000 /v/sandbox.token && chmod 0644 /v/sandbox.token`,
+      'chown 0:1002 /secret && chmod 0770 /secret',
+    ]);
+    docker([
+      'run',
+      '--rm',
+      '--user',
+      '1000:1000',
+      '--group-add',
+      '1002',
+      '--entrypoint',
+      'sh',
+      '-v',
+      `${secretVolume}:/secret`,
+      SANDBOX_IMAGE,
+      '-c',
+      `printf %s ${token} > /secret/token && chmod 0644 /secret/token`,
     ]);
 
     docker([
@@ -230,7 +318,7 @@ async function start(): Promise<Containers> {
       '-v',
       `${path.join(dir, 'handoff')}:/handoff:ro`,
       '--mount',
-      `source=${tokenVolume},target=/etc/sandbox-token,volume-subpath=sandbox.token,readonly`,
+      `source=${secretVolume},target=/run/sandbox-seed,readonly`,
       '-e',
       'SANDBOX_EGRESS_PROXY=http://egress-proxy:3128',
       SANDBOX_IMAGE,
@@ -274,7 +362,7 @@ async function start(): Promise<Containers> {
       gateway,
       network,
       ctl,
-      tokenVolume,
+      secretVolume,
       dir,
       baseUrl: `http://127.0.0.1:${port}`,
       token,
@@ -287,7 +375,7 @@ async function start(): Promise<Containers> {
     for (const name of [ctl, network]) {
       spawnSync('docker', ['network', 'rm', name], { stdio: 'ignore' });
     }
-    spawnSync('docker', ['volume', 'rm', tokenVolume], { stdio: 'ignore' });
+    spawnSync('docker', ['volume', 'rm', secretVolume], { stdio: 'ignore' });
     throw error;
   }
 }

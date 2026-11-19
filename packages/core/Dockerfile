@@ -27,7 +27,7 @@ ENV NODE_ENV=production \
     SHITSUJI_DATA_DIR=/data
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./
-RUN mkdir -p /data && chown node:node /data
+RUN mkdir -p /data /run/sandbox-secret && chown node:node /data
 USER node
 EXPOSE 3000
 # Migrations run at startup; a failed migration or unreachable database stops the process.

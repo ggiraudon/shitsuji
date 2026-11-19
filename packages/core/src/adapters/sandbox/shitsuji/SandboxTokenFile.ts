@@ -4,10 +4,11 @@ import path from 'node:path';
 import { Secret } from '../../../domain/Secret.js';
 
 /**
- * The token core and sandboxd share (F08, S48). Core generates it on first start into its data
- * folder; Compose mounts that one file read-only into the sandbox at `/run/sandbox/token`, where
- * only the root entrypoint and the daemon's uid (1001) can reach it. It never goes into an
- * environment, a log or a command's reach.
+ * The token core and sandboxd share (F08, S48). Core generates it on first start; Compose points
+ * this at the `sandbox-secret` volume, whose root is root:1002 0770, and mounts it read-only into
+ * the sandbox at `/run/sandbox-seed`. The directory — not the file mode — is what keeps it out of a
+ * command's reach: core (uid 1000) is in group 1002 and writes it, commands (uid 1000, gid 1000) are
+ * not and cannot traverse the directory. It never goes into an environment, a log or a command.
  *
  * The write stays in place (no rename): a sandbox container may already have the file bind-mounted,
  * and a rename would leave it holding the old, empty inode.

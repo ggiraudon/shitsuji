@@ -11,6 +11,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      sandbox-secret:
+        condition: service_completed_successfully
     environment:
       # Use a URL-safe POSTGRES_PASSWORD (letters, digits, - and _), since it goes into this URL.
       DATABASE_URL: postgres://shitsuji:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/shitsuji
@@ -29,6 +31,12 @@ services:
       # The sandboxd control port (S48). The gateway is the only path from core into the sandbox
       # network: core must not join that network, or the sandbox could dial its API.
       SHITSUJI_SANDBOX_URL: http://sandboxd-gateway:4555
+      # The token goes into its own volume, not the shared data one (S48): its directory is
+      # root:1002 0770, and core has group 1002 so it can write; commands (uid 1000, gid 1000)
+      # cannot traverse it even though they share core's uid number.
+      SHITSUJI_SANDBOX_TOKEN_FILE: /run/sandbox-secret/token
+    # Lets core (uid 1000) write into the token directory, which is root:1002 0770.
+    group_add: ['1002']
     ports:
       # The webhook, on this machine only. Remote access comes later (05-open-questions D2).
       - '127.0.0.1:${SHITSUJI_WEBHOOK_PORT:-3000}:3000'
@@ -36,6 +44,7 @@ services:
       - '127.0.0.1:${SHITSUJI_API_PORT:-3001}:3001'
     volumes:
       - coredata:/data
+      - sandbox-secret:/run/sandbox-secret
     networks: [internal, egress]
     read_only: true
     tmpfs: [/tmp]
@@ -96,7 +105,8 @@ services:
         const fs = require('node:fs');
         fs.mkdirSync('/data/workspace', { recursive: true });
         fs.mkdirSync('/data/handoff', { recursive: true });
-        if (!fs.existsSync('/data/sandbox.token')) fs.writeFileSync('/data/sandbox.token', '');
+        // The token moved to the sandbox-secret volume (S48); drop the old data-dir copy if present.
+        fs.rmSync('/data/sandbox.token', { force: true });
         if (!fs.existsSync('/data/sandbox.egress.json')) {
           fs.writeFileSync('/data/sandbox.egress.json', '{"ready":false}\n');
         }
@@ -107,6 +117,30 @@ services:
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    restart: 'no'
+
+  # The token's directory (S48): root owns it, core is in group 1002, and 0770 keeps commands
+  # (uid/gid 1000) from even traversing it. Root here has only CHOWN and FOWNER, which is enough
+  # because it owns the fresh volume.
+  sandbox-secret:
+    image: shitsuji/core
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+    entrypoint: ['sh', '-c']
+    command:
+      - |
+        chown 0:1002 /run/sandbox-secret
+        chmod 0770 /run/sandbox-secret
+    user: '0:0'
+    volumes:
+      - sandbox-secret:/run/sandbox-secret
+    network_mode: 'none'
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
     security_opt: ['no-new-privileges:true']
     restart: 'no'
 
@@ -138,19 +172,20 @@ services:
         volume: { subpath: handoff }
         read_only: true
       - type: volume
-        source: coredata
-        target: /etc/sandbox-token
-        volume: { subpath: sandbox.token }
+        source: sandbox-secret
+        target: /run/sandbox-seed
         read_only: true
       - sandbox-home:/home/agent
     networks: [sandbox]
     environment:
-      SANDBOX_TOKEN_SEED: /etc/sandbox-token
+      SANDBOX_TOKEN_SEED: /run/sandbox-seed/token
       SANDBOX_TOKEN_FILE: /run/sandbox/token
       # Commands get this as HTTP(S)_PROXY and the lowercase forms (S48).
       SANDBOX_EGRESS_PROXY: http://egress-proxy:3128
     depends_on:
       sandbox-files:
+        condition: service_completed_successfully
+      sandbox-secret:
         condition: service_completed_successfully
       egress-proxy:
         condition: service_healthy
@@ -269,6 +304,8 @@ networks:
 volumes:
   pgdata:
   coredata:
+  # The sandbox token: root:1002 0770, out of a command's reach (F08, S48).
+  sandbox-secret:
   # pip/npm installs and, later, browser profiles for commands (F08, S48).
   sandbox-home:
   # OpenSandbox's SQLite store for the spike; separate from the stack's data.

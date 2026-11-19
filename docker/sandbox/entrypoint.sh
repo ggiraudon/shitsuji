@@ -9,8 +9,9 @@
 # folder. That folder is a tmpfs in Compose (the root filesystem is read-only).
 #
 # Two ways to give the daemon its token:
-#   - Compose mounts the file core generated read-only at /etc/sandbox-token; this script copies it
-#     into /run/sandbox/token and owns it to 1001.
+#   - Compose mounts the `sandbox-secret` volume read-only at /run/sandbox-seed. Its root is
+#     root:1002 0770 and the token is 0644; only this root entrypoint (the directory's owner) can
+#     read it, while commands (uid 1000, no group 1002) cannot even traverse the directory.
 #   - CI and development set SANDBOX_TOKEN and this script writes /run/sandbox/token itself.
 #
 # The container needs only these capabilities (compose uses cap_drop: ALL + cap_add):
@@ -27,7 +28,7 @@ set -eu
 
 TOKEN_FILE="${SANDBOX_TOKEN_FILE:-/run/sandbox/token}"
 TOKEN_DIR="$(dirname "$TOKEN_FILE")"
-SEED_FILE="${SANDBOX_TOKEN_SEED:-/etc/sandbox-token}"
+SEED_FILE="${SANDBOX_TOKEN_SEED:-/run/sandbox-seed/token}"
 
 # A fresh stack starts the sandbox before core has generated the token; wait instead of looping.
 waited=0

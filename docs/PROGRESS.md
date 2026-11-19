@@ -111,7 +111,8 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
       *(An HTTP client for sandboxd that validates every reply with `sandbox-protocol`, reporting
       `lanBlocked` and no credential swap. Compose adds the hardened sandbox, the egress proxy and a
       gateway relay, so core never joins the sandbox network and the sandbox cannot dial core's API.
-      Core generates the token into the data volume and writes `sandbox.egress.*` for the proxy; the
+      Core generates the token into its own `sandbox-secret` volume (root:1002 0770, so commands
+      cannot traverse to it) and writes `sandbox.egress.*` for the proxy; the
       conformance suite and the egress probes run against the real images in `pnpm test:integration`.)*
 - [ ] **S49** Switch the default, live check and docs
 

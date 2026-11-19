@@ -64,14 +64,14 @@ RUN apt-get update \
 RUN groupmod -n agent node \
  && usermod -l agent -d /home/agent -m node \
  && useradd -u 1001 -g agent -M -d /home/sandboxd -s /usr/sbin/nologin sandboxd \
- && mkdir -p /home/agent /home/sandboxd /workspace /handoff /run/sandbox \
+ && mkdir -p /home/agent /home/sandboxd /workspace /handoff /run/sandbox /run/sandbox-seed \
  && chown -R agent:agent /home/agent /workspace /handoff \
  && chown 1001:1000 /home/sandboxd /run/sandbox \
+ && chown 0:1002 /run/sandbox-seed \
  && chmod 0700 /run/sandbox \
+ && chmod 0770 /run/sandbox-seed \
  && chmod 2770 /workspace \
- && chmod 2750 /handoff \
- && : > /etc/sandbox-token \
- && chmod 0644 /etc/sandbox-token
+ && chmod 2750 /handoff
 
 # Belt-and-braces: no setuid binary in the image. Commands already run with no capabilities and
 # no-new-privs, but a setuid file buys nothing here and could only be a way back up.
@@ -82,8 +82,8 @@ COPY --from=build --chown=agent:agent /out ./
 COPY --chmod=0755 docker/sandbox/entrypoint.sh /usr/local/bin/sandbox-entrypoint
 EXPOSE 4555
 # The entrypoint starts as root, prepares the token file and workspace, then drops to uid 1001.
-# Compose mounts the token core generated read-only at /etc/sandbox-token; CI and development set
-# SANDBOX_TOKEN instead.
+# Compose mounts the secret volume (root:1002 0770, token 0644) read-only at /run/sandbox-seed; CI
+# and development set SANDBOX_TOKEN instead.
 ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint"]
 
 
