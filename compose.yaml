@@ -79,6 +79,37 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # The sandbox's only way out (F08, S47). Off by default with the sandbox it serves (S48 adds the
+  # service on the `sandbox` network and maps sandbox.egress.* to the two lists below). No published
+  # port: only containers on the internal network can reach it.
+  egress-proxy:
+    profiles: ['sandbox']
+    image: shitsuji/egress
+    build:
+      context: .
+      dockerfile: docker/egress-proxy/Dockerfile
+    environment:
+      # Empty is the open default: private addresses are always blocked. Comma- or space-separated.
+      SANDBOX_EGRESS_ALLOW: ${SANDBOX_EGRESS_ALLOW:-}
+      SANDBOX_EGRESS_DENY: ${SANDBOX_EGRESS_DENY:-}
+    networks: [sandbox, egress]
+    read_only: true
+    tmpfs: [/tmp]
+    user: '1000:1000'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3128/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
   # OpenSandbox, used only as a running service from its published images (S43 spike, F08). Off by
   # default: `docker compose --profile opensandbox up -d`. It creates sibling containers for each
   # sandbox, so it needs the Docker socket — that is root on this host; never run it with anything
@@ -104,6 +135,10 @@ networks:
     internal: true
   # Outbound internet for core (model APIs, Telegram later). Postgres is not on it.
   egress: {}
+  # The sandbox's isolated network (F08, S47): no route out except through egress-proxy, and core is
+  # not on it.
+  sandbox:
+    internal: true
 
 volumes:
   pgdata:

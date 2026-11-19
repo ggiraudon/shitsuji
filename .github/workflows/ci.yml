@@ -132,3 +132,59 @@ jobs:
       - name: Show the daemon log on failure
         if: failure()
         run: docker logs sandbox-ci || true
+
+  # Builds the egress proxy and checks that it refuses private, loopback and metadata addresses while
+  # tunnelling a public host, and that the allow list narrows the open default (F08, S47).
+  egress-proxy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the egress proxy image
+        run: docker build -f docker/egress-proxy/Dockerfile -t shitsuji/egress:ci .
+      - name: The proxy refuses private addresses and tunnels a public one
+        run: |
+          http_code() {
+            curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              -x http://127.0.0.1:3128 --noproxy "" "$1"
+          }
+          start() {
+            docker run -d --name egress-ci --read-only --tmpfs /tmp --cap-drop ALL \
+              --security-opt no-new-privileges "$@" -p 127.0.0.1:3128:3128 shitsuji/egress:ci
+            ready=no
+            for i in $(seq 1 20); do
+              if curl -fs http://127.0.0.1:3128/health > /dev/null 2>&1; then ready=yes; break; fi
+              sleep 1
+            done
+            if [ "$ready" != yes ]; then
+              echo "the egress proxy is not listening"
+              docker logs egress-ci
+              exit 1
+            fi
+            curl -fsS http://127.0.0.1:3128/health > /tmp/health.json
+            grep -q '"ok":true' /tmp/health.json
+          }
+
+          start
+          for blocked in \
+            http://169.254.169.254/latest/meta-data/ \
+            http://127.0.0.1:9/ \
+            http://10.1.2.3/; do
+            test "$(http_code "$blocked")" = "403"
+          done
+          test "$(http_code http://example.com/)" = "200"
+          test "$(http_code https://example.com/)" = "200"
+          docker rm -f egress-ci
+
+          start -e SANDBOX_EGRESS_ALLOW=example.com
+          test "$(http_code http://example.com/)" = "200"
+          test "$(http_code http://example.org/)" = "403"
+          docker rm -f egress-ci
+
+          if docker run --rm --read-only --cap-drop ALL \
+            -e SANDBOX_EGRESS_ALLOW=10.0.0.0/8 shitsuji/egress:ci; then
+            echo "an allow range overlapping a private one must be refused at startup"
+            exit 1
+          fi
+      - name: Show the proxy log on failure
+        if: failure()
+        run: docker logs egress-ci || true
