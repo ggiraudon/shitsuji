@@ -49,6 +49,7 @@ describe('shitsuji files (F08, S48)', () => {
 
     await expect(files.resolve('notes/a.txt')).resolves.toBe('/workspace/notes/a.txt');
     await expect(files.resolve('.')).resolves.toBe('/workspace');
+    await expect(files.resolve('/etc/passwd')).rejects.toThrow(/absolute/);
     expect(files.display('/workspace/notes/a.txt')).toBe('notes/a.txt');
     expect(files.display('/handoff/report.pdf')).toBe('report.pdf');
   });
@@ -166,7 +167,7 @@ describe('shitsuji exec (F08, S48)', () => {
     ]);
   });
 
-  it('signals a command whose caller aborted', async () => {
+  it('signals a command whose caller aborted, then reports it as stopped', async () => {
     const signals: string[] = [];
     const client = {
       stream: async () =>
@@ -183,7 +184,11 @@ describe('shitsuji exec (F08, S48)', () => {
     controller.abort();
 
     const events: ExecEvent[] = [];
-    for await (const event of exec.run(request(), controller.signal)) events.push(event);
+    await expect(
+      (async () => {
+        for await (const event of exec.run(request(), controller.signal)) events.push(event);
+      })(),
+    ).rejects.toThrow(/Stopped/);
 
     expect(signals).toEqual(['c9']);
     expect(events.at(-1)).toMatchObject({ type: 'exit', timedOut: true });

@@ -160,12 +160,13 @@ const HANDOFF = '/handoff';
 /** The model's path inside one root, exactly as the daemon wants it. */
 function normalise(relative: string): string {
   if (relative.includes('\0')) throw new Error('The path contains a NUL byte.');
+  if (relative.startsWith('/') || /^[a-zA-Z]:/.test(relative)) {
+    throw new Error(`"${relative}" is absolute.`);
+  }
   const clean = relative
     .split('/')
     .filter((part) => part !== '' && part !== '.')
     .join('/');
-  if (clean.startsWith('/') || /^[a-zA-Z]:/.test(clean))
-    throw new Error(`"${relative}" is absolute.`);
   if (clean.split('/').some((part) => part === '..')) {
     throw new Error(`"${relative}" is outside the sandbox's folders.`);
   }
@@ -309,7 +310,9 @@ export class ShitsujiExec implements SandboxExec {
       request.timeoutMs + 30_000,
     );
     let id: string | undefined;
+    let aborted = signal?.aborted ?? false;
     const abort = () => {
+      aborted = true;
       if (id) void this.client.signal(id, 'SIGTERM');
     };
     if (signal) {
@@ -344,6 +347,9 @@ export class ShitsujiExec implements SandboxExec {
       signal?.removeEventListener('abort', abort);
       reader.releaseLock();
     }
+    // The daemon stops the whole group on the signal, then sends the exit frame. The caller asked
+    // for a stop, so it gets the same "Stopped" the host driver gives, not an exit it ignored.
+    if (aborted) throw new Error('Stopped');
   }
 }
 
