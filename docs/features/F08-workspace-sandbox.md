@@ -101,6 +101,17 @@ reach a host file (tested). `/handoff` is read-only to the sandbox; files leavin
 staging. Exec followed in S46, and the image joins `compose.yaml` in S48; CI builds it and runs the
 health, token, round-trip and symlink checks against the real image.
 
+**What S47 builds.** `packages/egress-proxy` and `docker/egress-proxy` are the sandbox's only way out
+(X7): HTTP `CONNECT` and plain HTTP, resolving the host **once**, checking every answer and connecting
+to the exact address it checked, so DNS rebinding cannot swap it. Private, loopback, link-local, CGNAT,
+multicast, unspecified and cloud-metadata addresses (`169.254.169.254`, `fd00:ec2::254`) are always
+refused, including IPv4-mapped forms; the default is otherwise open. Optional `sandbox.egress.allow` and
+`deny` lists take domains, `*.` wildcards and IPv4/IPv6 CIDRs, matched on the name or the resolved
+address; an allow range overlapping a blocked range is refused at startup, and `core` is never reachable.
+Refusals are logged with host, address and reason only. Compose puts it on an internal `sandbox` network
+(the service it serves arrives in S48), hardened like the sandbox. SOCKS is not needed for pip, npm, git
+over HTTPS or curl; it can be added later if a tool insists on it.
+
 **What S46 builds.** `POST /exec` streams NDJSON — a start frame, stdout and stderr chunks, then one exit
 frame with `timedOut` and `truncated` — and `POST /exec/:id/signal` stops a command (TERM, then KILL after
 a grace). Each child gets its own process session (`setsid`), so a stop or a timeout kills the whole tree,

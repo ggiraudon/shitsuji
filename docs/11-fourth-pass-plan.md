@@ -48,6 +48,7 @@ Decided on 2026-11-18 and recorded in
 | X4 | `workspace.send`'s effect | **`external`**, with a shipped default rule `{ tool: workspace.send, verdict: allow }`, so it runs without asking |
 | X5 | Existing workspace files | **No copy:** the sandbox mounts the `workspace` folder of the existing `coredata` volume (Compose `volume.subpath`), and `handoff` is mounted the same way in both containers. With the `shitsuji` driver, `core` reaches the workspace only through `sandboxd` |
 | X6 | If OpenSandbox won't run | One spike step (S43); if it fails on Docker Desktop, the findings go in F08 and S44 waits. The `shitsuji` driver doesn't depend on it |
+| X7 | What the sandbox may reach | **Open internet by default.** Private, loopback, link-local, CGNAT, multicast, unspecified and cloud-metadata addresses are always refused, checked on the resolved, pinned address (IPv4, IPv6, IPv4-mapped). Optional `sandbox.egress.allow`/`deny` lists take domains, `*.` wildcards and CIDRs; an allow range overlapping a blocked one is refused at startup. No SOCKS now |
 
 ## Target additions
 
@@ -143,12 +144,20 @@ benefit. Issue #74 carries the decision; the spike's GO conditions stay in F08 i
   and is cleaned up; the timeout kills.
 
 #### S47. `egress-proxy`
-- A small Node proxy: HTTP `CONNECT` for HTTPS and plain HTTP forwarding. It resolves the host itself and
-  refuses private, loopback, link-local and CGNAT addresses and `core`, checking the **resolved** address so
-  DNS tricks don't get through. No TLS interception yet (F12).
-- Compose: a `sandbox` network marked `internal: true`; `egress-proxy` on `sandbox` and `egress`.
-- *Check:* unit tests on the address checks (IPv4 and IPv6, including IPv4-mapped addresses); an
-  integration test that `pip install` works and a LAN address fails.
+- A small Node proxy (X7): HTTP `CONNECT` for tunnels and plain HTTP forwarding. It resolves the host
+  once, checks **every** answer on the resolved address (IPv4, IPv6 and IPv4-mapped) and connects to
+  the exact address it checked, so a second DNS answer cannot swap it. Private, loopback, link-local,
+  CGNAT, multicast, unspecified and cloud-metadata (`169.254.169.254`, `fd00:ec2::254`) addresses are
+  always refused; the open default is otherwise allowed.
+- Optional `sandbox.egress.allow` and `sandbox.egress.deny` lists of domains, `*.example.com` wildcards
+  and IPv4/IPv6 CIDR ranges, matched on the name or the resolved address. An allow range overlapping a
+  blocked one is refused at startup, and the lists never open `core`. Refusals are logged with host,
+  address and reason, never the request content. No TLS interception yet (F12), no SOCKS.
+- Compose: a `sandbox` network marked `internal: true`; `egress-proxy` on `sandbox` and `egress`
+  (behind the `sandbox` profile until the service joins it in S48).
+- *Check:* unit tests on the address checks (IPv4 and IPv6, including IPv4-mapped addresses, CIDRs and
+  the overlap rejection), proxy plumbing with an injected resolver; the image job tunnels a public host
+  and refuses metadata, loopback and private addresses, with the allow list narrowing the default.
 
 #### S48. The `shitsuji` driver
 - `adapters/sandbox/shitsuji`: an HTTP client for `sandboxd` that validates every reply with
@@ -174,3 +183,4 @@ benefit. Issue #74 carries the decision; the spike's GO conditions stay in F08 i
 | Before S40 | Answers to X1–X6 (done) |
 | S43 | Nothing to sign up for (OpenSandbox is self-hosted), but Docker Desktop may need more memory: the sandbox alone gets 4 GB |
 | S49 | About ten minutes with your phone for the live check |
+
