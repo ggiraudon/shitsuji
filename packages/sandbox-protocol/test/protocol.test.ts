@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SANDBOX_MAX_TIMEOUT_MS,
   capabilitiesReplySchema,
   errorReplySchema,
+  execEventSchema,
+  execRequestSchema,
   healthReplySchema,
   isRelativePath,
   moveFileRequestSchema,
   readFileReplySchema,
   readFileRequestSchema,
   sandboxPathSchema,
+  signalExecRequestSchema,
   statFileReplySchema,
   writeFileRequestSchema,
 } from '../src/index.js';
@@ -90,26 +94,66 @@ describe('sandbox protocol: requests and replies', () => {
   });
 });
 
+describe('sandbox protocol: exec (S46)', () => {
+  it('defaults argv-only requests to the workspace, no extra env, ten minutes', () => {
+    expect(execRequestSchema.parse({ argv: ['python3', '-c', 'print(1)'] })).toEqual({
+      argv: ['python3', '-c', 'print(1)'],
+      cwd: '.',
+      env: {},
+      timeoutMs: 600_000,
+    });
+  });
+
+  it('refuses an empty argv, a cwd outside and an absurd timeout', () => {
+    expect(execRequestSchema.safeParse({ argv: [] }).success).toBe(false);
+    expect(execRequestSchema.safeParse({ argv: ['x'], cwd: '../etc' }).success).toBe(false);
+    expect(
+      execRequestSchema.safeParse({ argv: ['x'], timeoutMs: SANDBOX_MAX_TIMEOUT_MS + 1 }).success,
+    ).toBe(false);
+  });
+
+  it('validates every frame of the NDJSON stream', () => {
+    for (const event of [
+      { type: 'start', id: 'c1' },
+      { type: 'stdout', text: '1\n' },
+      { type: 'stderr', text: 'boo\n' },
+      { type: 'exit', code: 0, timedOut: false, truncated: false },
+      { type: 'exit', code: null, signal: 'SIGTERM', timedOut: true, truncated: true },
+      { type: 'error', code: 'not_found', message: 'no such program' },
+    ]) {
+      expect(execEventSchema.safeParse(event).success, JSON.stringify(event)).toBe(true);
+    }
+    expect(execEventSchema.safeParse({ type: 'exit', code: 'zero' }).success).toBe(false);
+    expect(execEventSchema.safeParse({ type: 'nope' }).success).toBe(false);
+  });
+
+  it('defaults a stop to TERM with a two second grace', () => {
+    expect(signalExecRequestSchema.parse({})).toEqual({ signal: 'SIGTERM', graceMs: 2_000 });
+    expect(signalExecRequestSchema.safeParse({ signal: 'SIGKILL', graceMs: 0 }).success).toBe(true);
+    expect(signalExecRequestSchema.safeParse({ signal: 'SIGSEGV' }).success).toBe(false);
+  });
+});
+
 describe('sandbox protocol: health, capabilities and errors', () => {
-  it('says plainly that there is no exec yet', () => {
+  it('reports the exec timeout it allows, and a version', () => {
     expect(
       capabilitiesReplySchema.parse({
-        version: 1,
+        version: 2,
         files: { roots: ['workspace', 'handoff'] },
-        exec: null,
+        exec: { maxTimeoutMs: 3_600_000 },
       }),
-    ).toMatchObject({ exec: null });
+    ).toMatchObject({ exec: { maxTimeoutMs: 3_600_000 } });
     expect(
       capabilitiesReplySchema.safeParse({
-        version: 1,
+        version: 2,
         files: { roots: ['workspace'] },
-        exec: { maxTimeoutMs: 1000 },
+        exec: null,
       }).success,
     ).toBe(false);
   });
 
   it('validates health and the error envelope', () => {
-    expect(healthReplySchema.parse({ ok: true, version: 1 })).toEqual({ ok: true, version: 1 });
+    expect(healthReplySchema.parse({ ok: true, version: 2 })).toEqual({ ok: true, version: 2 });
     expect(
       errorReplySchema.parse({ error: { code: 'outside_root', message: 'no' } }),
     ).toMatchObject({ error: { code: 'outside_root' } });

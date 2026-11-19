@@ -24,33 +24,110 @@ jobs:
       - run: pnpm test:integration
       - run: pnpm build
 
-  # Builds Shitsuji's own sandbox image and checks that the daemon inside it answers, authenticates
-  # and refuses to leave its roots (F08, S45). Not part of the stack yet (S48).
+  # Builds Shitsuji's own sandbox image and checks that the daemon inside it answers, authenticates,
+  # refuses to leave its roots, runs commands as uid 1000 with no token in reach, and survives a stop,
+  # a timeout and a fork bomb (F08, S45–S46). Not part of the stack yet (S48).
   sandbox-image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build the sandbox image
         run: docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox:ci .
-      - name: sandboxd answers, authenticates and stays confined
+      - name: sandboxd answers, authenticates, executes and stays confined
         run: |
-          docker run -d --name sandbox-ci -e SANDBOX_TOKEN=ci-token -p 127.0.0.1:4555:4555 shitsuji/sandbox:ci
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:4555/health > /dev/null; then break; fi
+          # --init reaps the fork bomb's zombies; the compose service does the same in S48. The six
+          # capabilities are exactly what the entrypoint and sandboxd need (see entrypoint.sh).
+          docker run -d --name sandbox-ci --init --pids-limit 128 \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add SETUID \
+            --cap-add SETGID --cap-add SETPCAP --cap-add KILL \
+            --security-opt no-new-privileges \
+            -e SANDBOX_TOKEN=ci-token -p 127.0.0.1:4555:4555 shitsuji/sandbox:ci
+
+          ready=no
+          for i in $(seq 1 20); do
+            if curl -fs http://127.0.0.1:4555/health > /dev/null 2>&1; then ready=yes; break; fi
             sleep 1
           done
-          curl -fsS http://127.0.0.1:4555/health | grep -q '"ok":true'
+          if [ "$ready" != yes ]; then
+            echo "sandboxd is not listening on 4555"
+            docker logs sandbox-ci
+            exit 1
+          fi
+          curl -fsS http://127.0.0.1:4555/health > /tmp/health.json
+          grep -q '"ok":true' /tmp/health.json
+
+          # No setuid binary remains in the image (belt-and-braces; commands have no capabilities).
+          # The 2>/dev/null covers /workspace and /handoff, which root cannot traverse without
+          # DAC_OVERRIDE; they hold no binaries, and the workspace is checked as its owner too.
+          test -z "$(docker exec sandbox-ci sh -c 'find / -xdev -perm -4000 -print -quit 2>/dev/null')"
+          test -z "$(docker exec -u 1000:1000 sandbox-ci find /workspace /handoff -xdev -perm -4000 -print -quit)"
+
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4555/files/read)" = "401"
-          curl -fsS -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' \
-            -d '{"root":"workspace","path":"notes/a.txt","content":"chestnut"}' \
+
+          api() {
+            curl -fsS -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' "$@"
+          }
+          run() {
+            curl -fsS -N -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' \
+              -d "$1" http://127.0.0.1:4555/exec
+          }
+
+          # A file round-trip, and a symlink out refused (planted as the workspace's owner, since root
+          # has no DAC_OVERRIDE here).
+          api -d '{"root":"workspace","path":"notes/a.txt","content":"chestnut"}' \
             http://127.0.0.1:4555/files/write > /dev/null
-          curl -fsS -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' \
-            -d '{"root":"workspace","path":"notes/a.txt"}' \
-            http://127.0.0.1:4555/files/read | grep -q chestnut
-          docker exec sandbox-ci ln -s /etc /workspace/etc-link
+          api -d '{"root":"workspace","path":"notes/a.txt"}' \
+            http://127.0.0.1:4555/files/read > /tmp/read.json
+          grep -q chestnut /tmp/read.json
+          docker exec -u 1000:1000 sandbox-ci ln -s /etc /workspace/etc-link
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'x-sandbox-token: ci-token' \
             -H 'content-type: application/json' -d '{"root":"workspace","path":"etc-link/passwd"}' \
             http://127.0.0.1:4555/files/read)" = "403"
+
+          # Commands run as uid 1000, with a clean environment.
+          run '{"argv":["python3","-c","print(1)"]}' > /tmp/print1.json
+          grep -qF '"text":"1\n"' /tmp/print1.json
+          # The daemon is not PID 1: the container runs with an init, so find it by its command line.
+          run '{"argv":["sh","-c","id -u; cat /run/sandbox/token 2>&1; env; DAEMON=$(pgrep -x node); grep -c SANDBOX_TOKEN /proc/$DAEMON/environ 2>&1"]}' \
+            > /tmp/token.json
+          cat /tmp/token.json
+          grep -qF '"text":"1000\n"' /tmp/token.json
+          if grep -q 'ci-token' /tmp/token.json || grep -q 'SANDBOX_TOKEN=' /tmp/token.json; then
+            echo "the token reached a command"
+            exit 1
+          fi
+          grep -q 'Permission denied' /tmp/token.json
+
+          # A command keeps no capabilities and cannot become another uid (the daemon's ambient
+          # SETUID/SETGID/KILL must not survive into it).
+          run '{"argv":["sh","-c","grep Cap /proc/self/status; setpriv --reuid=1001 true 2>&1; echo first=$?; setpriv --reuid=0 id 2>&1; echo root=$?"]}' \
+            > /tmp/caps.json
+          cat /tmp/caps.json
+          for set in Inh Prm Eff Bnd Amb; do
+            grep -qF "Cap$set:\t0000000000000000" /tmp/caps.json
+          done
+          grep -q 'setresuid failed' /tmp/caps.json
+          grep -q 'first=127' /tmp/caps.json
+          grep -q 'root=127' /tmp/caps.json
+
+          # The daemon is uid 1001, so its /proc is not readable by a command.
+          docker exec sandbox-ci sh -c 'grep -m1 Uid /proc/$(pgrep -x node)/status' > /tmp/uid.txt
+          grep -q '1001' /tmp/uid.txt
+
+          # Stop, timeout and a fork bomb all end, and the sandbox keeps answering.
+          run '{"argv":["sleep","30"],"timeoutMs":60000}' > /tmp/exec.ndjson &
+          sleep 1
+          ID=$(head -1 /tmp/exec.ndjson | sed -E 's/.*"id":"([^"]+)".*/\1/')
+          api -d '{}' "http://127.0.0.1:4555/exec/$ID/signal" > /tmp/signal.json
+          grep -q '"stopped":true' /tmp/signal.json
+          wait
+          grep -q '"signal":"SIGTERM"' /tmp/exec.ndjson
+          run '{"argv":["sleep","30"],"timeoutMs":500}' > /tmp/timeout.json
+          grep -q '"timedOut":true' /tmp/timeout.json
+          run '{"argv":["bash","-c",":(){ :|:& };:"],"timeoutMs":3000}' > /dev/null || true
+          sleep 4
+          run '{"argv":["python3","-c","print(1)"]}' > /tmp/print2.json
+          grep -qF '"text":"1\n"' /tmp/print2.json
           docker rm -f sandbox-ci
       - name: Show the daemon log on failure
         if: failure()

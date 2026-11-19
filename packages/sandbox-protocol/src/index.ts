@@ -7,7 +7,7 @@ import { z } from 'zod';
  */
 
 /** Bumped when a change is not backwards compatible. */
-export const SANDBOX_PROTOCOL_VERSION = 1;
+export const SANDBOX_PROTOCOL_VERSION = 2;
 
 /** The header `core` sends; the value is the sandbox's `SANDBOX_TOKEN`. */
 export const SANDBOX_TOKEN_HEADER = 'x-sandbox-token';
@@ -131,23 +131,6 @@ export type MoveFileRequest = z.infer<typeof moveFileRequestSchema>;
 export const moveFileReplySchema = z.object({ moved: z.literal(true) }).strict();
 export type MoveFileReply = z.infer<typeof moveFileReplySchema>;
 
-// ---- health, capabilities and errors ----------------------------------------------------------
-
-export const healthReplySchema = z
-  .object({ ok: z.literal(true), version: z.number().int() })
-  .strict();
-export type HealthReply = z.infer<typeof healthReplySchema>;
-
-export const capabilitiesReplySchema = z
-  .object({
-    version: z.number().int(),
-    files: z.object({ roots: z.array(sandboxRootSchema) }).strict(),
-    /** Commands arrive in S46; null says so plainly instead of pretending. */
-    exec: z.null(),
-  })
-  .strict();
-export type CapabilitiesReply = z.infer<typeof capabilitiesReplySchema>;
-
 export const SANDBOX_ERROR_CODES = [
   'invalid_request',
   'unauthorized',
@@ -160,6 +143,86 @@ export const SANDBOX_ERROR_CODES = [
 ] as const;
 export const sandboxErrorCodeSchema = z.enum(SANDBOX_ERROR_CODES);
 export type SandboxErrorCode = z.infer<typeof sandboxErrorCodeSchema>;
+// ---- exec (S46) --------------------------------------------------------------------------------
+
+/** The longest a command may run; the daemon reports it on /capabilities. */
+export const SANDBOX_MAX_TIMEOUT_MS = 3_600_000;
+
+export const execRequestSchema = z
+  .object({
+    /** Program and arguments; no shell is involved. */
+    argv: z.array(z.string().min(1)).min(1).max(256),
+    /** Folder inside the workspace, relative to it. */
+    cwd: sandboxPathSchema.default('.'),
+    /**
+     * The command's whole environment. It never inherits the daemon's: the daemon starts from a
+     * minimal fixed environment and adds these, so its secrets (the sandbox token) stay out.
+     */
+    env: z.record(z.string().max(4096)).default({}),
+    /** Killed (TERM, then KILL) when this passes. */
+    timeoutMs: z.number().int().min(1).max(SANDBOX_MAX_TIMEOUT_MS).default(600_000),
+    /** Written to the command's stdin, which is then closed. */
+    stdin: z.string().optional(),
+  })
+  .strict();
+export type ExecRequest = z.infer<typeof execRequestSchema>;
+
+/** One NDJSON line of the exec stream: start, output chunks, then one exit (or one error). */
+export const execEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('start'), id: z.string() }).strict(),
+  z.object({ type: z.literal('stdout'), text: z.string() }).strict(),
+  z.object({ type: z.literal('stderr'), text: z.string() }).strict(),
+  z
+    .object({
+      type: z.literal('exit'),
+      code: z.number().int().nullable(),
+      signal: z.string().optional(),
+      timedOut: z.boolean(),
+      /** The output cap was reached; the rest is dropped. */
+      truncated: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('error'),
+      code: sandboxErrorCodeSchema,
+      message: z.string(),
+    })
+    .strict(),
+]);
+export type ExecEvent = z.infer<typeof execEventSchema>;
+
+/** `POST /exec/:id/signal`: TERM by default, then KILL after `graceMs`. */
+export const signalExecRequestSchema = z
+  .object({
+    signal: z.enum(['SIGTERM', 'SIGINT', 'SIGKILL']).default('SIGTERM'),
+    graceMs: z.number().int().min(0).max(60_000).default(2_000),
+  })
+  .strict();
+export type SignalExecRequest = z.infer<typeof signalExecRequestSchema>;
+
+export const signalExecReplySchema = z.object({ stopped: z.literal(true) }).strict();
+export type SignalExecReply = z.infer<typeof signalExecReplySchema>;
+
+/** How `core` names the command it wants to stop. */
+export const EXEC_SIGNAL_ROUTE = /^\/exec\/([^/]+)\/signal$/;
+
+// ---- health, capabilities and errors ----------------------------------------------------------
+
+export const healthReplySchema = z
+  .object({ ok: z.literal(true), version: z.number().int() })
+  .strict();
+export type HealthReply = z.infer<typeof healthReplySchema>;
+
+export const capabilitiesReplySchema = z
+  .object({
+    version: z.number().int(),
+    files: z.object({ roots: z.array(sandboxRootSchema) }).strict(),
+    /** The longest timeout the daemon allows for one command (S46). */
+    exec: z.object({ maxTimeoutMs: z.number().int().positive() }).strict(),
+  })
+  .strict();
+export type CapabilitiesReply = z.infer<typeof capabilitiesReplySchema>;
 
 export const errorReplySchema = z
   .object({
@@ -168,7 +231,7 @@ export const errorReplySchema = z
   .strict();
 export type ErrorReply = z.infer<typeof errorReplySchema>;
 
-/** The HTTP paths sandboxd serves; exec comes with S46. */
+/** The HTTP paths sandboxd serves; the signal route is a pattern because it carries the id. */
 export const SANDBOX_ROUTES = {
   health: '/health',
   capabilities: '/capabilities',
@@ -177,4 +240,5 @@ export const SANDBOX_ROUTES = {
   list: '/files/list',
   stat: '/files/stat',
   move: '/files/move',
+  exec: '/exec',
 } as const;
