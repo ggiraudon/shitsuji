@@ -81,7 +81,7 @@ Keep this list true as commands change.
 | `pnpm build:shared` | Build the shared contract (`packages/shared`, a submodule) |
 | `pnpm build:protocol` | Build the sandbox wire protocol (`packages/sandbox-protocol`); `@shitsuji/sandbox-daemon` needs its `dist` |
 | `pnpm test` | Unit and contract tests (no network, no Docker) |
-| `pnpm test:integration` | Tests against real Postgres via Testcontainers (needs Docker) |
+| `pnpm test:integration` | Tests against real Postgres, plus the sandbox conformance suite and egress probes against the real images (builds them if missing; needs Docker) |
 | `pnpm lint` | ESLint + Prettier check |
 | `pnpm check` | Type-check, lint, import-direction check and tests: **run before every commit** |
 | `pnpm eval --offline` | The evaluation scenarios against the recorded model replies (no key, no network) |
