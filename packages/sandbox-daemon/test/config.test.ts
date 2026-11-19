@@ -57,4 +57,17 @@ describe('sandboxd config (F08, S45–S46)', () => {
     expect(() => configFromEnv({ SANDBOX_TOKEN: 'x', SANDBOX_PORT: 'nope' })).toThrow(/port/);
     expect(() => configFromEnv({ SANDBOX_TOKEN: 'x', SANDBOX_PORT: '70000' })).toThrow(/port/);
   });
+
+  it('reads the egress proxy commands get, and refuses anything but an http URL', () => {
+    expect(
+      configFromEnv({ SANDBOX_TOKEN: 'x', SANDBOX_EGRESS_PROXY: 'http://egress-proxy:3128' })
+        .commandProxy,
+    ).toBe('http://egress-proxy:3128');
+    expect(() =>
+      configFromEnv({ SANDBOX_TOKEN: 'x', SANDBOX_EGRESS_PROXY: 'egress-proxy:3128' }),
+    ).toThrow(/http/);
+    expect(() =>
+      configFromEnv({ SANDBOX_TOKEN: 'x', SANDBOX_EGRESS_PROXY: 'socks5://egress-proxy:1080' }),
+    ).toThrow(/http/);
+  });
 });

@@ -9,6 +9,8 @@ export interface ExecEnv {
   HOME: string;
   LANG: string;
   USER: string;
+  /** The egress proxy, as `http://host:port`; commands get it as HTTP(S)_PROXY (S48). */
+  proxy?: string;
 }
 
 export interface ExecSupervisorOptions {
@@ -225,9 +227,28 @@ export class ExecSupervisor {
       SHELL: '/bin/sh',
       TERM: 'dumb',
       TMPDIR: '/tmp',
+      ...proxyEnv(this.options.env.proxy),
       ...requested,
     };
   }
+}
+
+/**
+ * The proxy variables pip, npm, git and curl read (S48). The lowercase forms matter: curl only
+ * reads `http_proxy` in some builds, and Node's fetch reads `HTTP_PROXY`. NO_PROXY covers loopback
+ * only — nothing internal, so a name like `core` or `postgres` still goes to the proxy, which
+ * refuses it.
+ */
+function proxyEnv(proxy: string | undefined): Record<string, string> {
+  if (!proxy) return {};
+  return {
+    HTTP_PROXY: proxy,
+    HTTPS_PROXY: proxy,
+    http_proxy: proxy,
+    https_proxy: proxy,
+    NO_PROXY: '127.0.0.1,localhost,::1',
+    no_proxy: '127.0.0.1,localhost,::1',
+  };
 }
 
 function errorEvent(error: unknown): ExecEvent {

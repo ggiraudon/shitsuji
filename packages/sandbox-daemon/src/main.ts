@@ -22,6 +22,7 @@ async function main(): Promise<void> {
       HOME: config.commandHome,
       LANG: 'C.UTF-8',
       USER: config.commandUser,
+      ...(config.commandProxy && { proxy: config.commandProxy }),
     },
     ...(config.commandUid !== undefined && {
       wrap: (argv) =>
