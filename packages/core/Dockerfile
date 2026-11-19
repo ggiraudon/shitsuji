@@ -11,10 +11,12 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/shared/package.json packages/shared/
+COPY packages/sandbox-protocol/package.json packages/sandbox-protocol/
 RUN pnpm install --frozen-lockfile --filter @shitsuji/core...
 
 # packages/shared is a git submodule (shitsuji-shared): clone with --recurse-submodules.
 COPY packages/shared packages/shared
+COPY packages/sandbox-protocol packages/sandbox-protocol
 COPY packages/core packages/core
 RUN pnpm --filter @shitsuji/core... build \
  && pnpm --filter @shitsuji/core deploy --prod --legacy /out
