@@ -1,0 +1,36 @@
+{
+  "name": "@shitsuji/egress-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The sandbox's only way out: an HTTP/CONNECT proxy that refuses private, loopback, link-local, CGNAT and metadata addresses on the resolved IP",
+  "type": "module",
+  "main": "./dist/main.js",
+  "bin": {
+    "shitsuji-egress": "./dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

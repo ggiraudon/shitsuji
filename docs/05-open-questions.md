@@ -65,6 +65,7 @@ capability (F15).
 | X4 | `workspace.send` is `external` (sending the owner a file). The shipped default `trust.rules` holds `{ tool: workspace.send, verdict: allow }`, so it runs without asking; the owner can remove the rule |
 | X5 | **No copy:** the sandbox mounts the existing workspace folder of the `coredata` volume as `/workspace` (Compose `volume.subpath`), and `handoff` the same way in both containers. With the `shitsuji` driver, `core` never reads `/data/workspace` directly; every file operation goes through `sandboxd` |
 | X6 | OpenSandbox gets one spike step (S43). If it does not run on Docker Desktop (WSL2), the findings go in F08 and its driver waits; the `shitsuji` driver does not depend on it |
+| X7 | The sandbox's egress proxy is **open to any public address by default**. Private, loopback, link-local, CGNAT, multicast, unspecified and cloud-metadata (`169.254.169.254`, `fd00:ec2::254`) addresses are **always refused**, checked on the **resolved** address (IPv4, IPv6 and IPv4-mapped) and pinned for the connection, and the whole name is refused when any answer is blocked. Optional `sandbox.egress.allow`/`deny` lists take domains, `*.` wildcards and IPv4/IPv6 CIDR ranges; an allow range overlapping a blocked one is a config error, and the lists never open `core`. Refusals are logged with host, address and reason, never content. No SOCKS for now |
 
 Still open: D2 for the web UI, D3–D5, M2, M4, P3–P5.
 
@@ -115,3 +116,4 @@ Still open: D2 for the web UI, D3–D5, M2, M4, P3–P5.
 | R1 | Start with F01 as one focused refactor before any feature work? | Yes |
 | R2 | Put Shitsuji under git now? | Yes, before F01, so every step is reviewable |
 | R3 | How do we track progress against this plan? | Turn each feature's acceptance criteria into issues or a checklist |
+
