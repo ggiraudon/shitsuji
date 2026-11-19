@@ -81,7 +81,7 @@ export function createEgressProxy(deps: EgressProxyDeps): http.Server {
     url: URL,
   ): Promise<void> {
     const port = Number(url.port || 80);
-    const address = await check(url.hostname);
+    const address = await check(unbracket(url.hostname));
     if ('refused' in address) {
       res.writeHead(403, { 'content-type': 'text/plain' });
       res.end(`Blocked by the sandbox egress policy: ${address.refused}`);
@@ -168,4 +168,12 @@ export function parseAuthority(authority: string): { host: string; port: number 
   const port = Number(value.slice(separator + 1));
   if (!Number.isInteger(port) || port < 1 || port > 65_535) return undefined;
   return { host, port };
+}
+
+/**
+ * `new URL('http://[::1]/').hostname` keeps the brackets; they are syntax, not part of the address.
+ * Strip them so an IPv6 literal is parsed as an address instead of looked up as a name (#90).
+ */
+export function unbracket(host: string): string {
+  return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
 }

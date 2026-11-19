@@ -3,8 +3,8 @@ import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { formatIp, parseIp, type IpAddress } from '../src/address.js';
-import { createEgressProxy, parseAuthority, type ProxyLogger } from '../src/proxy.js';
-import type { EgressPolicy } from '../src/rules.js';
+import { createEgressProxy, parseAuthority, unbracket, type ProxyLogger } from '../src/proxy.js';
+import { createPolicy, type EgressPolicy } from '../src/rules.js';
 
 const LOOPBACK = parseIp('127.0.0.1')!;
 
@@ -203,6 +203,42 @@ describe('egress proxy (F08, S47)', () => {
     expect(parseAuthority('[2001:db8::1]')).toEqual({ host: '2001:db8::1', port: 443 });
     expect(parseAuthority('example.com:0')).toBeUndefined();
     expect(parseAuthority('example.com:nope')).toBeUndefined();
+    expect(unbracket('[::1]')).toBe('::1');
+    expect(unbracket('example.com')).toBe('example.com');
+  });
+
+  it('classifies a bracketed IPv6 literal as an address, not a name (#90)', async () => {
+    const resolved: string[] = [];
+    proxyLog = logger();
+    proxy = createEgressProxy({
+      policy: policyAllowing(),
+      log: proxyLog,
+      resolve: async (host) => {
+        resolved.push(host);
+        return [LOOPBACK];
+      },
+    });
+    proxyPort = await listen(proxy);
+
+    // The URL parser keeps the brackets in `hostname`; the proxy must strip them and connect.
+    const response = await throughProxy(`http://[2606:2800:220:1::]:${targetPort}/v6`);
+
+    expect(response.status).toBe(200);
+    expect(resolved).toEqual(['2606:2800:220:1::']);
+  });
+
+  it('refuses a bracketed loopback CONNECT without treating it as a name (#90)', async () => {
+    proxyLog = logger();
+    proxy = createEgressProxy({ policy: createPolicy(), log: proxyLog });
+    proxyPort = await listen(proxy);
+
+    const response = await tunnel(`[::1]:${targetPort}`);
+
+    expect(response.status).toBe('HTTP/1.1 403 Forbidden');
+    // A parsed literal is refused as loopback; a name would have failed to resolve instead.
+    expect(proxyLog.warnings.at(-1)).toMatchObject({
+      context: { host: '::1', address: '::1', reason: '::1 is loopback' },
+    });
   });
 
   it('connects to the address it checked, not to a second DNS answer', async () => {

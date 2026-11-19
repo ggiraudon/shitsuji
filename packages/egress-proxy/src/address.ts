@@ -150,9 +150,27 @@ function ipv6ToNumber(address: string): bigint {
 }
 
 function numberToIpv6(value: bigint): string {
-  const groups: string[] = [];
+  const groups: number[] = [];
   for (let shift = 112n; shift >= 0n; shift -= 16n) {
-    groups.push(((value >> shift) & 0xffffn).toString(16));
+    groups.push(Number((value >> shift) & 0xffffn));
   }
-  return groups.join(':');
+  // Compress the longest run of zero groups (at least two) the way RFC 5952 writes it.
+  let bestStart = -1;
+  let bestLength = 0;
+  for (let i = 0; i < groups.length;) {
+    if (groups[i] !== 0) {
+      i++;
+      continue;
+    }
+    let end = i;
+    while (end < groups.length && groups[end] === 0) end++;
+    if (end - i > bestLength) {
+      bestStart = i;
+      bestLength = end - i;
+    }
+    i = end;
+  }
+  const text = groups.map((group) => group.toString(16));
+  if (bestLength < 2) return text.join(':');
+  return `${text.slice(0, bestStart).join(':')}::${text.slice(bestStart + bestLength).join(':')}`;
 }
