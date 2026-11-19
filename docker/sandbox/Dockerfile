@@ -70,6 +70,10 @@ RUN groupmod -n agent node \
  && chmod 2770 /workspace \
  && chmod 2750 /handoff
 
+# Belt-and-braces: no setuid binary in the image. Commands already run with no capabilities and
+# no-new-privs, but a setuid file buys nothing here and could only be a way back up.
+RUN find / -xdev -perm -4000 -exec chmod u-s {} +
+
 WORKDIR /app
 COPY --from=build --chown=agent:agent /out ./
 COPY --chmod=0755 docker/sandbox/entrypoint.sh /usr/local/bin/sandbox-entrypoint
