@@ -67,8 +67,11 @@ RUN groupmod -n agent node \
  && mkdir -p /home/agent /home/sandboxd /workspace /handoff /run/sandbox \
  && chown -R agent:agent /home/agent /workspace /handoff \
  && chown 1001:1000 /home/sandboxd /run/sandbox \
+ && chmod 0700 /run/sandbox \
  && chmod 2770 /workspace \
- && chmod 2750 /handoff
+ && chmod 2750 /handoff \
+ && : > /etc/sandbox-token \
+ && chmod 0644 /etc/sandbox-token
 
 # Belt-and-braces: no setuid binary in the image. Commands already run with no capabilities and
 # no-new-privs, but a setuid file buys nothing here and could only be a way back up.
@@ -79,7 +82,8 @@ COPY --from=build --chown=agent:agent /out ./
 COPY --chmod=0755 docker/sandbox/entrypoint.sh /usr/local/bin/sandbox-entrypoint
 EXPOSE 4555
 # The entrypoint starts as root, prepares the token file and workspace, then drops to uid 1001.
-# It refuses to start without SANDBOX_TOKEN or SANDBOX_TOKEN_FILE (compose provides one in S48).
+# Compose mounts the token core generated read-only at /etc/sandbox-token; CI and development set
+# SANDBOX_TOKEN instead.
 ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint"]
 
 
