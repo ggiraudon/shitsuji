@@ -133,6 +133,7 @@ async function start(): Promise<Containers> {
   const proxy = `shitsuji-egress-${suffix}`;
   const sandbox = `shitsuji-sandbox-${suffix}`;
   const gateway = `shitsuji-gateway-${suffix}`;
+  const tokenVolume = `shitsuji-token-${suffix}`;
 
   try {
     docker([
@@ -178,7 +179,6 @@ async function start(): Promise<Containers> {
     const port = String(await freePort());
 
     // The production path: core writes a token into a volume and the sandbox mounts that one file.
-    const tokenVolume = `shitsuji-token-${suffix}`;
     docker(['volume', 'create', tokenVolume]);
     docker([
       'run',
