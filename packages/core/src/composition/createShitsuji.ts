@@ -35,9 +35,14 @@ import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
 import { EgressProbe, type EgressTarget } from '../application/sandbox/EgressProbe.js';
 import { SandboxService } from '../application/sandbox/SandboxService.js';
 import { HostSandboxDriver } from '../adapters/sandbox/host/HostSandboxDriver.js';
+import { EgressRulesFile } from '../adapters/sandbox/EgressRulesFile.js';
+import { SandboxTokenFile } from '../adapters/sandbox/shitsuji/SandboxTokenFile.js';
+import { ShitsujiSandboxDriver } from '../adapters/sandbox/shitsuji/ShitsujiSandboxDriver.js';
 import { NodeOutboundFiles } from '../adapters/files/NodeOutboundFiles.js';
 import { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
+import type { Logger } from '../ports/Logger.js';
+import type { SandboxDriver } from '../ports/SandboxDriver.js';
 import { ConfigError, SandboxUnavailable, serializeError } from '../domain/errors.js';
 import { asId, type OwnerId } from '../domain/model/ids.js';
 import { Money } from '../domain/model/Money.js';
@@ -121,10 +126,10 @@ export function workspaceDirOf(config: ShitsujiConfig): string {
 }
 
 /**
- * The driver the config names (F08, X3). Only `host` exists so far; a driver that is not in this
- * build is a configuration error rather than a silent fallback to running on the host.
+ * The driver the config names (F08, X3). A driver that is not in this build is a configuration
+ * error rather than a silent fallback to running on the host.
  */
-function sandboxDriverOf(config: ShitsujiConfig): HostSandboxDriver {
+function sandboxDriverOf(config: ShitsujiConfig, log: Logger): SandboxDriver {
   switch (config.sandbox.driver) {
     case 'host':
       return new HostSandboxDriver({
@@ -132,11 +137,21 @@ function sandboxDriverOf(config: ShitsujiConfig): HostSandboxDriver {
         readDirs: [path.join(config.paths.dataDir, 'handoff')],
         exec: config.tools.exec,
       });
+    case 'shitsuji': {
+      // The daemon's token is generated here on first start and mounted into the sandbox (S48).
+      const tokenFile = new SandboxTokenFile(
+        config.sandbox.tokenFile ?? path.join(config.paths.dataDir, 'sandbox.token'),
+      );
+      return new ShitsujiSandboxDriver({
+        baseUrl: config.sandbox.url,
+        token: tokenFile.readOrCreate().reveal(),
+        log,
+      });
+    }
     case 'opensandbox':
-    case 'shitsuji':
       throw new SandboxUnavailable(
-        `sandbox.driver "${config.sandbox.driver}" is not available in this build yet ` +
-          '(S44 adds opensandbox, S48 the shitsuji sandbox). Use "host" for now.',
+        'sandbox.driver "opensandbox" is not available in this build yet (S44 adds it). ' +
+          'Use "shitsuji" in Compose or "host" from source.',
         { driver: config.sandbox.driver },
       );
   }
@@ -167,6 +182,13 @@ export async function createShitsuji(
 ): Promise<Shitsuji> {
   const services = options.services ?? createCoreServices(config.logging);
   const { log, events } = services;
+
+  // egress-proxy follows this file (S48), so `sandbox.egress.allow/deny` reaches it without the
+  // owner hand-editing `.env`. It is written before the sandbox opens, so the proxy never sees a
+  // stale policy on a fresh volume for longer than its own reload.
+  new EgressRulesFile(
+    config.sandbox.egress.file ?? path.join(config.paths.dataDir, 'sandbox.egress.json'),
+  ).write({ allow: config.sandbox.egress.allow, deny: config.sandbox.egress.deny });
 
   const plugins = new PluginManager({ log, events, settings: config.plugins.settings });
   // system.status reads these at call time; they are filled in once the graph is built.
@@ -286,7 +308,7 @@ export async function createShitsuji(
   // One sandbox per owner (F08, S40). The `host` driver is the core process itself until another
   // driver lands; it opens here so the standard tools can be registered by capability.
   const sandbox = new SandboxService({
-    driver: sandboxDriverOf(config),
+    driver: sandboxDriverOf(config, log),
     lease: { ownerId: OWNER_ID },
     exec: config.tools.exec,
     outbound: new NodeOutboundFiles(path.join(config.paths.dataDir, 'handoff', 'outbox')),

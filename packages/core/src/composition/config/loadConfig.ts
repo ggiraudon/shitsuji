@@ -41,6 +41,19 @@ const ENV_OVERRIDES: { vars: string[]; path: string[]; parse?: (v: string) => un
   { vars: ['SHITSUJI_SEARXNG_URL'], path: ['tools', 'web', 'searxngUrl'] },
   { vars: ['SHITSUJI_API_ENABLED'], path: ['api', 'enabled'], parse: parseBool },
   { vars: ['SHITSUJI_API_URL'], path: ['tui', 'apiUrl'] },
+  { vars: ['SHITSUJI_SANDBOX_DRIVER'], path: ['sandbox', 'driver'] },
+  { vars: ['SHITSUJI_SANDBOX_URL'], path: ['sandbox', 'url'] },
+  { vars: ['SHITSUJI_SANDBOX_TOKEN_FILE'], path: ['sandbox', 'tokenFile'] },
+  {
+    vars: ['SHITSUJI_SANDBOX_EGRESS_ALLOW'],
+    path: ['sandbox', 'egress', 'allow'],
+    parse: parseList,
+  },
+  {
+    vars: ['SHITSUJI_SANDBOX_EGRESS_DENY'],
+    path: ['sandbox', 'egress', 'deny'],
+    parse: parseList,
+  },
   { vars: ['SHITSUJI_OWNER_KEY'], path: ['tui', 'ownerKey'] },
   {
     vars: ['SHITSUJI_STABILITY_CHECK'],
@@ -191,6 +204,14 @@ function parseBool(v: string): unknown {
   if (['true', '1', 'yes', 'on'].includes(s)) return true;
   if (['false', '0', 'no', 'off'].includes(s)) return false;
   return v;
+}
+
+/** A comma- or whitespace-separated list (`SANDBOX_EGRESS_ALLOW=example.com,*.example.org`). */
+function parseList(v: string): string[] {
+  return v
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 function setPath(target: Record<string, unknown>, keys: string[], value: unknown): void {
