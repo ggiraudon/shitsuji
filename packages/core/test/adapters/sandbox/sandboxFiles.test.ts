@@ -47,6 +47,7 @@ describe('the egress rules file (F08, S48)', () => {
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({
       allow: ['example.com', '*.example.org'],
       deny: ['bad.test'],
+      ready: true,
     });
   });
 });

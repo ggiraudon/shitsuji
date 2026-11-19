@@ -15,7 +15,18 @@ describe('the rules file core writes (F08, S48)', () => {
     const file = path.join(dir, 'rules.json');
     fs.writeFileSync(file, JSON.stringify({ allow: ['example.com'], deny: ['*.bad.test'] }));
 
-    expect(readRulesFile(file)).toEqual({ allow: ['example.com'], deny: ['*.bad.test'] });
+    expect(readRulesFile(file)).toEqual({
+      allow: ['example.com'],
+      deny: ['*.bad.test'],
+      ready: true,
+    });
+  });
+
+  it('treats the seed core has not replaced yet as not ready', () => {
+    const file = path.join(dir, 'rules.json');
+    fs.writeFileSync(file, JSON.stringify({ ready: false }));
+
+    expect(readRulesFile(file)).toEqual({ allow: [], deny: [], ready: false });
   });
 
   it('returns undefined when the file does not exist yet', () => {

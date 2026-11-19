@@ -139,6 +139,7 @@ describe('createShitsuji', () => {
     expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'sandbox.egress.json'), 'utf8'))).toEqual({
       allow: ['example.com'],
       deny: ['*.evil.test'],
+      ready: true,
     });
   });
 

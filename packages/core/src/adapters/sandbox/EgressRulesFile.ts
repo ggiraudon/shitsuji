@@ -17,8 +17,8 @@ export class EgressRulesFile {
 
   write(rules: EgressRules): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    // A fixed shape the proxy validates with zod; one rule per line keeps a change easy to read.
-    const body = JSON.stringify({ allow: rules.allow, deny: rules.deny }, null, 2);
+    // `ready` tells egress-proxy these are core's rules, not the closed seed of a fresh volume.
+    const body = JSON.stringify({ allow: rules.allow, deny: rules.deny, ready: true }, null, 2);
     fs.writeFileSync(this.file, `${body}\n`, { mode: 0o644 });
   }
 }

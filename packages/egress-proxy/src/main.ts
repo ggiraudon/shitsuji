@@ -20,14 +20,30 @@ const listOf = (value: string | undefined): string[] =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 
+/** Before core has written the rules, nothing leaves: fail closed rather than open. */
+function closedPolicy(): EgressPolicy {
+  return {
+    allow: [],
+    deny: [],
+    decide: () => ({ allowed: false, reason: 'the egress rules are not ready yet' }),
+  };
+}
+
 function main(): void {
   const fromEnv = {
     allow: listOf(process.env.SANDBOX_EGRESS_ALLOW),
     deny: listOf(process.env.SANDBOX_EGRESS_DENY),
   };
-  // Core writes sandbox.egress.* here (S48). A missing file is fine: the env lists still apply.
+  // Core writes sandbox.egress.* here (S48). A missing file is fine for the env-only path, but
+  // once a path is configured the proxy starts closed until core marks the rules ready.
   const file = process.env.SANDBOX_EGRESS_FILE?.trim() || undefined;
-  let policy = createPolicy(mergeRules(fromEnv, file ? readRulesFile(file) : undefined));
+  const policyOf = (): EgressPolicy => {
+    if (!file) return createPolicy(mergeRules(fromEnv, undefined));
+    const body = readRulesFile(file);
+    if (!body || !body.ready) return closedPolicy();
+    return createPolicy(mergeRules(fromEnv, body));
+  };
+  let policy = policyOf();
 
   // The proxy keeps this delegating object, so a reload swaps the policy without a restart.
   const current: EgressPolicy = {
@@ -61,7 +77,7 @@ function main(): void {
     // force rather than widening it.
     fs.watchFile(file, { interval: 2_000, persistent: false }, () => {
       try {
-        policy = createPolicy(mergeRules(fromEnv, readRulesFile(file)));
+        policy = policyOf();
         log.info('egress rules reloaded', {
           mode: policy.allow.length > 0 ? 'allow-list' : 'open',
           allow: policy.allow.length,

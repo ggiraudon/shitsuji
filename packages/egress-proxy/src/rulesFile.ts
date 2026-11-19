@@ -10,6 +10,11 @@ export const egressRulesFileSchema = z
   .object({
     allow: z.array(z.string().min(1)).default([]),
     deny: z.array(z.string().min(1)).default([]),
+    /**
+     * Core writes `true` when it has written its lists (S48). Compose seeds `false` on a fresh
+     * volume, so the proxy denies everything until core's config arrives instead of starting open.
+     */
+    ready: z.boolean().default(true),
   })
   .strict();
 export type EgressRulesFileBody = z.infer<typeof egressRulesFileSchema>;
@@ -29,7 +34,7 @@ export function readRulesFile(file: string): EgressRulesFileBody | undefined {
 /** Both sources are authoritative, so a rule in either applies; duplicates are dropped in order. */
 export function mergeRules(
   fromEnv: { allow: readonly string[]; deny: readonly string[] },
-  fromFile: EgressRulesFileBody | undefined,
+  fromFile: Pick<EgressRulesFileBody, 'allow' | 'deny'> | undefined,
 ): { allow: string[]; deny: string[] } {
   const union = (a: readonly string[], b: readonly string[] = []) => [...new Set([...a, ...b])];
   return {
