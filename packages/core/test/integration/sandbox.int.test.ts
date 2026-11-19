@@ -32,6 +32,7 @@ interface Containers {
   gateway: string;
   network: string;
   ctl: string;
+  tokenVolume: string;
   dir: string;
   baseUrl: string;
   token: string;
@@ -51,6 +52,7 @@ if (!dockerAvailable) {
     for (const network of [containers.ctl, containers.network]) {
       spawnSync('docker', ['network', 'rm', network], { stdio: 'ignore' });
     }
+    spawnSync('docker', ['volume', 'rm', containers.tokenVolume], { stdio: 'ignore' });
     fs.rmSync(containers.dir, { recursive: true, force: true });
   });
 
@@ -175,6 +177,21 @@ async function start(): Promise<Containers> {
     const token = randomBytes(32).toString('hex');
     const port = String(await freePort());
 
+    // The production path: core writes a token into a volume and the sandbox mounts that one file.
+    const tokenVolume = `shitsuji-token-${suffix}`;
+    docker(['volume', 'create', tokenVolume]);
+    docker([
+      'run',
+      '--rm',
+      '--entrypoint',
+      'sh',
+      '-v',
+      `${tokenVolume}:/v`,
+      SANDBOX_IMAGE,
+      '-c',
+      `printf %s ${token} > /v/sandbox.token && chown 1000:1000 /v/sandbox.token && chmod 0644 /v/sandbox.token`,
+    ]);
+
     docker([
       'run',
       '-d',
@@ -203,14 +220,17 @@ async function start(): Promise<Containers> {
       network,
       '--network-alias',
       'sandbox',
+      '--read-only',
       '--tmpfs',
       '/tmp',
+      '--tmpfs',
+      '/run/sandbox',
       '-v',
       `${path.join(dir, 'workspace')}:/workspace`,
       '-v',
       `${path.join(dir, 'handoff')}:/handoff:ro`,
-      '-e',
-      `SANDBOX_TOKEN=${token}`,
+      '--mount',
+      `source=${tokenVolume},target=/etc/sandbox-token,volume-subpath=sandbox.token,readonly`,
       '-e',
       'SANDBOX_EGRESS_PROXY=http://egress-proxy:3128',
       SANDBOX_IMAGE,
@@ -254,6 +274,7 @@ async function start(): Promise<Containers> {
       gateway,
       network,
       ctl,
+      tokenVolume,
       dir,
       baseUrl: `http://127.0.0.1:${port}`,
       token,
@@ -266,6 +287,7 @@ async function start(): Promise<Containers> {
     for (const name of [ctl, network]) {
       spawnSync('docker', ['network', 'rm', name], { stdio: 'ignore' });
     }
+    spawnSync('docker', ['volume', 'rm', tokenVolume], { stdio: 'ignore' });
     throw error;
   }
 }

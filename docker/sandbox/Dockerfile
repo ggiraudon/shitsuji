@@ -2,7 +2,7 @@
 # Shitsuji's sandbox image (F08, S45). Build from the repository root:
 #   docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox .
 # It runs sandboxd and the tools the agent uses. Exec supervision and egress control arrive in S46
-# and S47; this image is not in compose.yaml until S48.
+# and S47; it joins compose.yaml in S48.
 #
 # The base image is pinned by digest so a rebuild does not silently change Debian packages.
 

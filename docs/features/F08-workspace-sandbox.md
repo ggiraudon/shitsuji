@@ -213,9 +213,10 @@ sandbox:
   # sandboxd as uid 1001; commands run as 1000 (S46).
   init: true
   cap_drop: [ALL]
+  cap_add: [CHOWN, FOWNER, SETUID, SETGID, SETPCAP, KILL]
   security_opt: [no-new-privileges:true]
   read_only: true
-  tmpfs: ["/tmp:size=1g"]
+  tmpfs: ["/tmp:size=1g", "/run/sandbox:size=1m"]
   pids_limit: 1024
   mem_limit: 4g
   cpus: 2
@@ -228,11 +229,37 @@ sandbox:
       source: coredata
       target: /handoff
       volume: { subpath: handoff }
+      read_only: true
+    - type: volume                   # the token core generated (S48); read-only
+      source: coredata
+      target: /etc/sandbox-token
+      volume: { subpath: sandbox.token }
+      read_only: true
     - sandbox-home:/home/agent       # pip/npm installs, later browser profiles
   networks: [sandbox]                # internet only through egress-proxy
   environment:
-    SANDBOX_TOKEN: ${SANDBOX_TOKEN}  # only secret: authenticates core to sandboxd
+    SANDBOX_EGRESS_PROXY: http://egress-proxy:3128  # HTTP(S)_PROXY for commands (S48)
 ```
+
+Core is **not** on the `sandbox` network (S48): a small `sandboxd-gateway` relay, on `internal` and
+`sandbox` only, forwards core's control port to sandboxd. Without it the sandbox could dial core's
+admin API on the shared bridge, and the `lanBlocked` probe would rightly refuse the driver; Docker
+networks have no per-port isolation.
+
+**What S48 builds.** `packages/core/src/adapters/sandbox/shitsuji` is an HTTP client for sandboxd
+that validates every reply with `sandbox-protocol`; it reports `lanBlocked: true` and
+`credentialSwap: false`. Compose adds `sandbox`, `sandboxd-gateway` and `egress-proxy`, plus a
+one-shot `sandbox-files` that seeds `workspace`, `handoff`, an empty `sandbox.token` and a closed
+`"ready": false` rules file in the volume, because Compose resolves file subpaths when it creates a
+container. Core generates the token on first start in `<dataDir>/sandbox.token` (32 random bytes);
+the sandbox mounts it read-only at `/etc/sandbox-token`, and the root entrypoint installs it in
+`/run/sandbox/token` (0400, uid 1001). Since root runs with `cap_drop: ALL`, it has no
+`DAC_OVERRIDE`: it opens the 0700 folder while it copies the token, then closes it before sandboxd
+starts, so a command cannot traverse to it. `sandbox.egress.allow/deny` is written to
+`<dataDir>/sandbox.egress.json`, which the proxy mounts and polls; the proxy denies everything
+until core marks the file ready. Commands get `HTTP_PROXY`/`HTTPS_PROXY` and the lowercase forms
+from `SANDBOX_EGRESS_PROXY`, with `NO_PROXY` covering only loopback. `pnpm test:integration` builds
+the sandbox and proxy images and runs the conformance suite and the egress probes against them.
 
 **sandboxd**, a small TypeScript daemon in `packages/sandbox-daemon`, sharing types with `core` through
 `packages/sandbox-protocol` (X1), listening only on the `sandbox` network:
@@ -241,7 +268,8 @@ sandbox:
 |----------|---------|
 | `POST /exec` | Start a command: `{ argv, cwd, env, timeoutMs, stdin? }` → stream of stdout/stderr chunks, then the exit code |
 | `POST /exec/:id/signal` | Stop a command: kill its whole process group, then `SIGKILL` after a grace period |
-| `POST /files/read`, `/files/write`, `/files/list`, `/files/stat`, `/files/move` | File API confined to `/workspace` and `/handoff` (paths resolved, symlinks checked) |
+| `POST /files/read`, `/files/write`, `/files/list`, `/files/stat`, `/files/move`, `/files/mkdir` | File API confined to `/workspace` and `/handoff` (paths resolved, symlinks checked) |
+| `POST /probe` | Whether an address answers a TCP connection from inside the sandbox (S42 probes) |
 | `GET /capabilities`, `GET /health` | What this image supports; Compose health checks |
 
 The supervisor starts each command in its own process session (`setsid`), tracks every descendant, enforces
