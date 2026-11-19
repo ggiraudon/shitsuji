@@ -35,8 +35,12 @@ jobs:
         run: docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox:ci .
       - name: sandboxd answers, authenticates, executes and stays confined
         run: |
-          # --init reaps the fork bomb's zombies; the compose service does the same in S48.
+          # --init reaps the fork bomb's zombies; the compose service does the same in S48. The six
+          # capabilities are exactly what the entrypoint and sandboxd need (see entrypoint.sh).
           docker run -d --name sandbox-ci --init --pids-limit 128 \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add SETUID \
+            --cap-add SETGID --cap-add SETPCAP --cap-add KILL \
+            --security-opt no-new-privileges \
             -e SANDBOX_TOKEN=ci-token -p 127.0.0.1:4555:4555 shitsuji/sandbox:ci
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:4555/health > /dev/null; then break; fi
@@ -71,6 +75,17 @@ jobs:
             exit 1
           fi
           echo "$output" | grep -q 'Permission denied'
+
+          # A command keeps no capabilities and cannot become another uid (the daemon's ambient
+          # SETUID/SETGID/KILL must not survive into it).
+          caps=$(run '{"argv":["sh","-c","grep Cap /proc/self/status; setpriv --reuid=1001 true 2>&1; echo first=$?; setpriv --reuid=0 id 2>&1; echo root=$?"]}')
+          echo "$caps"
+          for set in Inh Prm Eff Bnd Amb; do
+            echo "$caps" | grep -qF "Cap$set:\t0000000000000000"
+          done
+          echo "$caps" | grep -q 'setresuid failed'
+          echo "$caps" | grep -q 'first=127'
+          echo "$caps" | grep -q 'root=127'
 
           # The daemon is uid 1001, so its /proc is not readable by a command.
           docker exec sandbox-ci sh -c 'grep -m1 Uid /proc/1/status' | grep -q '1001'

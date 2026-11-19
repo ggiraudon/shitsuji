@@ -20,9 +20,35 @@ export interface ExecSupervisorOptions {
   killGraceMs?: number;
   /** The fixed base of every command's environment; nothing comes from the daemon's own. */
   env: ExecEnv;
-  /** The uid/gid commands run as, when the daemon can drop to them (the image: 1000). */
-  uid?: number;
-  gid?: number;
+  /**
+   * Wraps the argv before spawning (the image puts `setpriv` in front, so the command runs as uid
+   * 1000 with no capabilities). Never use spawn's `uid`: a same-kernel uid change does not clear
+   * the daemon's ambient capabilities, and they would survive execve into the command.
+   */
+  wrap?: (argv: readonly string[]) => string[];
+}
+
+/**
+ * The argv that drops to the command identity before running it: uid/gid 1000, no inheritable or
+ * ambient capabilities, an empty bounding set and no-new-privs, so the command cannot regain the
+ * daemon's SETUID/SETGID/KILL. `--` keeps an argument that looks like a flag as the program.
+ */
+export function setprivCommand(
+  argv: readonly string[],
+  identity: { uid: number; gid?: number; setprivPath?: string },
+): string[] {
+  return [
+    identity.setprivPath ?? '/usr/bin/setpriv',
+    `--reuid=${identity.uid}`,
+    `--regid=${identity.gid ?? identity.uid}`,
+    '--init-groups',
+    '--inh-caps=-all',
+    '--ambient-caps=-all',
+    '--bounding-set=-all',
+    '--no-new-privs',
+    '--',
+    ...argv,
+  ];
 }
 
 interface Running {
@@ -70,18 +96,13 @@ export class ExecSupervisor {
     }
 
     const timeoutMs = Math.min(request.timeoutMs, this.options.maxTimeoutMs);
-    const child = spawn(request.argv[0]!, request.argv.slice(1), {
+    const argv = this.options.wrap?.(request.argv) ?? request.argv;
+    const child = spawn(argv[0]!, argv.slice(1), {
       cwd,
       env: this.environmentOf(request.env),
       // A new process group (setsid on Linux) so a stop can reach grandchildren as well.
       detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
-      ...(process.platform !== 'win32' && this.options.uid !== undefined
-        ? {
-            uid: this.options.uid,
-            ...(this.options.gid !== undefined && { gid: this.options.gid }),
-          }
-        : {}),
     });
     const state: Running = { child, stopped: false };
     this.running.set(id, state);

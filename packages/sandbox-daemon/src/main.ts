@@ -1,5 +1,5 @@
 import { configFromEnv } from './config.js';
-import { ExecSupervisor } from './exec.js';
+import { ExecSupervisor, setprivCommand } from './exec.js';
 import { SandboxFilesService } from './files.js';
 import { SandboxPaths } from './paths.js';
 import { createSandboxServer } from './server.js';
@@ -23,8 +23,14 @@ async function main(): Promise<void> {
       LANG: 'C.UTF-8',
       USER: config.commandUser,
     },
-    ...(config.commandUid !== undefined && { uid: config.commandUid }),
-    ...(config.commandGid !== undefined && { gid: config.commandGid }),
+    ...(config.commandUid !== undefined && {
+      wrap: (argv) =>
+        setprivCommand(argv, {
+          uid: config.commandUid!,
+          ...(config.commandGid !== undefined && { gid: config.commandGid }),
+          setprivPath: config.setprivPath,
+        }),
+    }),
   });
   const server = createSandboxServer({
     token: config.token,

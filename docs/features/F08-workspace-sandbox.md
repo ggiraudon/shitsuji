@@ -114,10 +114,27 @@ same-uid command could read either the environment or a file. So the image runs 
 (`agent`) and sandboxd as uid 1001 (`sandboxd`), with the token in `/run/sandbox/token` (0400, owned by
 1001). A root entrypoint writes or takes the token, owns it to 1001, fixes the workspace modes (2770,
 owned by 1000, group-writable so the daemon's files API works) and starts the daemon with only `SETUID`,
-`SETGID` and `KILL` to spawn and stop commands. A command therefore cannot read the token file, the
-daemon's `/proc/<pid>/environ`, or the token in `env` — the container test checks all three. The container
-needs `init: true`: without an init the daemon is PID 1 and never reaps a fork bomb's orphans, which
-leaves the PID limit exhausted; with it, the bomb is contained and the sandbox answers again.
+`SETGID`, `SETPCAP` and `KILL`. A command therefore cannot read the token file, the daemon's
+`/proc/<pid>/environ`, or the token in `env` — the container test checks all three.
+
+**A command gets no capabilities.** `spawn(..., { uid })` only calls `setuid`, and a non-root to non-root
+change does not clear the capability sets, so the daemon's ambient `SETUID`/`SETGID`/`KILL` would survive
+into the command (it could `setpriv --reuid=0 id`). Every command is therefore launched through
+`setpriv --reuid=1000 --regid=1000 --init-groups --inh-caps=-all --ambient-caps=-all --bounding-set=-all
+--no-new-privs -- <argv>`, in its own session, with the same clean environment. The container test runs
+`grep Cap /proc/self/status` (every set zero) and `setpriv --reuid=0 id` / `--reuid=1001 true` (both
+refused).
+
+The container needs `init: true`: without an init the daemon is PID 1 and never reaps a fork bomb's
+orphans, which leaves the PID limit exhausted; with it, the bomb is contained and the sandbox answers
+again.
+
+**For S48.** Compose drops every capability, so `sandbox` needs `cap_add: [CHOWN, FOWNER, SETUID, SETGID,
+SETPCAP, KILL]` and nothing else: `CHOWN` for the token file and workspace ownership, `FOWNER` for the
+`chmod` that repairs core-created files, `SETUID`/`SETGID` to start the daemon as 1001 and commands as
+1000, `SETPCAP` to set the daemon's ambient set and empty each command's bounding set, and `KILL` to stop
+a command that runs as another uid. The CI job runs the image with exactly this set plus
+`no-new-privileges`; if it starts there, it starts in Compose.
 
 **What S42 builds.** One conformance suite, `test/contracts/sandbox.contract.ts`, runs against every
 driver: each test runs only for a capability the driver claims (exec, files, network), and the fork bomb

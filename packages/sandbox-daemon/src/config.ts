@@ -20,6 +20,8 @@ export interface SandboxDaemonConfig {
   commandUser: string;
   /** The fixed PATH of a command's environment. */
   commandPath: string;
+  /** `setpriv`, which drops each command to the command identity and clears its capabilities. */
+  setprivPath: string;
 }
 
 /**
@@ -63,5 +65,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SandboxDaem
     commandHome: env.SANDBOX_COMMAND_HOME ?? '/home/agent',
     commandUser: env.SANDBOX_COMMAND_USER ?? 'agent',
     commandPath: env.SANDBOX_COMMAND_PATH ?? '/usr/local/bin:/usr/bin:/bin:/home/agent/.local/bin',
+    setprivPath: env.SANDBOX_SETPRIV ?? '/usr/bin/setpriv',
   };
 }

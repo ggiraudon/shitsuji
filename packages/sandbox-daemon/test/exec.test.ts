@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ExecEvent } from '@shitsuji/sandbox-protocol';
-import { ExecSupervisor } from '../src/exec.js';
+import { ExecSupervisor, setprivCommand } from '../src/exec.js';
 import { SandboxPaths } from '../src/paths.js';
 
 let base: string;
@@ -52,6 +52,47 @@ const exitOf = (events: ExecEvent[]) => {
 };
 
 describe('exec supervisor (F08, S46)', () => {
+  it('wraps a command in setpriv so it cannot keep the daemon’s capabilities', () => {
+    expect(setprivCommand(['python3', '-c', 'print(1)'], { uid: 1000, gid: 1000 })).toEqual([
+      '/usr/bin/setpriv',
+      '--reuid=1000',
+      '--regid=1000',
+      '--init-groups',
+      '--inh-caps=-all',
+      '--ambient-caps=-all',
+      '--bounding-set=-all',
+      '--no-new-privs',
+      '--',
+      'python3',
+      '-c',
+      'print(1)',
+    ]);
+    expect(setprivCommand(['id'], { uid: 1000, setprivPath: '/opt/setpriv' })[0]).toBe(
+      '/opt/setpriv',
+    );
+    expect(setprivCommand(['id'], { uid: 1000 })).toContain('--regid=1000');
+  });
+
+  it('spawns the wrapped argv, not the bare command', async () => {
+    const events: ExecEvent[] = [];
+    const wrapped = new ExecSupervisor(
+      {
+        resolveExisting: async () => path.join(base, 'workspace'),
+      } as unknown as SandboxPaths,
+      {
+        maxTimeoutMs: 10_000,
+        maxOutputBytes: 1_000,
+        env: { PATH: '/bin:/usr/bin', HOME: '/home/agent', LANG: 'C.UTF-8', USER: 'agent' },
+        wrap: (argv) => [NODE, '-e', 'console.log(process.argv.slice(1).join(" "))', '--', ...argv],
+      },
+    );
+    await wrapped.run({ argv: ['id', '-u'], cwd: '.', env: {}, timeoutMs: 10_000 }, (event) =>
+      events.push(event),
+    );
+
+    expect(textOf(events).trim()).toBe('id -u');
+  });
+
   it('runs a command in the workspace and streams its output, exit code and stderr', async () => {
     const events = await run({
       argv: argv("console.log('one'); console.error('two'); process.exit(3)"),

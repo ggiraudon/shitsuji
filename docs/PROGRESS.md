@@ -97,9 +97,10 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
       read-only `/handoff`, including symlinks; built and smoke-tested in CI. Exec is S46.)*
 - [x] **S46** The exec supervisor
       *(NDJSON exec and signal routes; each command in its own session, with a timeout, a group stop and
-      an output cap. Commands run as uid 1000 with a fixed environment; sandboxd is 1001 and reads the
-      token from a 0400 file, so a command cannot read it from the file, `env` or `/proc`. The container
-      test checks all three, plus a stop, a timeout and a fork bomb with `init`.)*
+      an output cap. Commands are launched through `setpriv` as uid 1000 with no capabilities and a fixed
+      environment; sandboxd is 1001 and reads the token from a 0400 file, so a command cannot read it
+      from the file, `env` or `/proc`, nor become another uid. The container test checks all of it, plus
+      a stop, a timeout and a fork bomb with `init`.)*
 - [ ] **S47** `egress-proxy`
 - [ ] **S48** The `shitsuji` driver
 - [ ] **S49** Switch the default, live check and docs
@@ -333,6 +334,7 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
       with a manual clock).
 - [ ] Turning it off removes the line from the next call, and background sessions never carry it.
 - [ ] An eval scenario shows that the mood changes tone but not the facts in the answer.
+
 
 
 
