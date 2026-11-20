@@ -106,7 +106,7 @@ export class Shitsuji {
   readonly events: EventBus;
   /** The adapters available to this process; `start` starts them, `deliverTo` looks them up here. */
   private readonly channels: ChannelRegistry;
-  /** Disposed last-but-one on stop, after the sandbox and the job queue. */
+  /** Disposed on stop, after the sandbox and the job queue; a failure is logged, never fatal. */
   private readonly plugins: PluginManager;
   /** Reported in `system.ready` and the console banner. */
   private readonly version: string;
@@ -263,9 +263,10 @@ export class Shitsuji {
   /**
    * Shuts the graph down in reverse order: unsubscribe the reply listener, close the API, stop the
    * channels (newest first), wait up to five seconds for running turns, stop the job queue, close
-   * the sandbox, dispose plugins, then run the extra `onStop` hooks. Every channel, queue, sandbox
-   * and hook failure is logged and does not stop the rest; plugin disposal is the exception (it is
-   * awaited without a catch, so its error would reject `stop()`).
+   * the sandbox, dispose plugins, then run the extra `onStop` hooks. Every channel, queue, sandbox,
+   * plugin and hook failure is logged and does not stop the rest, so the database pool in `onStop`
+   * is always reached. `PluginManager.disposeAll` already logs per-plugin failures; the catch here
+   * covers a manager that rejects as a whole.
    *
    * The five-second wait is deliberate: a turn still running after it is left to recovery at the
    * next start rather than blocking shutdown. `stop()` is not idempotent by design; the process
@@ -299,7 +300,13 @@ export class Shitsuji {
     } catch (error) {
       this.log.error('Sandbox close failed', { error: serializeError(error) });
     }
-    await this.plugins.disposeAll();
+    try {
+      await this.plugins.disposeAll();
+    } catch (error) {
+      // PluginManager already logs and swallows per-plugin failures; this also keeps the hooks
+      // running if a manager (or a future one) rejects as a whole.
+      this.log.error('Plugin dispose failed', { error: serializeError(error) });
+    }
     for (const close of this.onStop) {
       try {
         await close();
