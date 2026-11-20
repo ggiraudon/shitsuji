@@ -40,6 +40,7 @@ async function setup(
       text: string,
       approval: Approval,
     ) => Promise<'approve' | 'decline' | 'unclear'>;
+    attachmentPath?: (hostPath: string) => Promise<string>;
   } = {},
 ) {
   const repos = new InMemoryRepositories();
@@ -96,6 +97,7 @@ async function setup(
     version: '0.1.0',
     approvals,
     ...(options.readTypedApproval && { readTypedApproval: options.readTypedApproval }),
+    ...(options.attachmentPath && { attachmentPath: options.attachmentPath }),
     reply: async (channelId, chatId, text, intent) => {
       replies.push({ channel: channelId, chatId, text, intent });
     },
@@ -279,9 +281,12 @@ describe('ChannelGateway: commands (S31)', () => {
   });
 });
 
-describe('ChannelGateway: attachments (S33)', () => {
-  it('tells the turn where the owner files are', async () => {
-    const { receive, submitted } = await setup({ requiresPairing: false });
+describe('ChannelGateway: attachments (S33, #100)', () => {
+  it('tells the turn where the owner files are in the active driver’s terms', async () => {
+    const { receive, submitted } = await setup({
+      requiresPairing: false,
+      attachmentPath: async () => 'report.pdf',
+    });
 
     await receive('Please read this', 'chat-1', [
       {
@@ -293,20 +298,23 @@ describe('ChannelGateway: attachments (S33)', () => {
     ]);
 
     expect(submitted[0]!.text).toContain('Please read this');
-    expect(submitted[0]!.text).toContain('/data/handoff/report.pdf');
-    expect(submitted[0]!.text).toContain('application/pdf');
+    expect(submitted[0]!.text).toContain('- report.pdf (application/pdf)');
+    expect(submitted[0]!.text).not.toContain('/data/handoff');
     expect(submitted[0]!.opts.replyChannel).toBe('test:chat-1');
   });
 
   it('starts a turn for a file sent without text', async () => {
-    const { receive, submitted } = await setup({ requiresPairing: false });
+    const { receive, submitted } = await setup({
+      requiresPairing: false,
+      attachmentPath: async () => 'photo.jpg',
+    });
 
     await receive('', 'chat-1', [
       { name: 'photo.jpg', path: '/data/handoff/photo.jpg', mediaType: 'image/jpeg' },
     ]);
 
     expect(submitted).toHaveLength(1);
-    expect(submitted[0]!.text).toContain('/data/handoff/photo.jpg');
+    expect(submitted[0]!.text).toContain('- photo.jpg (image/jpeg)');
   });
 });
 

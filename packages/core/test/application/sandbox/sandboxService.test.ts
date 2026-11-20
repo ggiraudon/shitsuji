@@ -204,6 +204,26 @@ describe('SandboxService (F08, S40)', () => {
     await expect(service(twice).start()).rejects.toThrow(/twice/);
   });
 
+  it('names a handoff attachment the way the active driver does (#100)', async () => {
+    const files: SandboxFiles = {
+      ...fakeFiles(),
+      resolveRead: async (name) => `/handoff/${name}`,
+      display: (absolute) => absolute.replace('/handoff/', ''),
+    };
+    const { sandbox } = build(
+      driver(
+        {
+          files: { roots: ['/workspace', '/handoff'] },
+          egress: { lanBlocked: true, credentialSwap: false },
+        },
+        { files },
+      ),
+    );
+    await sandbox.start();
+
+    await expect(sandbox.attachmentPath('/data/handoff/photo.jpg')).resolves.toBe('photo.jpg');
+  });
+
   it('closes the sandbox and forgets its tools on close', async () => {
     const close = vi.fn(async () => undefined);
     const sandbox = service(

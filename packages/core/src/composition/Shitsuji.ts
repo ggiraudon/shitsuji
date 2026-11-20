@@ -230,6 +230,7 @@ export class Shitsuji {
       version: this.version,
       ...(this.approvalsService && { approvals: this.approvalsService }),
       ...(this.readTypedApproval && { readTypedApproval: this.readTypedApproval }),
+      attachmentPath: async (hostPath) => this.sandbox?.attachmentPath(hostPath) ?? hostPath,
       reply: (channelId, chatId, text, intent) => this.deliverTo(channelId, chatId, text, intent),
     });
     for (const channel of this.channels.all()) {

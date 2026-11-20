@@ -44,6 +44,8 @@ export interface ChannelGatewayDeps {
   approvals?: ApprovalService;
   /** Reads a typed reply to an open card; only an unconditional yes approves (S37). */
   readTypedApproval?: (text: string, approval: Approval) => Promise<TypedAnswer>;
+  /** Maps a host handoff path to the active driver's path for the attachment note (#100). */
+  attachmentPath?: (hostPath: string) => Promise<string>;
   /** Answers directly through the channel adapter that received the message. */
   reply: (channel: string, chatId: string, text: string, intent: OutboundIntent) => Promise<void>;
 }
@@ -86,7 +88,11 @@ export class ChannelGateway {
       return this.callback(message);
     }
 
-    const text = withAttachments(message.text.trim(), message.attachments);
+    const text = await withAttachments(
+      message.text.trim(),
+      message.attachments,
+      this.deps.attachmentPath,
+    );
     if (!text) return { kind: 'ignored', reason: 'empty message' };
 
     if (!paired) {
@@ -312,11 +318,22 @@ function commandOf(text: string): Command | undefined {
   }
 }
 
-/** Tells the turn where the owner's files are, so it can read them if the task needs them. */
-function withAttachments(text: string, attachments?: readonly InboundAttachment[]): string {
+/**
+ * Tells the turn where the owner's files are, in the active driver's terms (#100): the mapper turns
+ * core's `<dataDir>/handoff` path into the sandbox's display path. Without one (a test or a bare
+ * gateway), the host path is kept.
+ */
+async function withAttachments(
+  text: string,
+  attachments?: readonly InboundAttachment[],
+  display: (hostPath: string) => Promise<string> = async (hostPath) => hostPath,
+): Promise<string> {
   if (!attachments?.length) return text;
-  const lines = attachments.map(
-    (file) => `- ${file.path}${file.mediaType ? ` (${file.mediaType})` : ''}`,
+  const lines = await Promise.all(
+    attachments.map(async (file) => {
+      const shown = await display(file.path);
+      return `- ${shown}${file.mediaType ? ` (${file.mediaType})` : ''}`;
+    }),
   );
   return [text, 'The owner sent these files; they are saved for you:', ...lines]
     .filter(Boolean)
