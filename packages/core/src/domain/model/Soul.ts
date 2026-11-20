@@ -1,15 +1,26 @@
 import { ShitsujiError } from '../errors.js';
 import type { SessionKind } from './Session.js';
 
-/** The standing instructions are small on purpose: they start every prompt (F04, Q6). */
+/**
+ * The standing instructions are small on purpose: they start every prompt (F04, Q6). The cap is on
+ * the assembled text in bytes, so a SOUL that grows past it fails at publish time, not in a turn.
+ */
 export const SOUL_MAX_BYTES = 24 * 1024;
 
-/** A base you write, traits you confirmed, and optional parts for one session kind. */
+/**
+ * A base you write, traits you confirmed, and optional parts for one session kind. `base` and `trait`
+ * fragments are shared by every session; a `session` fragment is only assembled for its
+ * {@link SoulFragment.sessionKind}.
+ */
 export type SoulFragmentKind = 'base' | 'trait' | 'session';
 
 /** Who made the revision: the first one, the owner, or (from F11) a confirmed proposal. */
 export type SoulSource = 'initial' | 'owner' | 'assistant';
 
+/**
+ * One piece of the SOUL, as the owner edits it. Fragments are stored as a set and replaced together
+ * (`SoulStore.replaceFragments`); a revision records the assembled text they produced.
+ */
 export interface SoulFragment {
   id: string;
   kind: SoulFragmentKind;
@@ -20,6 +31,10 @@ export interface SoulFragment {
   position: number;
 }
 
+/**
+ * One published state of the SOUL. A turn fixes the revision it started with, so a change confirmed
+ * mid-turn waits for the next turn, and history can say what shaped an answer.
+ */
 export interface SoulRevision {
   revision: number;
   /** The assembled shared text (base and traits), for reading and diffing. */
@@ -30,6 +45,10 @@ export interface SoulRevision {
   createdAt: Date;
 }
 
+/**
+ * The assembled SOUL is over {@link SOUL_MAX_BYTES}, so every prompt would start with too much text.
+ * Thrown by {@link assembleSoul} before anything is written.
+ */
 export class SoulTooLarge extends ShitsujiError {
   override readonly name = 'SoulTooLarge';
   constructor(bytes: number) {
@@ -41,7 +60,7 @@ export class SoulTooLarge extends ShitsujiError {
   }
 }
 
-/** The SOUL cannot be empty: the header states who Shitsuji is. */
+/** The SOUL cannot be empty: the header states who Shitsuji is. Thrown by `SoulService.publish`. */
 export class SoulEmpty extends ShitsujiError {
   override readonly name = 'SoulEmpty';
   constructor() {
@@ -49,7 +68,7 @@ export class SoulEmpty extends ShitsujiError {
   }
 }
 
-/** An edit was confirmed when SOUL.md had not been changed. */
+/** An edit was confirmed when SOUL.md had not been changed. Thrown by `SoulService.confirmEdit`. */
 export class SoulNoPendingEdit extends ShitsujiError {
   override readonly name = 'SoulNoPendingEdit';
   constructor(file: string) {
@@ -57,7 +76,10 @@ export class SoulNoPendingEdit extends ShitsujiError {
   }
 }
 
-/** SOUL.md changed again after it was reviewed: confirming would apply text nobody has seen. */
+/**
+ * SOUL.md changed again after it was reviewed: confirming would apply text nobody has seen. Thrown by
+ * `SoulService.confirmEdit` when the reviewed hash no longer matches the file.
+ */
 export class SoulEditChanged extends ShitsujiError {
   override readonly name = 'SoulEditChanged';
   constructor(file: string) {
@@ -72,6 +94,10 @@ export class SoulEditChanged extends ShitsujiError {
 /**
  * Assembles the SOUL from its fragments: base and traits always, session fragments only for their own
  * session kind. The database holds the fragments; a revision is the assembled text (Q6).
+ *
+ * Fragments are trimmed, empty ones dropped, sorted by `position` (ties by id) and joined with a blank
+ * line, so the same set always produces the same text and the provider's prompt cache keeps matching.
+ * Throws {@link SoulTooLarge} when the result is over {@link SOUL_MAX_BYTES}.
  */
 export function assembleSoul(
   fragments: readonly SoulFragment[],
@@ -88,7 +114,10 @@ export function assembleSoul(
   return body;
 }
 
-/** The starting SOUL before the owner writes one. Shitsuji keeps this to what it can be sure of. */
+/**
+ * The starting SOUL before the owner writes one. Shitsuji keeps this to what it can be sure of: how to
+ * behave, not who the owner is. `SoulService` publishes it as the first revision.
+ */
 export const DEFAULT_SOUL = `You are Shitsuji, the owner's butler: attentive, precise and brief.
 
 How you behave:
