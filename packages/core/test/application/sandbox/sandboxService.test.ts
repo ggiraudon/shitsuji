@@ -68,17 +68,21 @@ const fakeTool = (name: string) => ({
   run: async () => ({ content: '' }),
 });
 
-const service = (d: SandboxDriver) => {
+const build = (d: SandboxDriver, retry = { attempts: 1, delayMs: 0 }) => {
   const services = testServices();
-  return new SandboxService({
+  const sandbox = new SandboxService({
     driver: d,
     lease: LEASE,
     exec: EXEC,
     outbound: { stage: async (name) => `/outbox/${name}` },
     egress: new EgressProbe({ targets: [LAN], timeoutMs: 10, log: services.log }),
     log: services.log,
+    retry,
   });
+  return { sandbox, log: services.log };
 };
+
+const service = (d: SandboxDriver) => build(d).sandbox;
 
 const names = (s: SandboxService) => s.tools().map((tool) => tool.name);
 
@@ -233,5 +237,50 @@ describe('SandboxService (F08, S40)', () => {
     await expect(sandbox.start()).rejects.toThrow(SandboxUnavailable);
     await expect(sandbox.start()).rejects.toThrow(/no sandbox runtime/);
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it('waits a bounded time for a cold sandbox, logging each attempt (S49)', async () => {
+    let checks = 0;
+    const cold = {
+      ...driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: true, credentialSwap: false },
+      }),
+      health: async () => {
+        checks += 1;
+        return checks < 3
+          ? { ok: false as const, detail: 'sandboxd is starting' }
+          : { ok: true as const };
+      },
+    };
+    const { sandbox, log } = build(cold, { attempts: 5, delayMs: 1 });
+
+    await sandbox.start();
+
+    expect(checks).toBe(3);
+    const retries = log.records.filter(
+      (record) => record.message === 'Sandbox not ready; retrying',
+    );
+    expect(retries).toHaveLength(2);
+    expect(retries[0]!.context).toMatchObject({
+      driver: 'fake',
+      attempt: 1,
+      attempts: 5,
+      detail: 'sandboxd is starting',
+    });
+    expect(names(sandbox)).toContain('workspace.read');
+  });
+
+  it('gives up after the bounded attempts (S49)', async () => {
+    const never = {
+      ...driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: true, credentialSwap: false },
+      }),
+      health: async () => ({ ok: false as const, detail: 'still starting' }),
+    };
+    const { sandbox } = build(never, { attempts: 3, delayMs: 1 });
+
+    await expect(sandbox.start()).rejects.toThrow(/still starting/);
   });
 });

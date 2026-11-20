@@ -86,7 +86,7 @@ Keep this list true as commands change.
 | `pnpm check` | Type-check, lint, import-direction check and tests: **run before every commit** |
 | `pnpm eval --offline` | The evaluation scenarios against the recorded model replies (no key, no network) |
 | `pnpm eval --model <ref>` | The evaluation scenarios against a live model binding, with a report |
-| `docker compose up` | Start the stack (`core` + `postgres`) |
+| `docker compose up` | Start the stack (`core`, `postgres`, `sandbox`, `egress-proxy`, `sandboxd-gateway`) |
 | `docker compose -f compose.yaml -f compose.dev.yaml up -d postgres` | Only Postgres, published on 127.0.0.1:5432, for running core on the host |
 | `pnpm --filter @shitsuji/core dev` | Run core from source with reload (reads `.env` and `shitsuji.config.yaml`) |
 | `node packages/core/dist/cli.js tui` | The terminal UI, after `pnpm build` |
@@ -113,7 +113,10 @@ committing on the result.
   committed; add a new one. State changes use compare-and-set (`UPDATE … WHERE status = $from`).
 - Model calls go through `ModelRouter` by purpose, never to a hard-coded model.
 - Never retry a model request after a tool call has been emitted, and never retry an outside action
-  automatically.
+  automatically. (A bounded wait for a cold sandbox's health check is not an outside action: `SandboxService`
+  retries that at startup.)
+- With `sandbox.driver: shitsuji` (the Compose default, X3), core never reads or writes `<dataDir>/workspace`
+  itself: every file operation goes through `sandboxd`. `pnpm dev` from source keeps `host`.
 
 ## Tests
 

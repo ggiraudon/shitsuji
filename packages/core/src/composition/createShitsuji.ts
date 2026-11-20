@@ -170,6 +170,10 @@ export interface CreateShitsujiOptions {
   jobs?: JobQueue;
   /** Extra plugins, loaded after the built-ins and before the plugins directory. */
   plugins?: readonly ShitsujiPlugin[];
+  /**
+   * A shorter cold-start wait for tests (S49); production uses ten attempts two seconds apart.
+   */
+  sandboxRetry?: { attempts: number; delayMs: number };
 }
 
 /**
@@ -319,6 +323,7 @@ export async function createShitsuji(
       log,
     }),
     log,
+    ...(options.sandboxRetry && { retry: options.sandboxRetry }),
   });
   await sandbox.start();
   const tools = new ToolCatalog(plugins.tools());

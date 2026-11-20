@@ -54,6 +54,11 @@ const ENV_OVERRIDES: { vars: string[]; path: string[]; parse?: (v: string) => un
     path: ['sandbox', 'egress', 'deny'],
     parse: parseList,
   },
+  {
+    vars: ['SHITSUJI_SANDBOX_PROBES_REQUIRE_ISOLATION'],
+    path: ['sandbox', 'probes', 'requireIsolation'],
+    parse: parseBool,
+  },
   { vars: ['SHITSUJI_OWNER_KEY'], path: ['tui', 'ownerKey'] },
   {
     vars: ['SHITSUJI_STABILITY_CHECK'],
