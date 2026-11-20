@@ -4,6 +4,7 @@ import type { StartupRecovery } from '../application/StartupRecovery.js';
 import type { JobQueue } from '../ports/JobQueue.js';
 import type { RunningApi } from './apiServer.js';
 import { serializeError } from '../domain/errors.js';
+import { failureText } from '../application/runtime/failureText.js';
 import type { ChannelRegistry } from '../application/channels/ChannelRegistry.js';
 import { ChannelGateway } from '../application/channels/ChannelGateway.js';
 import type { PairingService } from '../application/channels/PairingService.js';
@@ -208,7 +209,7 @@ export class Shitsuji {
           ? (e.reply ?? '')
           : e.status === 'waiting'
             ? (e.question ?? '')
-            : `Error: ${e.error ?? e.status}`;
+            : failureText(e.error ?? e.status);
       const intent: OutboundIntent = e.status === 'waiting' ? 'question' : 'final';
       void this.deliver(e.replyChannel, text, intent, e.files, asId<TurnId>(e.turnId));
     });

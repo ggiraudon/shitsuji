@@ -164,6 +164,30 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       expect(listed[1]!.withdrawn).toBe(false);
     });
 
+    it('strips U+0000 from every string before storing (#101)', async () => {
+      const repos = await create();
+      const { session } = await seed(repos);
+      const m: Message = {
+        ...message(session, 'hello\u0000world', 30),
+        parts: [
+          { type: 'text', text: 'hello\u0000world' },
+          {
+            type: 'tool_call',
+            call: { id: asId('c1'), name: 'x', arguments: { text: 'a\u0000b' } },
+          },
+          { type: 'tool_result', toolCallId: asId('c1'), content: 'c\u0000d', isError: false },
+        ],
+      };
+      await repos.messages.append(m);
+
+      const [stored] = await repos.messages.listBySession(session.id);
+      expect(stored!.parts).toEqual([
+        { type: 'text', text: 'helloworld' },
+        { type: 'tool_call', call: { id: asId('c1'), name: 'x', arguments: { text: 'ab' } } },
+        { type: 'tool_result', toolCallId: asId('c1'), content: 'cd', isError: false },
+      ]);
+    });
+
     it('keeps rich content parts intact', async () => {
       const repos = await create();
       const { session } = await seed(repos);

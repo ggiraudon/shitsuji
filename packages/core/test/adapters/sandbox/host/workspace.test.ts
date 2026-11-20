@@ -85,6 +85,33 @@ describe('workspace file tools', () => {
     });
     expect(await new WorkspaceListTool(ws).run({ path: 'nope' })).toMatchObject({ isError: true });
   });
+
+  it('refuses a binary file with its size and detected type (#101)', async () => {
+    const file = path.join(base, 'workspace', 'photo.jpg');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]),
+    );
+
+    const out = await new WorkspaceReadTool(ws).run({ path: 'photo.jpg' });
+
+    expect(out.isError).toBe(true);
+    expect(out.content).toContain('JPEG image');
+    expect(out.content).toContain('10 bytes');
+    expect(out.content).toContain('cannot be read as text');
+  });
+
+  it('refuses a text file containing a NUL as binary (#101)', async () => {
+    const file = path.join(base, 'workspace', 'odd.txt');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, Buffer.from('hello\u0000world', 'utf8'));
+
+    const out = await new WorkspaceReadTool(ws).run({ path: 'odd.txt' });
+
+    expect(out.isError).toBe(true);
+    expect(out.content).toContain('binary file');
+  });
 });
 
 describe('workspace.edit (S41)', () => {

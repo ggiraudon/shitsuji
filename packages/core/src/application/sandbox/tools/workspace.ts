@@ -3,6 +3,7 @@ import { z } from 'zod/v4';
 import type { ExecEvent, SandboxExec, SandboxFiles } from '../../../ports/SandboxDriver.js';
 import type { OutboundFiles } from '../../../ports/OutboundFiles.js';
 import { BaseTool, type ToolContext, type ToolOutput } from '../../../ports/Tool.js';
+import { binaryKindOf } from './binary.js';
 
 const MAX_READ_BYTES = 1_000_000;
 
@@ -35,7 +36,17 @@ export class WorkspaceReadTool extends BaseTool<typeof readInput> {
         isError: true,
       };
     }
-    return { content: await this.files.read(file), data: { bytes: stat.size } };
+    const bytes = await this.files.readBytes(file);
+    const binary = binaryKindOf(bytes);
+    if (binary) {
+      return {
+        content:
+          `${p} is a ${binary} file (${stat.size} bytes); it is binary and cannot be read as ` +
+          'text. Use workspace.list or workspace.send for attachments.',
+        isError: true,
+      };
+    }
+    return { content: new TextDecoder('utf-8').decode(bytes), data: { bytes: stat.size } };
   }
 }
 

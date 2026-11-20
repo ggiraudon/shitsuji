@@ -49,3 +49,28 @@ export function toolCallsOf(message: Pick<Message, 'parts'>): ToolCall[] {
     .filter((p): p is Extract<ContentPart, { type: 'tool_call' }> => p.type === 'tool_call')
     .map((p) => p.call);
 }
+
+/**
+ * Strips U+0000 from every string in a JSON-shaped value (#101). Postgres jsonb refuses a NUL in a
+ * string ("unsupported Unicode escape sequence"), so a tool result containing one used to fail the
+ * whole turn at the message write. The repository applies this before storage as a safety net; the
+ * text tools also refuse binary input before it can get here.
+ */
+export function stripNul<T>(value: T): T {
+  if (typeof value === 'string') return value.replaceAll('\u0000', '') as T;
+  if (Array.isArray(value)) return value.map((entry) => stripNul(entry)) as T;
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        stripNul(entry),
+      ]),
+    ) as T;
+  }
+  return value;
+}
+
+/** A message whose content parts are safe to store in jsonb (no U+0000 anywhere). */
+export function sanitizeMessage(message: Message): Message {
+  return { ...message, parts: stripNul(message.parts) };
+}
