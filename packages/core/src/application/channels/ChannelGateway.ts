@@ -46,6 +46,8 @@ export interface ChannelGatewayDeps {
   readTypedApproval?: (text: string, approval: Approval) => Promise<TypedAnswer>;
   /** Maps a host handoff path to the active driver's path for the attachment note (#100). */
   attachmentPath?: (hostPath: string) => Promise<string>;
+  /** The viewer's URL when the active sandbox has a desktop (S51); absent otherwise. */
+  viewerUrl?: string;
   /** Answers directly through the channel adapter that received the message. */
   reply: (channel: string, chatId: string, text: string, intent: OutboundIntent) => Promise<void>;
 }
@@ -226,6 +228,15 @@ export class ChannelGateway {
         await this.answer(message, 'A new conversation has started.', 'final');
         return { kind: 'replied', reason: 'command' };
       }
+      case 'desktop':
+        await this.answer(
+          message,
+          this.deps.viewerUrl
+            ? `Watch the desktop (watch-only): ${this.deps.viewerUrl}`
+            : 'The desktop viewer is not available for this sandbox.',
+          'final',
+        );
+        return { kind: 'replied', reason: 'command' };
     }
   }
 
@@ -300,7 +311,7 @@ export class ChannelGateway {
   }
 }
 
-type Command = 'stop' | 'status' | 'new' | 'new-confirm';
+type Command = 'stop' | 'status' | 'new' | 'new-confirm' | 'desktop';
 
 /** Commands are exact and case-insensitive; anything else is a message. */
 function commandOf(text: string): Command | undefined {
@@ -313,6 +324,8 @@ function commandOf(text: string): Command | undefined {
       return 'new';
     case '/new confirm':
       return 'new-confirm';
+    case '/desktop':
+      return 'desktop';
     default:
       return undefined;
   }

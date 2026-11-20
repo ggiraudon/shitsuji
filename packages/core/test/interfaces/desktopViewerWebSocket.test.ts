@@ -3,7 +3,11 @@ import WebSocket from 'ws';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { asId, type OwnerId } from '../../src/domain/model/ids.js';
-import { startApiServer, type RunningApi } from '../../src/composition/apiServer.js';
+import {
+  startApiServer,
+  isLoopbackHost,
+  type RunningApi,
+} from '../../src/composition/apiServer.js';
 import type { ApiDeps } from '../../src/interfaces/http/createApi.js';
 
 const KEY = 'owner-key';
@@ -35,7 +39,7 @@ const setupApi = (cookieTtlMs = 60_000): Promise<RunningApi> => {
         cookieTtlMs,
       },
     } as unknown as Omit<ApiDeps, 'webSocket'>,
-    { host: '127.0.0.1', port: 0 },
+    { listen: '127.0.0.1', port: 0 },
   );
 };
 
@@ -125,5 +129,34 @@ describe('desktop viewer WebSocket relay (S51)', () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     await expect(upgradeStatus(cookie)).resolves.toBe(401);
     expect(connections).toBe(0);
+  });
+
+  it('warns once when bound beyond loopback without TLS (Y2)', async () => {
+    expect(isLoopbackHost('127.0.0.1')).toBe(true);
+    expect(isLoopbackHost('::1')).toBe(true);
+    expect(isLoopbackHost('localhost')).toBe(true);
+    expect(isLoopbackHost('0.0.0.0')).toBe(false);
+    expect(isLoopbackHost('192.168.1.5')).toBe(false);
+
+    const log = new MemoryLogger();
+    const running = await startApiServer(
+      {
+        agent: {},
+        repos: {},
+        events: {},
+        clock: { now: () => new Date() },
+        log,
+        ownerId: OWNER,
+        soul: {},
+        pairing: {},
+        approvals: {},
+        verifyKey: (key: string | undefined) => key === KEY,
+      } as unknown as Omit<ApiDeps, 'webSocket'>,
+      { listen: '0.0.0.0', port: 0 },
+    );
+    expect(
+      log.records.filter((record) => record.message === 'API is bound beyond loopback without TLS'),
+    ).toHaveLength(1);
+    await running.close();
   });
 });

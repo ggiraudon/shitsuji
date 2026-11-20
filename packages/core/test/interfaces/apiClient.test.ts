@@ -93,7 +93,7 @@ async function serve(replies: ConstructorParameters<typeof ScriptedProvider>[0])
       }),
       verifyKey: (k) => keys.verify(k),
     },
-    { host: '127.0.0.1', port: 0 },
+    { listen: '127.0.0.1', port: 0 },
   );
   return { client: new ApiClient(running.url, created!), url: running.url, keys, hang, dir };
 }

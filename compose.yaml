@@ -25,7 +25,7 @@ services:
       SHITSUJI_SEARXNG_URL: http://searxng:8080
       # The API and the webhook listen on all interfaces inside the container; the ports below keep
       # them on this machine. Both need the owner key.
-      SHITSUJI_API_HOST: 0.0.0.0
+      SHITSUJI_API_BIND: 0.0.0.0
       SHITSUJI_WEBHOOK_HOST: 0.0.0.0
       # Telegram reaches out by long polling, so no port is published for it (F06, S32).
       SHITSUJI_TELEGRAM_ENABLED: ${SHITSUJI_TELEGRAM_ENABLED:-false}

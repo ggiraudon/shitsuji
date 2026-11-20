@@ -41,6 +41,7 @@ async function setup(
       approval: Approval,
     ) => Promise<'approve' | 'decline' | 'unclear'>;
     attachmentPath?: (hostPath: string) => Promise<string>;
+    viewerUrl?: string;
   } = {},
 ) {
   const repos = new InMemoryRepositories();
@@ -98,6 +99,7 @@ async function setup(
     approvals,
     ...(options.readTypedApproval && { readTypedApproval: options.readTypedApproval }),
     ...(options.attachmentPath && { attachmentPath: options.attachmentPath }),
+    ...(options.viewerUrl && { viewerUrl: options.viewerUrl }),
     reply: async (channelId, chatId, text, intent) => {
       replies.push({ channel: channelId, chatId, text, intent });
     },
@@ -226,6 +228,19 @@ describe('ChannelGateway: commands (S31)', () => {
     await ctx.receive('/stop');
 
     expect(ctx.replies.at(-1)!.text).toBe('Nothing is running.');
+  });
+
+  it('/desktop replies with the viewer URL, or says it is unavailable (S51)', async () => {
+    const ctx = await setup({ viewerUrl: 'http://127.0.0.1:3001/desktop' });
+    await pair(ctx);
+
+    expect(await ctx.receive('/desktop')).toEqual({ kind: 'replied', reason: 'command' });
+    expect(ctx.replies.at(-1)!.text).toContain('http://127.0.0.1:3001/desktop');
+
+    const noViewer = await setup();
+    await pair(noViewer);
+    await noViewer.receive('/desktop');
+    expect(noViewer.replies.at(-1)!.text).toMatch(/not available/);
   });
 
   it('/status reports a running turn and the session', async () => {

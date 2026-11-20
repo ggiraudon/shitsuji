@@ -164,6 +164,22 @@ describe('environment overrides', () => {
     expect(() => load({ SHITSUJI_API_ENABLED: 'maybe' })).toThrow(/api\.enabled/);
   });
 
+  it('reads api.listen from SHITSUJI_API_BIND and expands the TLS paths (Y2)', () => {
+    expect(load().config.api.listen).toBe('127.0.0.1');
+    expect(load({ SHITSUJI_API_BIND: '0.0.0.0' }).config.api.listen).toBe('0.0.0.0');
+    // The old variable still works for an existing .env.
+    expect(load({ SHITSUJI_API_HOST: '192.168.1.5' }).config.api.listen).toBe('192.168.1.5');
+
+    const config = shitsujiConfigSchema.parse({
+      api: { tls: { cert: '~/certs/cert.pem', key: '~/certs/key.pem' } },
+    });
+    expandConfigPaths(config, home);
+    expect(config.api.tls).toEqual({
+      cert: path.join(home, 'certs/cert.pem'),
+      key: path.join(home, 'certs/key.pem'),
+    });
+  });
+
   it('reads the sandbox driver, its URL and the egress lists from the environment (S48)', () => {
     const { config } = load({
       SHITSUJI_SANDBOX_DRIVER: 'shitsuji',

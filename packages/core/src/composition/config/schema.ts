@@ -166,8 +166,16 @@ export const shitsujiConfigSchema = z
       .object({
         enabled: z.boolean().default(true),
         /** 127.0.0.1 keeps it on this machine; Compose sets 0.0.0.0 inside the container. */
-        host: z.string().min(1).default('127.0.0.1'),
+        listen: z.string().min(1).default('127.0.0.1'),
         port: z.number().int().min(0).max(65535).default(3001),
+        /** Optional TLS for the API and the viewer; both files must be set (Y2). */
+        tls: z
+          .object({
+            cert: z.string().min(1),
+            key: z.string().min(1),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .default({}),
