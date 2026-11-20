@@ -47,7 +47,6 @@ RUN apt-get update \
     libreoffice-calc \
     libreoffice-gtk3 \
     libreoffice-writer \
-    novnc \
     python3-gi \
     scrot \
     supervisor \
@@ -78,6 +77,6 @@ COPY --chmod=0755 docker/sandbox-desktop/sandbox-desktop /usr/local/bin/sandbox-
 COPY --chmod=0755 docker/sandbox-desktop/start-sandboxd /usr/local/bin/start-sandboxd
 COPY --chmod=0644 docker/sandbox-desktop/supervisord.conf /etc/supervisor/supervisord.conf
 
-# The sandbox network only: no ports are published; the viewer reaches websockify through
-# sandboxd-gateway/core (S51).
+# The sandbox network only: no ports are published. websockify serves the raw WebSocket; core
+# serves the viewer page and relays it through sandboxd-gateway (S51).
 EXPOSE 6080 6081
