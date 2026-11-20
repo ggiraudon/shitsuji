@@ -246,6 +246,10 @@ services:
     environment:
       SANDBOX_GATEWAY_PORT: 4555
       SANDBOX_GATEWAY_TARGET: sandbox:4555
+      # The view-only desktop stream (S51): core reaches websockify's 6081 through this relay and
+      # never joins the sandbox network. 6080 (full control) is not exposed until S55.
+      SANDBOX_GATEWAY_VIEWER_PORT: 6081
+      SANDBOX_GATEWAY_VIEWER_TARGET: sandbox:6081
     networks: [internal, sandbox]
     read_only: true
     tmpfs: [/tmp]
