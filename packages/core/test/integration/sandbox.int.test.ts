@@ -110,6 +110,33 @@ if (!dockerAvailable) {
     });
   });
 
+  describe('upgrading an existing workspace (X5, S49)', () => {
+    it('keeps the files and repairs their modes for the daemon and commands', async () => {
+      const sandbox = await driver.open({ ownerId: asId<OwnerId>('owner') });
+      try {
+        // Seeded in start() as core created it: old.txt 0644, sessions/old 0755, both uid 1000.
+        expect(await sandbox.files!.read('/workspace/old.txt')).toBe('old');
+        // The files API runs as uid 1001 in group 1000; the entrypoint's chmod -R g+rwX must let
+        // it append to a file core wrote before the sandbox existed.
+        await sandbox.files!.write('/workspace/old.txt', ' new', { append: true });
+        expect(await sandbox.files!.read('/workspace/old.txt')).toBe('old new');
+
+        const result = await run(sandbox, [
+          'sh',
+          '-c',
+          'stat -c "%a %u:%g" /workspace/old.txt /workspace/sessions/old; ' +
+            'echo new > /workspace/sessions/old/written.txt; ' +
+            'cat /workspace/sessions/old/written.txt',
+        ]);
+        expect(result.stdout).toContain('664 1000:1000');
+        expect(result.stdout).toContain('775 1000:1000');
+        expect(result.stdout).toContain('new');
+      } finally {
+        await sandbox.close();
+      }
+    });
+  });
+
   describe('the token is out of a command’s reach (F08, S48)', () => {
     it('cannot be read, found or grepped by uid 1000', async () => {
       const sandbox = await driver.open({ ownerId: asId<OwnerId>('owner') });
@@ -262,6 +289,23 @@ async function start(): Promise<Containers> {
     // (uid 1001) cannot delete from the host. With volumes, teardown is a daemon-side volume rm.
     docker(['volume', 'create', workspaceVolume]);
     docker(['volume', 'create', handoffVolume]);
+    // An existing stack's workspace: files core wrote earlier, owned by core (uid 1000) with
+    // ordinary modes. The entrypoint must keep them and repair the group write for the daemon.
+    docker([
+      'run',
+      '--rm',
+      '--user',
+      '0:0',
+      '--entrypoint',
+      'sh',
+      '-v',
+      `${workspaceVolume}:/workspace`,
+      SANDBOX_IMAGE,
+      '-c',
+      'mkdir -p /workspace/sessions/old && printf old > /workspace/old.txt && ' +
+        'chown -R 1000:1000 /workspace && chmod 0644 /workspace/old.txt && ' +
+        'chmod 0755 /workspace /workspace/sessions /workspace/sessions/old',
+    ]);
     // The production path: core writes a token into the secret volume, whose directory is
     // root:1002 0770; commands (uid/gid 1000) cannot traverse it.
     docker(['volume', 'create', secretVolume]);
