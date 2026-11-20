@@ -14,6 +14,8 @@ import type { ViewerCredentials } from '../../ports/SandboxDriver.js';
 /** The cookie the viewer page uses; HttpOnly and SameSite=Strict, never the owner key itself. */
 export const VIEWER_COOKIE = 'shitsuji_viewer';
 export const VIEWER_COOKIE_TTL_MS = 60 * 60 * 1000;
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
 
 export interface ViewerStream {
   /** The gateway's view-only stream listener; core reaches it on the internal network. */
@@ -34,6 +36,8 @@ export interface ViewerDeps {
   cookieSecure: boolean;
   /** Tests shorten the lifetime; production keeps one hour. */
   cookieTtlMs?: number;
+  /** The client address used for login throttling; defaults to the socket's peer address. */
+  clientAddress?: (c: Context) => string;
   /** Built by `@hono/node-ws`; omitted in REST-only unit tests. */
   upgradeWebSocket?: UpgradeWebSocket;
 }
@@ -59,8 +63,28 @@ const SECURITY_HEADERS = {
  */
 export function registerViewer(app: Hono, deps: ViewerDeps): void {
   const sessions = new Map<string, ViewerSession>();
+  const failures = new Map<string, { count: number; windowStart: number; warned: boolean }>();
   const ttlMs = deps.cookieTtlMs ?? VIEWER_COOKIE_TTL_MS;
   const vendorRoot = novncRoot();
+  const addressOf =
+    deps.clientAddress ??
+    ((c: Context) => {
+      const incoming = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)
+        ?.incoming;
+      return incoming?.socket?.remoteAddress ?? 'unknown';
+    });
+  const sameOrigin = (c: Context): boolean => {
+    const origin = c.req.header('origin');
+    if (!origin) return true;
+    // @hono/node-ws builds its upgrade URL against http://localhost, so the Host header is the
+    // only reliable own-origin for the stream; the socket tells us whether it is TLS.
+    const incoming = (c.env as { incoming?: { socket?: { encrypted?: boolean } } } | undefined)
+      ?.incoming;
+    const url = new URL(c.req.url);
+    const host = c.req.header('host') ?? url.host;
+    const scheme = incoming?.socket?.encrypted ? 'https' : url.protocol.replace(':', '');
+    return origin === `${scheme}://${host}`;
+  };
 
   const sessionOf = (c: Context): ViewerSession | undefined => {
     const token = getCookie(c, VIEWER_COOKIE);
@@ -85,13 +109,35 @@ export function registerViewer(app: Hono, deps: ViewerDeps): void {
   });
 
   app.post('/desktop/login', async (c) => {
+    if (!sameOrigin(c)) return c.text('Cross-origin request refused.', 403);
+    const now = deps.clock.now().getTime();
+    const address = addressOf(c);
+    for (const [key, entry] of failures) {
+      if (now - entry.windowStart >= LOGIN_WINDOW_MS) failures.delete(key);
+    }
+    const failed = failures.get(address);
+    if (failed && failed.count >= LOGIN_MAX_FAILURES) {
+      if (!failed.warned) {
+        failed.warned = true;
+        deps.log.warn('Viewer sign-in throttled', { address });
+      }
+      const retryAfter = Math.max(
+        1,
+        Math.ceil((LOGIN_WINDOW_MS - (now - failed.windowStart)) / 1000),
+      );
+      return c.text('Too many attempts. Try again later.', 429, {
+        'retry-after': String(retryAfter),
+      });
+    }
     const body = await c.req.parseBody().catch(() => undefined);
     const key = typeof body?.key === 'string' ? body.key : undefined;
     if (!deps.verifyKey(key)) {
-      deps.log.warn('Viewer sign-in refused');
+      const next = failed ?? { count: 0, windowStart: now, warned: false };
+      next.count += 1;
+      failures.set(address, next);
+      deps.log.warn('Viewer sign-in refused', { address });
       return c.html(loginPage('That key is not right.'), 401, SECURITY_HEADERS);
     }
-    const now = deps.clock.now().getTime();
     for (const [token, session] of sessions) {
       if (session.expiresAt <= now) sessions.delete(token);
     }
@@ -108,6 +154,7 @@ export function registerViewer(app: Hono, deps: ViewerDeps): void {
   });
 
   app.post('/desktop/logout', (c) => {
+    if (!sameOrigin(c)) return c.text('Cross-origin request refused.', 403);
     const token = getCookie(c, VIEWER_COOKIE);
     if (token) sessions.delete(token);
     deleteCookie(c, VIEWER_COOKIE, { path: '/desktop' });
@@ -165,6 +212,7 @@ export function registerViewer(app: Hono, deps: ViewerDeps): void {
     app.get(
       '/desktop/stream',
       async (c, next) => {
+        if (!sameOrigin(c)) return c.json({ error: 'Cross-origin request refused.' }, 403);
         const denied = requireSession(c);
         if (denied) return denied;
         return next();

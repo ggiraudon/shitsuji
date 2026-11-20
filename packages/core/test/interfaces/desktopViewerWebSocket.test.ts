@@ -53,10 +53,13 @@ const signIn = async (): Promise<string> => {
   return response.headers.getSetCookie()[0]!.split(';')[0]!;
 };
 
-const upgradeStatus = (cookie?: string): Promise<number> =>
+const upgradeStatus = (options: { cookie?: string; origin?: string } = {}): Promise<number> =>
   new Promise((resolve, reject) => {
     const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream`, {
-      ...(cookie && { headers: { cookie } }),
+      headers: {
+        ...(options.cookie && { cookie: options.cookie }),
+        ...(options.origin && { origin: options.origin }),
+      },
     });
     ws.on('unexpected-response', (_request, response) => {
       response.resume();
@@ -70,10 +73,10 @@ const upgradeStatus = (cookie?: string): Promise<number> =>
     ws.on('error', () => undefined);
   });
 
-const echo = (cookie: string): Promise<{ banner: string; echoed: string }> =>
+const echo = (cookie: string, origin?: string): Promise<{ banner: string; echoed: string }> =>
   new Promise((resolve, reject) => {
     const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream`, {
-      headers: { cookie },
+      headers: { cookie, ...(origin && { origin }) },
     });
     const messages: string[] = [];
     ws.on('message', (data) => {
@@ -120,12 +123,22 @@ describe('desktop viewer WebSocket relay (S51)', () => {
     expect(connections).toBe(1);
   });
 
+  it('refuses a cross-origin stream upgrade, and accepts its own origin (S51)', async () => {
+    const cookie = await signIn();
+    await expect(upgradeStatus({ cookie, origin: 'http://evil.example' })).resolves.toBe(403);
+    expect(connections).toBe(0);
+
+    const { banner } = await echo(cookie, api.url);
+    expect(banner).toBe('banner\n');
+    expect(connections).toBe(1);
+  });
+
   it('refuses an expired cookie on the upgrade (S51)', async () => {
     await api.close();
     api = await setupApi(100);
     const cookie = await signIn();
     await new Promise((resolve) => setTimeout(resolve, 150));
-    await expect(upgradeStatus(cookie)).resolves.toBe(401);
+    await expect(upgradeStatus({ cookie })).resolves.toBe(401);
     expect(connections).toBe(0);
   });
 
@@ -150,11 +163,35 @@ describe('desktop viewer WebSocket relay (S51)', () => {
         approvals: {},
         verifyKey: (key: string | undefined) => key === KEY,
       } as unknown as Omit<ApiDeps, 'webSocket'>,
-      { listen: '0.0.0.0', port: 0 },
+      { listen: '0.0.0.0', port: 0, published: '0.0.0.0' },
     );
     expect(
       log.records.filter((record) => record.message === 'API is bound beyond loopback without TLS'),
     ).toHaveLength(1);
     await running.close();
+
+    // Compose binds 0.0.0.0 inside the container but publishes 127.0.0.1: no warning.
+    const quietLog = new MemoryLogger();
+    const quiet = await startApiServer(
+      {
+        agent: {},
+        repos: {},
+        events: {},
+        clock: { now: () => new Date() },
+        log: quietLog,
+        ownerId: OWNER,
+        soul: {},
+        pairing: {},
+        approvals: {},
+        verifyKey: (key: string | undefined) => key === KEY,
+      } as unknown as Omit<ApiDeps, 'webSocket'>,
+      { listen: '0.0.0.0', port: 0, published: '127.0.0.1' },
+    );
+    expect(
+      quietLog.records.filter(
+        (record) => record.message === 'API is bound beyond loopback without TLS',
+      ),
+    ).toHaveLength(0);
+    await quiet.close();
   });
 });

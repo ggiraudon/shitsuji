@@ -8,16 +8,17 @@ const OWNER = asId<OwnerId>('owner');
 const KEY = 'owner-key';
 const PASSWORD = 'view-only-pass';
 
-function setup(options: { ttlMs?: number } = {}) {
+function setup(options: { ttlMs?: number; clientAddress?: () => string } = {}) {
   let now = Date.parse('2026-01-01T00:00:00.000Z');
   const clock = { now: () => new Date(now) };
   const credentials = vi.fn(async () => ({ viewOnlyPassword: PASSWORD }));
+  const log = new MemoryLogger();
   const app = createApi({
     agent: {},
     repos: {},
     events: {},
     clock,
-    log: new MemoryLogger(),
+    log,
     ownerId: OWNER,
     soul: {},
     pairing: {},
@@ -28,11 +29,13 @@ function setup(options: { ttlMs?: number } = {}) {
       stream: { host: '127.0.0.1', port: 1 },
       cookieSecure: false,
       ...(options.ttlMs !== undefined && { cookieTtlMs: options.ttlMs }),
+      ...(options.clientAddress && { clientAddress: options.clientAddress }),
     },
   } as unknown as ApiDeps);
   return {
     app,
     credentials,
+    log,
     advance: (ms: number) => {
       now += ms;
     },
@@ -123,6 +126,63 @@ describe('desktop viewer page and cookie (S51)', () => {
     expect(logout.status).toBe(303);
     expect(logout.headers.get('set-cookie')).toContain(`${VIEWER_COOKIE}=`);
     expect((await app.request('/desktop', { headers: { cookie: fresh } })).status).toBe(401);
+  });
+
+  it('refuses cross-origin login and logout (S51)', async () => {
+    const { app } = setup();
+    const badLogin = await app.request('/desktop/login', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        origin: 'http://evil.example',
+      },
+      body: `key=${KEY}`,
+    });
+    expect(badLogin.status).toBe(403);
+
+    const goodLogin = await app.request('/desktop/login', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        origin: 'http://localhost',
+      },
+      body: `key=${KEY}`,
+    });
+    expect(goodLogin.status).toBe(303);
+    const cookie = goodLogin.headers.getSetCookie()[0]!.split(';')[0]!;
+
+    const badLogout = await app.request('/desktop/logout', {
+      method: 'POST',
+      headers: { cookie, origin: 'http://evil.example' },
+    });
+    expect(badLogout.status).toBe(403);
+    expect((await app.request('/desktop', { headers: { cookie } })).status).toBe(200);
+
+    const goodLogout = await app.request('/desktop/logout', {
+      method: 'POST',
+      headers: { cookie, origin: 'http://localhost' },
+    });
+    expect(goodLogout.status).toBe(303);
+  });
+
+  it('throttles wrong keys after five attempts in a five-minute window (S51)', async () => {
+    const { app, log, advance } = setup({ clientAddress: () => '203.0.113.9' });
+    const wrong = () =>
+      app.request('/desktop/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: 'key=wrong',
+      });
+
+    for (let i = 0; i < 5; i++) expect((await wrong()).status).toBe(401);
+    expect((await wrong()).status).toBe(429);
+    expect((await wrong()).status).toBe(429);
+    expect(
+      log.records.filter((record) => record.message === 'Viewer sign-in throttled'),
+    ).toHaveLength(1);
+
+    advance(5 * 60 * 1000 + 1);
+    expect((await wrong()).status).toBe(401);
   });
 
   it('serves the pinned noVNC client and refuses paths outside it', async () => {
