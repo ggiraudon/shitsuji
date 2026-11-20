@@ -1,0 +1,129 @@
+import net, { type AddressInfo } from 'node:net';
+import WebSocket from 'ws';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
+import { asId, type OwnerId } from '../../src/domain/model/ids.js';
+import { startApiServer, type RunningApi } from '../../src/composition/apiServer.js';
+import type { ApiDeps } from '../../src/interfaces/http/createApi.js';
+
+const KEY = 'owner-key';
+const OWNER = asId<OwnerId>('owner');
+
+let upstream: net.Server;
+let upstreamPort: number;
+let connections = 0;
+let api: RunningApi;
+const sockets = new Set<net.Socket>();
+
+const setupApi = (cookieTtlMs = 60_000): Promise<RunningApi> => {
+  return startApiServer(
+    {
+      agent: {},
+      repos: {},
+      events: {},
+      clock: { now: () => new Date() },
+      log: new MemoryLogger(),
+      ownerId: OWNER,
+      soul: {},
+      pairing: {},
+      approvals: {},
+      verifyKey: (key: string | undefined) => key === KEY,
+      viewer: {
+        credentials: async () => ({ viewOnlyPassword: 'view-only-pass' }),
+        stream: { host: '127.0.0.1', port: upstreamPort },
+        cookieSecure: false,
+        cookieTtlMs,
+      },
+    } as unknown as Omit<ApiDeps, 'webSocket'>,
+    { host: '127.0.0.1', port: 0 },
+  );
+};
+
+const signIn = async (): Promise<string> => {
+  const response = await fetch(`${api.url}/desktop/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: `key=${KEY}`,
+    redirect: 'manual',
+  });
+  expect(response.status).toBe(303);
+  return response.headers.getSetCookie()[0]!.split(';')[0]!;
+};
+
+const upgradeStatus = (cookie?: string): Promise<number> =>
+  new Promise((resolve, reject) => {
+    const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream`, {
+      ...(cookie && { headers: { cookie } }),
+    });
+    ws.on('unexpected-response', (_request, response) => {
+      response.resume();
+      ws.terminate();
+      resolve(response.statusCode ?? 0);
+    });
+    ws.on('open', () => {
+      ws.close();
+      reject(new Error('the upgrade should have been refused'));
+    });
+    ws.on('error', () => undefined);
+  });
+
+const echo = (cookie: string): Promise<{ banner: string; echoed: string }> =>
+  new Promise((resolve, reject) => {
+    const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream`, {
+      headers: { cookie },
+    });
+    const messages: string[] = [];
+    ws.on('message', (data) => {
+      messages.push(data.toString());
+      if (messages.length === 1) ws.send('ping');
+      if (messages.length === 2) {
+        ws.close();
+        resolve({ banner: messages[0]!, echoed: messages[1]! });
+      }
+    });
+    ws.on('error', reject);
+  });
+
+beforeEach(async () => {
+  connections = 0;
+  upstream = net.createServer((socket) => {
+    connections += 1;
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.write('banner\n');
+    socket.on('data', (data) => socket.write(`echo:${data.toString()}`));
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  upstreamPort = (upstream.address() as AddressInfo).port;
+  api = await setupApi();
+});
+
+afterEach(async () => {
+  await api.close();
+  for (const socket of sockets) socket.destroy();
+  await new Promise<void>((resolve) => upstream.close(() => resolve()));
+});
+
+describe('desktop viewer WebSocket relay (S51)', () => {
+  it('refuses the upgrade without a cookie', async () => {
+    await expect(upgradeStatus()).resolves.toBe(401);
+    expect(connections).toBe(0);
+  });
+
+  it('relays bytes both ways after the owner signs in', async () => {
+    const cookie = await signIn();
+    const { banner, echoed } = await echo(cookie);
+    expect(banner).toBe('banner\n');
+    expect(echoed).toBe('echo:ping');
+    expect(connections).toBe(1);
+  });
+
+  it('refuses an expired cookie on the upgrade (S51)', async () => {
+    await api.close();
+    api = await setupApi(100);
+    const cookie = await signIn();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await expect(upgradeStatus(cookie)).resolves.toBe(401);
+    expect(connections).toBe(0);
+  });
+});
