@@ -140,6 +140,30 @@ export function describeRepositoryContract(name: string, create: () => Promise<R
       expect(await repos.messages.withdrawByTurn(t.id)).toBe(0);
     });
 
+    it('lists the owner messages of one turn, oldest first, withdrawn ones included', async () => {
+      const repos = await create();
+      const { session } = await seed(repos);
+      const t = turn(session.id, 15);
+      const otherTurn = turn(session.id, 16);
+      await repos.turns.insert(t);
+      await repos.turns.insert(otherTurn);
+      const first = { ...message(session, 'first', 17), turnId: t.id, withdrawn: true };
+      const reply = {
+        ...message(session, 'ok', 18),
+        turnId: t.id,
+        role: 'assistant' as const,
+        author: 'assistant' as const,
+      };
+      const second = { ...message(session, 'second', 19), turnId: t.id };
+      const elsewhere = { ...message(session, 'elsewhere', 20), turnId: otherTurn.id };
+      for (const m of [first, reply, second, elsewhere]) await repos.messages.append(m);
+
+      const listed = await repos.messages.listOwnerByTurn(t.id);
+      expect(listed.map((m) => m.id)).toEqual([first.id, second.id]);
+      expect(listed[0]!.withdrawn).toBe(true);
+      expect(listed[1]!.withdrawn).toBe(false);
+    });
+
     it('keeps rich content parts intact', async () => {
       const repos = await create();
       const { session } = await seed(repos);

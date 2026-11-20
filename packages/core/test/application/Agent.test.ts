@@ -10,6 +10,7 @@ import { ApprovalService } from '../../src/application/trust/ApprovalService.js'
 import { Approval } from '../../src/domain/model/Approval.js';
 import {
   asId,
+  newId,
   type ApprovalId,
   type OwnerId,
   type SessionId,
@@ -79,6 +80,42 @@ const calc = (expression: string, id = 'c1'): ScriptedReply => ({
   toolCalls: [{ id, name: 'math.evaluate', arguments: { expression } }],
 });
 
+/** A model call that blocks on its first call, then answers a second call, for steering tests. */
+class DeferredProvider implements ModelProvider {
+  readonly id = 'deferred';
+  readonly requests: ModelRequest[] = [];
+  private resolveFirst?: (text: string) => void;
+  private markFirst?: () => void;
+  readonly firstStarted = new Promise<void>((resolve) => {
+    this.markFirst = resolve;
+  });
+  private calls = 0;
+
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    this.requests.push(request);
+    this.calls += 1;
+    let text: string;
+    if (this.calls === 1) {
+      this.markFirst?.();
+      text = await new Promise<string>((resolve) => {
+        this.resolveFirst = resolve;
+      });
+    } else {
+      text = 'Second answer.';
+    }
+    yield { type: 'text_delta', text };
+    yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } };
+    yield { type: 'done', finishReason: 'stop' };
+  }
+
+  release(text: string): void {
+    this.resolveFirst?.(text);
+  }
+
+  async listModels(): Promise<string[]> {
+    return ['m'];
+  }
+}
 class BlockingProvider implements ModelProvider {
   readonly id = 'blocking';
   readonly requests: ModelRequest[] = [];
@@ -326,6 +363,48 @@ describe('Agent.send timeout (#96)', () => {
     await provider.started;
     provider.fail(new Error('late reply'));
     await agent.idle();
+  });
+});
+
+describe('TurnRunner steering window (#97)', () => {
+  it('answers a steered message even after more than ten later messages', async () => {
+    const provider = new DeferredProvider();
+    const { agent, repos } = await setup([], { provider });
+
+    const submitted = await agent.submit('Start');
+    await provider.firstStarted;
+    const steer = await agent.submit('Steer: use the new plan');
+    expect(steer.steered).toBe(true);
+
+    // A tool-heavy turn leaves more than ten messages after the steer, pushing it out of any
+    // fixed-size window.
+    const session = (await repos.sessions.get(submitted.sessionId))!;
+    for (let i = 0; i < 11; i++) {
+      await repos.messages.append({
+        id: newId(),
+        threadId: session.threadId,
+        sessionId: session.id,
+        turnId: submitted.turnId,
+        role: 'tool',
+        author: 'system',
+        parts: [
+          { type: 'tool_result', toolCallId: asId(`c${i}`), content: String(i), isError: false },
+        ],
+        withdrawn: false,
+        createdAt: new Date(),
+      });
+    }
+
+    provider.release('First answer.');
+    await agent.idle();
+
+    const stored = await repos.messages.listBySession(submitted.sessionId);
+    const replies = stored
+      .filter((m) => m.author === 'assistant' && m.parts.some((p) => p.type === 'text'))
+      .map(textOf);
+    expect(replies.at(-1)).toBe('Second answer.');
+    expect(provider.requests).toHaveLength(2);
+    expect(transcript(provider.requests[1]!)).toContain('user:Steer: use the new plan');
   });
 });
 

@@ -81,6 +81,11 @@ export interface MessageRepository {
   withdrawByTurn(turnId: TurnId, tx?: Transaction): Promise<number>;
   /** The session's messages, oldest first. Withdrawn messages are included and flagged. */
   listBySession(sessionId: SessionId, query?: MessageQuery, tx?: Transaction): Promise<Message[]>;
+  /**
+   * The owner's messages stored with one turn, oldest first; withdrawn messages are included and
+   * flagged so the caller can filter them. Used to find a steered message without a size window.
+   */
+  listOwnerByTurn(turnId: TurnId, tx?: Transaction): Promise<Message[]>;
 }
 
 export type TurnEventKind = 'model_call' | 'model_error' | 'tool_start' | 'tool_end' | 'note';

@@ -250,6 +250,8 @@ export class InMemoryRepositories implements Repositories {
       const picked = query.limit === undefined ? all : all.slice(-query.limit);
       return picked.map(copy);
     },
+    listOwnerByTurn: async (turnId) =>
+      this.state.messages.filter((m) => m.turnId === turnId && m.author === 'owner').map(copy),
   };
 
   readonly turnEvents: TurnEventRepository = {

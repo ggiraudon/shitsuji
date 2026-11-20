@@ -259,7 +259,7 @@ export class TurnRunner {
 
       if (!response.toolCalls.length) {
         // A message steered in after this model call was sent would otherwise go unanswered.
-        if (await this.hasSteeredMessage(session, turn, context.sources)) continue;
+        if (await this.hasSteeredMessage(turn, context.sources)) continue;
         this.deps.events.publish('message.sent', {
           sessionId: session.id,
           role: 'assistant',
@@ -336,17 +336,15 @@ export class TurnRunner {
   }
 
   /**
-   * An owner message steered into this turn after the last model call was sent. It looks at the
-   * last ten messages and compares their ids with the ones the context was built from; a matching
-   * owner message that is not withdrawn means the loop must run another step instead of replying.
-   * This is a heuristic: a steered message older than those ten would be missed.
+   * An owner message steered into this turn after the last model call was sent. It queries the
+   * turn's owner messages directly and compares their ids with the ones the context was built from;
+   * any owner message that is not withdrawn and not in that context means the loop must run another
+   * step instead of replying. There is no size window, so an older steer cannot be missed.
    */
-  private async hasSteeredMessage(session: Session, turn: Turn, sent: Message[]): Promise<boolean> {
+  private async hasSteeredMessage(turn: Turn, sent: Message[]): Promise<boolean> {
     const seen = new Set(sent.map((m) => m.id));
-    const latest = await this.deps.repos.messages.listBySession(session.id, { limit: 10 });
-    return latest.some(
-      (m) => m.author === 'owner' && m.turnId === turn.id && !m.withdrawn && !seen.has(m.id),
-    );
+    const owner = await this.deps.repos.messages.listOwnerByTurn(turn.id);
+    return owner.some((m) => !m.withdrawn && !seen.has(m.id));
   }
 
   /**
