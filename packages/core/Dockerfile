@@ -2,6 +2,8 @@
 # Shitsuji core. Build from the repository root:
 #   docker build -f packages/core/Dockerfile -t shitsuji/core .
 # node_modules are installed inside the image, never mounted from the host.
+# The runtime image has only Node: python3, git, ffmpeg, pandoc, jq, ripgrep and the other tools run in
+# the sandbox image (F08, S49), and core reaches them through sandboxd.
 
 FROM node:22-bookworm-slim AS build
 WORKDIR /repo

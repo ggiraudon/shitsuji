@@ -3,7 +3,8 @@
 Shitsuji (執事, "butler") is a personal assistant with its own sandboxed computer, deployed with Docker
 Compose. It is under active development: the foundations, tools, runtime, API, terminal UI, **Telegram**
 and **trust with approvals** are in, along with spending limits, the activity log and an evaluation
-harness. The web UI, sandbox and desktop come next. The plan and progress are in
+harness. The sandbox (F08) is in: commands and workspace files run in their own container, with
+`egress-proxy` as their only way out. The web UI and desktop come next. The plan and progress are in
 [docs/](docs/README.md).
 
 ## Quick start (Docker)
@@ -39,6 +40,19 @@ clone.
    `/new` starts a new conversation, `/soul` shows the standing instructions' revision and any waiting
    edit (`/soul apply` keeps it), `/pair` pairs a chat, `/approve` and `/decline` answer an approval
    card, `/usage` shows spending, `/activity` shows recent tool calls, `/exit` quits.
+
+## Sandbox
+
+`docker compose up` runs the agent's commands and file tools in the `sandbox` container, through `sandboxd`
+(F08). The workspace and handoff folders are the existing `coredata` volume; `/handoff` is read-only to the
+sandbox. Its only way out is `egress-proxy`: private, loopback, link-local, CGNAT and cloud-metadata
+addresses and `core` are always refused, and the optional `sandbox.egress.allow` / `deny` lists narrow the
+open default. Commands get `HTTP_PROXY` / `HTTPS_PROXY`, so pip, npm, git and curl work. Core never joins the
+sandbox network: a small `sandboxd-gateway` relay is the only path to the daemon.
+
+`pnpm dev` from source keeps the `host` driver: commands run in core's own process, with no isolation. To
+use a running sandbox from source, set `SHITSUJI_SANDBOX_DRIVER=shitsuji` and `SHITSUJI_SANDBOX_URL`, and
+point `SHITSUJI_SANDBOX_TOKEN_FILE` at its token.
 
 ## Telegram
 
@@ -87,7 +101,7 @@ To run core from source against a local Postgres:
 
 ```bash
 docker compose -f compose.yaml -f compose.dev.yaml up -d postgres
-pnpm build && node packages/core/dist/cli.js        # the server
+pnpm build && node packages/core/dist/cli.js        # the server, on the host driver
 node packages/core/dist/cli.js tui                  # in another terminal: the chat
 ```
 
