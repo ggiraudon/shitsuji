@@ -18,6 +18,7 @@
     "eval": "tsx evals/run.ts",
     "mock": "tsx evals/mock.ts",
     "test:integration": "pnpm build:shared && pnpm -r --if-present test:integration",
+    "docs": "pnpm build:shared && pnpm build:protocol && typedoc",
     "build:shared": "pnpm --filter @shitsuji/shared build",
     "build:protocol": "pnpm --filter @shitsuji/sandbox-protocol build"
   },
@@ -29,6 +30,8 @@
     "globals": "^17.14.0",
     "prettier": "^3.8.1",
     "tsx": "^4.23.15",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-mermaid": "1.12.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.2",
     "vitest": "^2.1.9"

@@ -24,6 +24,27 @@ jobs:
       - run: pnpm test:integration
       - run: pnpm build
 
+  # Builds the generated API documentation and the walkthrough pages on every PR. Warnings are shown
+  # in the log; `notDocumented` is a warning list for now (issue #92).
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true # packages/shared is the shitsuji-shared repo
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the docs
+        run: |
+          set -o pipefail
+          pnpm run docs 2>&1 | tee docs.log
+          # A broken {@link} must fail the build; missing comments are warnings for now.
+          ! grep -E 'Failed to resolve link|not included in the documentation' docs.log
+
   # Builds Shitsuji's own sandbox image and checks that the daemon inside it answers, authenticates,
   # refuses to leave its roots, runs commands as uid 1000 with no token in reach, and survives a stop,
   # a timeout and a fork bomb (F08, S45–S46). Not part of the stack yet (S48).
