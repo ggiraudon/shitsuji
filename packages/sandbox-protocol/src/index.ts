@@ -233,6 +233,15 @@ export type SignalExecReply = z.infer<typeof signalExecReplySchema>;
 /** How `core` names the command it wants to stop. */
 export const EXEC_SIGNAL_ROUTE = /^\/exec\/([^/]+)\/signal$/;
 
+// ---- desktop viewer (S51) ---------------------------------------------------------------------
+
+/**
+ * The view-only VNC password for the owner's viewer. The daemon reads it from the file the desktop
+ * launcher writes at start; the full-control password never leaves the sandbox.
+ */
+export const viewerCredentialsReplySchema = z.object({ viewOnly: z.string().min(1) }).strict();
+export type ViewerCredentialsReply = z.infer<typeof viewerCredentialsReplySchema>;
+
 // ---- health, capabilities and errors ----------------------------------------------------------
 
 export const healthReplySchema = z
@@ -269,4 +278,5 @@ export const SANDBOX_ROUTES = {
   mkdir: '/files/mkdir',
   probe: '/probe',
   exec: '/exec',
+  viewerCredentials: '/desktop/viewer-credentials',
 } as const;

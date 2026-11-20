@@ -38,6 +38,7 @@ async function main(): Promise<void> {
     files: new SandboxFilesService(paths),
     exec,
     maxBodyBytes: config.maxBodyBytes,
+    vncPasswordsFile: config.vncPasswordsFile,
   });
   server.listen(config.port, '0.0.0.0', () => {
     // The token is never logged.
