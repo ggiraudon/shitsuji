@@ -67,6 +67,15 @@ capability (F15).
 | X6 | OpenSandbox gets one spike step (S43). If it does not run on Docker Desktop (WSL2), the findings go in F08 and its driver waits; the `shitsuji` driver does not depend on it |
 | X7 | The sandbox's egress proxy is **open to any public address by default**. Private, loopback, link-local, CGNAT, multicast, unspecified and cloud-metadata (`169.254.169.254`, `fd00:ec2::254`) addresses are **always refused**, checked on the **resolved** address (IPv4, IPv6 and IPv4-mapped) and pinned for the connection, and the whole name is refused when any answer is blocked. Optional `sandbox.egress.allow`/`deny` lists take domains, `*.` wildcards and IPv4/IPv6 CIDR ranges; an allow range overlapping a blocked one is a config error, and the lists never open `core`. Refusals are logged with host, address and reason, never content. No SOCKS for now |
 
+### Fifth pass (decided 2026-11-20)
+
+| # | Decision |
+|---|----------|
+| Y1 | Before the web UI (F07), you watch the desktop on **one minimal viewer page** that `core` serves at `/desktop`: noVNC, watch-only until Take control, behind the owner key (exchanged for a short-lived viewer cookie, never put in a URL). F07 absorbs it later |
+| Y2 | The viewer is on **this PC by default** (`127.0.0.1`). A config switch (`api.listen`, `SHITSUJI_API_BIND`) can publish it on the LAN, and **TLS is optional** (`api.tls.cert` / `api.tls.key`), so it can be used plain inside your network; binding beyond loopback without TLS only logs a warning. This does not decide D2 (remote access from outside) |
+| Y3 | **Playwright runs inside `sandboxd`**, against a Chromium it launches with a CDP pipe. CDP never leaves the container and is out of the commands' reach; `core` stays off the sandbox network and uses browser endpoints on the token-protected API |
+| Y4 | The desktop is **always on** in the fifth pass. Idle stop and start-on-demand come later |
+
 Still open: D2 for the web UI, D3–D5, M2, M4, P3–P5.
 
 ## Architecture

@@ -7,7 +7,7 @@ personal assistant with its own sandboxed computer, deployed with Docker Compose
 
 - `docs/README.md` is the index. **The docs are the spec**: build what the feature file says, and if the
   design has to change, change the doc in the same commit.
-- `docs/11-fourth-pass-plan.md` is the current plan (steps S40–S49; passes `07`, `08` and `09` are done), and
+- `docs/12-fifth-pass-plan.md` is the current plan (steps S50–S62; passes `07` to `11` are done), and
   `docs/PROGRESS.md` is the checklist. The same steps are tracked as GitHub issues (see [Issues](#issues)).
 - `docs/05-open-questions.md` holds the decisions. Don't reopen a decided one without asking. If an open one
   blocks you, ask.

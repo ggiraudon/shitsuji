@@ -26,8 +26,10 @@ browser to you when a sign-in or CAPTCHA needs a person. Profiles persist, so lo
 ### Connection
 
 The browser is the `browser` capability of a sandbox driver ([F08](F08-workspace-sandbox.md#the-driver-port)).
-With the `shitsuji` driver, `core` connects with Playwright `chromium.connectOverCDP('http://sandbox:9222')`
-through the sandbox network.
+With the `shitsuji` driver, **Playwright runs inside `sandboxd`** (decision Y3): `sandboxd` launches Chromium
+on the desktop's display with a CDP pipe (no port), and `core` calls browser endpoints on the token-protected
+`sandboxd` API. CDP never leaves the container, and the profile folders belong to `sandboxd`'s user, so
+commands in the sandbox can read neither cookies nor CDP.
 One **browser context per session** (chat, each task, each helper), so tasks do not fight over tabs. Named
 **profiles** (a persistent user-data directory per profile) hold cookies for sites you signed in to.
 
@@ -44,7 +46,7 @@ export interface BrowserSession {
   act(action: BrowserAction): Promise<PageState>;                    // click, type, select, check, press, scroll, upload
   inspectTarget(ref: ElementRef): Promise<TargetInfo>;               // label, role, form method + action URL
   screenshot(): Promise<Image>;
-  downloads(): Promise<FileRef[]>;                                   // saved to /handoff
+  downloads(): Promise<FileRef[]>;                                   // saved to /workspace/downloads
   close(): Promise<void>;
 }
 ```
