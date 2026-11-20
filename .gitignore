@@ -1,3 +1,5 @@
+# A literal ~ folder means a path default was not expanded before a write; never commit one.
+/packages/*/~/
 node_modules/
 dist/
 docs-site/
