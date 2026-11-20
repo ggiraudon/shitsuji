@@ -143,9 +143,11 @@ describe('crash in the middle of a turn (F02)', () => {
 
     // The abandoned run wakes up: its compare-and-set save fails, so it cannot overwrite the result.
     hanging.unblock();
-    const outcome = await zombie;
-    expect(outcome).toBeInstanceOf(Error);
+    await crashed.agent.idle();
     expect((await repos.turns.get(interrupted!.id))!.error).toBe('interrupted');
+    // Since #94 the losing runner publishes nothing, so this send stays pending; its timeout is
+    // unref'd and its subscription is harmless for the rest of the test.
+    void zombie;
     expect(await repos.threads.getOrCreateForOwner(owner, new Date())).toBeDefined();
 
     await restarted.stop();
