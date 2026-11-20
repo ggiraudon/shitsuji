@@ -8,8 +8,20 @@ import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { Agent } from '../../src/application/Agent.js';
 import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
 import { Approval } from '../../src/domain/model/Approval.js';
-import { asId, type ApprovalId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
+import {
+  asId,
+  newId,
+  type ApprovalId,
+  type OwnerId,
+  type SessionId,
+  type TurnId,
+} from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
+import type {
+  ModelProvider,
+  ModelRequest,
+  ModelStreamEvent,
+} from '../../src/ports/ModelProvider.js';
 import {
   routerFor,
   ScriptedProvider,
@@ -20,13 +32,23 @@ import {
 
 const OWNER = asId<OwnerId>('owner');
 
-const setup = async (replies: ScriptedReply[], extra: { limits?: { chat: number } } = {}) => {
+const setup = async (
+  replies: ScriptedReply[],
+  extra: {
+    limits?: { chat: number };
+    provider?: ModelProvider & { requests: ModelRequest[] };
+    sendTimeoutMs?: number;
+    beforeAgent?: (services: ReturnType<typeof testServices>) => void;
+  } = {},
+) => {
+  const { provider, beforeAgent, ...agentOptions } = extra;
   const services = testServices();
   const seen: string[] = [];
   services.events.subscribePattern('*', (_p, e) => void seen.push(e.type));
+  beforeAgent?.(services);
   const repos = new InMemoryRepositories();
   const tools = new ToolCatalog();
-  const llm = new ScriptedProvider(replies);
+  const llm = provider ?? new ScriptedProvider(replies);
   const jobs = new InMemoryJobQueue(services.log, services.clock);
   const approvals = new ApprovalService({
     approvals: repos.approvals,
@@ -47,7 +69,7 @@ const setup = async (replies: ScriptedReply[], extra: { limits?: { chat: number 
     jobs,
     approvals,
     ...services,
-    ...extra,
+    ...agentOptions,
   });
   await jobs.start();
   await agent.start();
@@ -57,6 +79,69 @@ const setup = async (replies: ScriptedReply[], extra: { limits?: { chat: number 
 const calc = (expression: string, id = 'c1'): ScriptedReply => ({
   toolCalls: [{ id, name: 'math.evaluate', arguments: { expression } }],
 });
+
+/** A model call that blocks on its first call, then answers a second call, for steering tests. */
+class DeferredProvider implements ModelProvider {
+  readonly id = 'deferred';
+  readonly requests: ModelRequest[] = [];
+  private resolveFirst?: (text: string) => void;
+  private markFirst?: () => void;
+  readonly firstStarted = new Promise<void>((resolve) => {
+    this.markFirst = resolve;
+  });
+  private calls = 0;
+
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    this.requests.push(request);
+    this.calls += 1;
+    let text: string;
+    if (this.calls === 1) {
+      this.markFirst?.();
+      text = await new Promise<string>((resolve) => {
+        this.resolveFirst = resolve;
+      });
+    } else {
+      text = 'Second answer.';
+    }
+    yield { type: 'text_delta', text };
+    yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } };
+    yield { type: 'done', finishReason: 'stop' };
+  }
+
+  release(text: string): void {
+    this.resolveFirst?.(text);
+  }
+
+  async listModels(): Promise<string[]> {
+    return ['m'];
+  }
+}
+class BlockingProvider implements ModelProvider {
+  readonly id = 'blocking';
+  readonly requests: ModelRequest[] = [];
+  private release?: (error: Error) => void;
+  private markStarted?: () => void;
+  readonly started = new Promise<void>((resolve) => {
+    this.markStarted = resolve;
+  });
+
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    this.requests.push(request);
+    this.markStarted?.();
+    await new Promise<never>((_, reject) => {
+      this.release = reject;
+    });
+    yield { type: 'done', finishReason: 'stop' }; // unreachable; satisfies the generator
+  }
+
+  fail(error: Error): void {
+    this.release?.(error);
+  }
+
+  async listModels(): Promise<string[]> {
+    return ['m'];
+  }
+}
 
 describe('Agent', () => {
   it('replies with the model text and publishes session and model events', async () => {
@@ -191,6 +276,135 @@ describe('Agent', () => {
     await agent.send('2+2?');
     expect(llm.requests[0]!.system).not.toContain('CALCULATOR WAS USED');
     expect(llm.requests[1]!.system).toContain('CALCULATOR WAS USED');
+  });
+});
+
+describe('TurnRunner terminal races (#94)', () => {
+  /** Another process or recovery finishes the turn while the runner is still in its model call. */
+  const finishElsewhere = async (repos: InMemoryRepositories, turnId: TurnId) => {
+    const turn = await repos.turns.get(turnId);
+    turn!.succeed(new Date());
+    expect(await repos.turns.update(turn!, 'running')).toBe(true);
+  };
+
+  it('does not withdraw or publish when the failure save loses the race', async () => {
+    const provider = new BlockingProvider();
+    const { agent, repos, services } = await setup([], { provider });
+    const statuses: string[] = [];
+    services.events.subscribe('turn.status', (e) => void statuses.push(e.status));
+
+    const submitted = await agent.submit('Hi');
+    await provider.started;
+    await finishElsewhere(repos, submitted.turnId);
+    provider.fail(new Error('model failed after the turn ended'));
+    await agent.idle();
+
+    const stored = await repos.turns.get(submitted.turnId);
+    expect(stored!.status).toBe('succeeded');
+    expect(stored!.error).toBeUndefined();
+    const owner = (await repos.messages.listBySession(submitted.sessionId)).find(
+      (m) => m.author === 'owner',
+    );
+    expect(owner!.withdrawn).toBe(false);
+    expect(statuses).not.toContain('failed');
+    expect(statuses).not.toContain('cancelled');
+  });
+
+  it('does not withdraw or publish when a Stop loses the race', async () => {
+    const provider = new BlockingProvider();
+    const { agent, repos, services } = await setup([], { provider });
+    const statuses: string[] = [];
+    services.events.subscribe('turn.status', (e) => void statuses.push(e.status));
+
+    const submitted = await agent.submit('Hi');
+    await provider.started;
+    await finishElsewhere(repos, submitted.turnId);
+    expect(await agent.stop(submitted.turnId)).toBe(true);
+    provider.fail(new Error('stopped'));
+    await agent.idle();
+
+    const stored = await repos.turns.get(submitted.turnId);
+    expect(stored!.status).toBe('succeeded');
+    expect(stored!.error).toBeUndefined();
+    const owner = (await repos.messages.listBySession(submitted.sessionId)).find(
+      (m) => m.author === 'owner',
+    );
+    expect(owner!.withdrawn).toBe(false);
+    expect(statuses).not.toContain('cancelled');
+    expect(statuses).not.toContain('failed');
+  });
+});
+
+describe('Agent.send timeout (#96)', () => {
+  it('rejects after the bounded wait and removes its turn.status subscription', async () => {
+    const provider = new BlockingProvider();
+    let statusListeners = 0;
+    const { agent } = await setup([], {
+      provider,
+      sendTimeoutMs: 25,
+      beforeAgent: (services) => {
+        const subscribe = services.events.subscribe.bind(services.events);
+        services.events.subscribe = ((type, handler) => {
+          if (type !== 'turn.status') return subscribe(type, handler);
+          statusListeners += 1;
+          const off = subscribe(type, handler);
+          return () => {
+            statusListeners -= 1;
+            off();
+          };
+        }) as typeof services.events.subscribe;
+      },
+    });
+
+    await expect(agent.send('Hi')).rejects.toThrow(/did not finish within 25 ms/);
+    expect(statusListeners).toBe(0);
+
+    // Let the blocked model finish so the run and the test do not leak.
+    await provider.started;
+    provider.fail(new Error('late reply'));
+    await agent.idle();
+  });
+});
+
+describe('TurnRunner steering window (#97)', () => {
+  it('answers a steered message even after more than ten later messages', async () => {
+    const provider = new DeferredProvider();
+    const { agent, repos } = await setup([], { provider });
+
+    const submitted = await agent.submit('Start');
+    await provider.firstStarted;
+    const steer = await agent.submit('Steer: use the new plan');
+    expect(steer.steered).toBe(true);
+
+    // A tool-heavy turn leaves more than ten messages after the steer, pushing it out of any
+    // fixed-size window.
+    const session = (await repos.sessions.get(submitted.sessionId))!;
+    for (let i = 0; i < 11; i++) {
+      await repos.messages.append({
+        id: newId(),
+        threadId: session.threadId,
+        sessionId: session.id,
+        turnId: submitted.turnId,
+        role: 'tool',
+        author: 'system',
+        parts: [
+          { type: 'tool_result', toolCallId: asId(`c${i}`), content: String(i), isError: false },
+        ],
+        withdrawn: false,
+        createdAt: new Date(),
+      });
+    }
+
+    provider.release('First answer.');
+    await agent.idle();
+
+    const stored = await repos.messages.listBySession(submitted.sessionId);
+    const replies = stored
+      .filter((m) => m.author === 'assistant' && m.parts.some((p) => p.type === 'text'))
+      .map(textOf);
+    expect(replies.at(-1)).toBe('Second answer.');
+    expect(provider.requests).toHaveLength(2);
+    expect(transcript(provider.requests[1]!)).toContain('user:Steer: use the new plan');
   });
 });
 

@@ -67,6 +67,7 @@ describe('restarting core (F02)', () => {
   it('fails clearly when the database cannot be reached', async () => {
     const config = shitsujiConfigSchema.parse({
       database: { url: 'postgres://nobody:wrong@127.0.0.1:1/none' },
+      paths: { dataDir: tempDataDir() },
       models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/m' } },
     });
     await expect(createShitsuji(config, { services: testServices() })).rejects.toThrow(

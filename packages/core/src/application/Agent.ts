@@ -64,7 +64,15 @@ export interface AgentOptions {
   limits?: Partial<StepLimits>;
   /** Warn when a header injectable changes on every call (default on: tests and development). */
   stabilityCheck?: boolean;
+  /**
+   * How long `send()` waits for a turn's terminal event before rejecting (S49). Defaults to
+   * 30 minutes; a lost event must not leave the caller and its subscription pending forever.
+   */
+  sendTimeoutMs?: number;
 }
+
+/** How long `send()` waits by default for the terminal event of a turn it submitted. */
+const DEFAULT_SEND_TIMEOUT_MS = 30 * 60_000;
 
 /** Options a channel or the API passes when it stores a message; see `MessageIntake.submit`. */
 export type SendOptions = SubmitOptions;
@@ -273,9 +281,10 @@ export class Agent {
    * `submit()` and wait for the reply, for callers that want one answer in-process (the evaluation
    * harness and tests). It subscribes **before** submitting and remembers a terminal event that
    * arrives before it installs its waiting promise, so a fast turn cannot finish unseen. A succeeded
-   * or waiting turn resolves; a failed or cancelled turn throws its reason. The subscription is
-   * removed in `finally`. There is no timeout: a turn whose process dies without a terminal event
-   * leaves this promise pending, and Stop must be requested separately.
+   * or waiting turn resolves; a failed or cancelled turn throws its reason. The wait is bounded by
+   * `sendTimeoutMs` (30 minutes by default): on timeout it rejects with a clear error and removes
+   * the subscription in `finally`, so a lost terminal event cannot leak the listener or leave the
+   * caller pending forever. The turn itself is not stopped by the timeout; use `stop()` for that.
    */
   async send(content: string, opts: SendOptions = {}): Promise<SendResult> {
     // Subscribe before submitting and remember every ending, so a fast turn cannot finish unseen.
@@ -298,14 +307,32 @@ export class Agent {
       if (waiting?.turnId === e.turnId) waiting.settle(result);
       else ended.set(e.turnId, result);
     });
+    let timer: NodeJS.Timeout | undefined;
     try {
       const { turnId } = await this.submit(content, opts);
+      const settled = ended.get(turnId);
       const result =
-        ended.get(turnId) ??
-        (await new Promise<SendResult | Error>((settle) => (waiting = { turnId, settle })));
+        settled ??
+        (await Promise.race([
+          new Promise<SendResult | Error>((settle) => (waiting = { turnId, settle })),
+          new Promise<never>((_, reject) => {
+            const timeoutMs = this.options.sendTimeoutMs ?? DEFAULT_SEND_TIMEOUT_MS;
+            timer = setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `The turn did not finish within ${timeoutMs} ms; its reply may still arrive on its channel.`,
+                  ),
+                ),
+              timeoutMs,
+            );
+            timer.unref?.();
+          }),
+        ]));
       if (result instanceof Error) throw result;
       return result;
     } finally {
+      if (timer) clearTimeout(timer);
       off();
     }
   }

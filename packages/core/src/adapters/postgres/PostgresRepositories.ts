@@ -453,6 +453,16 @@ export class PostgresRepositories implements Repositories {
       }
       return (await q.orderBy('seq').execute()).map(toMessage);
     },
+    listOwnerByTurn: async (turnId, tx) =>
+      (
+        await this.ex(tx)
+          .selectFrom('messages')
+          .selectAll()
+          .where('turn_id', '=', turnId)
+          .where('author', '=', 'owner')
+          .orderBy('seq')
+          .execute()
+      ).map(toMessage),
   };
 
   readonly turnEvents: TurnEventRepository = {

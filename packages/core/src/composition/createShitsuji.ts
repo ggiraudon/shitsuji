@@ -54,6 +54,7 @@ import { TestToolsPlugin } from '../plugins/testToolsPlugin.js';
 import { WebToolsPlugin } from '../plugins/webToolsPlugin.js';
 import { AnthropicPlugin, OpenAICompatiblePlugin } from '../plugins/modelPlugins.js';
 import type { ShitsujiConfig } from './config/schema.js';
+import { expandConfigPaths } from './config/loadConfig.js';
 import { startApiServer } from './apiServer.js';
 import { loadPluginsFromDirectory } from './loadPluginsFromDirectory.js';
 import { createCoreServices, type CoreServices } from './services.js';
@@ -186,6 +187,10 @@ export async function createShitsuji(
 ): Promise<Shitsuji> {
   const services = options.services ?? createCoreServices(config.logging);
   const { log, events } = services;
+
+  // A config built with the schema directly still has the `~/.shitsuji/data` default; expand it
+  // before the first write so nothing creates a literal `~` folder under the cwd.
+  expandConfigPaths(config);
 
   // egress-proxy follows this file (S48), so `sandbox.egress.allow/deny` reaches it without the
   // owner hand-editing `.env`. It is written before the sandbox opens, so the proxy never sees a

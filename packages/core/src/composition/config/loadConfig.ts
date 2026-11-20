@@ -98,6 +98,17 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadedConfig {
   }
   const config = parsed.data;
   config.context.stabilityCheck ??= env.NODE_ENV !== 'production';
+  expandConfigPaths(config, homeDir);
+  return { config, source };
+}
+
+/**
+ * Expands `~` in the paths the process may write. `loadConfig` calls this with its `homeDir`;
+ * `createShitsuji` calls it too, because a config parsed directly with `shitsujiConfigSchema` (a
+ * test, a plugin, an embedding) still carries the schema's `~/.shitsuji/data` default. Without the
+ * second call, the egress-rules write would create a literal `~` folder under the cwd.
+ */
+export function expandConfigPaths(config: ShitsujiConfig, homeDir: string = os.homedir()): void {
   config.paths.dataDir = expandHome(config.paths.dataDir, homeDir);
   config.tools.workspaceDir = expandHome(
     config.tools.workspaceDir ?? path.join(config.paths.dataDir, 'workspace'),
@@ -106,7 +117,6 @@ export function loadConfig(options: LoadConfigOptions = {}): LoadedConfig {
   if (config.plugins.directory) {
     config.plugins.directory = expandHome(config.plugins.directory, homeDir);
   }
-  return { config, source };
 }
 
 function findConfigFile(explicit: string | undefined, cwd: string): string | undefined {
