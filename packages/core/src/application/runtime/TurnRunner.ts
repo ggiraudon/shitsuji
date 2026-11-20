@@ -27,15 +27,25 @@ import { TurnLock } from '../TurnLock.js';
 import { DEFAULT_STEP_LIMITS, StallDetector, type StepLimits } from './limits.js';
 import { TurnStopped, type StopController } from './StopController.js';
 
+/** Everything one runner needs; `Agent` builds it once and shares it across turns. */
 export interface TurnRunnerDeps {
+  /** The agent's name, used as `agentId` on model events. */
   agentName: string;
+  /** The router that picks and calls the chat model by purpose. */
   models: ModelRouter;
+  /** The live catalog whose specs go to the model and whose extra tools are reachable. */
   tools: ToolCatalog;
+  /** The one path a tool call takes: validation, trust, receipts, execution. */
   pipeline: ToolPipeline;
+  /** Turn, message and turn-event storage, plus the unit of work for compare-and-set writes. */
   repos: Repositories;
+  /** Injected clock for every timestamp this turn writes. */
   clock: Clock;
+  /** Structured logger; a failed turn is reported here unless it was a deliberate ending. */
   log: Logger;
+  /** The bus for `turn.status`, deltas, model and tool events. */
   events: EventBus;
+  /** The in-process stop registry; `begin` returns this turn's abort signal. */
   stops: StopController;
   /** Builds each model call's context: header, history with context notes, tail (F04). */
   context: ContextBuilder;
@@ -43,36 +53,96 @@ export interface TurnRunnerDeps {
   soul?: SoulSource;
   /** Checks the check-in limit; absent when the run has no budget (unit tests). */
   budget?: BudgetService;
+  /** Overrides for the per-session-kind step limits. */
   limits?: Partial<StepLimits>;
 }
 
 /** The end of a turn, as the scheduler and callers see it. */
 export type TurnResult =
+  /** The model produced a final answer; `files` are the outbound files the tools staged. */
   | { status: 'succeeded'; reply: string; files?: OutboundFile[] }
+  /** The check-in limit asked the owner a question; the next message resumes the session. */
   | { status: 'waiting'; question: string }
+  /** The turn ended without an answer; `error` is also stored on the turn row. */
   | { status: 'failed' | 'cancelled'; error: string };
 
 /** One pass of the loop: an answer, or a question when the check-in limit is passed. */
 type LoopOutcome =
   { kind: 'reply'; text: string; files: OutboundFile[] } | { kind: 'question'; text: string };
 
-/** A turn ended on purpose before an answer: a step limit, a stall, a repeated tool failure. */
+/**
+ * A turn ended on purpose before an answer: a step limit, a stall, a repeated tool failure, or the
+ * turn being ended elsewhere. It is not a bug, so the runner does not log it as an error; its message
+ * becomes the turn's `error` and the failed event's text.
+ */
 class TurnEnded extends Error {}
 
 /**
- * Runs one turn that the scheduler has already moved to `running`: streams the model, runs tools
- * through the pipeline, reads new owner messages before every model call (steering), and stops on
- * Stop, the step limit, or a stall (F04).
+ * Runs **one** turn that the scheduler has already moved to `running` (F04): publishes `running`,
+ * fixes the SOUL revision, then loops over context → budget check-in → model → tools until an answer,
+ * a question, a stop, a stall or the step limit. It reloads the turn before every step after the
+ * first, so a turn cancelled by another process or by recovery stops instead of spending more; every
+ * state change is saved with compare-and-set.
+ *
+ * Side effects: model calls (through `ModelRouter`), tool calls (through `ToolPipeline`, whose writes
+ * are fenced by `TurnLock`), message rows for the assistant and tool results, `turn_event` rows for
+ * model calls and errors, and one terminal `turn.status` event. Event publishes are synchronous and
+ * are not awaited; the model provider call and every database write are awaited in order.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   start([run: publish running]) --> build[build context from storage]
+ *   build --> checkin{check-in limit passed?}
+ *   checkin -- yes --> waiting([waiting + question, stored])
+ *   checkin -- no --> model[model complete chat]
+ *   model --> store[store assistant parts]
+ *   store --> calls{any tool calls?}
+ *   calls -- no --> steered{a steered message arrived?}
+ *   steered -- yes --> build
+ *   steered -- no --> reply([succeeded + reply])
+ *   calls -- yes --> tools[run each tool through the pipeline, store results]
+ *   tools --> stall{stalled?}
+ *   stall -- yes --> failed([failed: TurnEnded])
+ *   stall -- no --> more{steps left?}
+ *   more -- yes --> build
+ *   more -- no --> failed
+ * ```
+ *
+ * Concurrency: the scheduler may run turns for different sessions in parallel, but only one turn per
+ * session, and only after a compare-and-set start. This class assumes it owns the turn it is given;
+ * it is not safe to call `run` twice for the same turn.
  */
 export class TurnRunner {
+  /** Fences tool writes with the turn's row lock (a stopped turn cannot write late). */
   private readonly turnLock: TurnLock;
+  /** Per-session-kind model-call limits, merged with the defaults. */
   private readonly limits: StepLimits;
 
+  /**
+   * Builds the lock and merges the step limits. No I/O; the runner is created once by `Agent` and
+   * reused for every turn.
+   */
   constructor(private readonly deps: TurnRunnerDeps) {
     this.turnLock = new TurnLock(deps.repos);
     this.limits = { ...DEFAULT_STEP_LIMITS, ...deps.limits };
   }
 
+  /**
+   * Runs the turn to a terminal state. Called exactly once by `TurnScheduler.drain` after the
+   * turn's compare-and-set start; it assumes `running` and never resumes a `waiting` turn.
+   *
+   * Order: load the session (a missing session throws, and the scheduler logs the crash), register
+   * the abort signal, publish `running`, resolve the SOUL revision (fixed for the turn), run the
+   * step loop, then persist one of `succeeded`, `waiting`, `failed` or `cancelled` and publish it.
+   * A Stop aborts the signal; the catch path cancels the turn, withdraws the messages it produced
+   * and publishes `cancelled`. A deliberate ending (`TurnEnded`) is stored as `failed` without an
+   * error log; any other error is logged and also stored as `failed`. The `finally` removes the
+   * abort signal from `StopController` whenever the loop was entered, including on a thrown error.
+   *
+   * Note: the cancellation and failure paths save with compare-and-set but publish their event even
+   * when the save lost the race (another process may have ended the turn first); the same is true
+   * of the message withdrawal on cancellation.
+   */
   async run(turn: Turn): Promise<TurnResult> {
     const { repos, clock, events, log, stops } = this.deps;
     const session = await repos.sessions.get(turn.sessionId);
@@ -137,6 +207,23 @@ export class TurnRunner {
     }
   }
 
+  /**
+   * The step loop. For each step it:
+   *
+   * 1. throws at once if the signal is already aborted;
+   * 2. after the first step, reloads the turn and stops if it is no longer `running` (another
+   *    process or recovery ended it);
+   * 3. rebuilds the context from storage — this is how steering works, because a message stored
+   *    with the turn's id appears here before the next model call;
+   * 4. asks `askBeforeContinuing` before spending a model call;
+   * 5. calls the model, stores its content parts, and either answers (no tool calls) or runs the
+   *    tool calls one at a time, storing each result and feeding the stall detector.
+   *
+   * A steered message that arrives after the model request was sent is detected after the response
+   * and costs one more step rather than being dropped. The loop is bounded by the session kind's
+   * model-call limit; exceeding it throws `TurnEnded` with a message naming the limit. Tools run
+   * sequentially in the model's order; their files accumulate in the reply.
+   */
   private async loop(
     session: Session,
     turn: Turn,
@@ -199,6 +286,8 @@ export class TurnRunner {
   /**
    * The question to ask before carrying on, when this session has spent past the check-in amount
    * since the owner's last message. Checked before a model call, so the question costs nothing.
+   * A run without a budget (unit tests) never asks. Side effects: one budget read; the question is
+   * not stored here (the caller pauses the turn, which stores it).
    */
   private async askBeforeContinuing(
     session: Session,
@@ -213,7 +302,9 @@ export class TurnRunner {
 
   /**
    * Ends the turn as `waiting`: the question is stored as Shitsuji's reply, so the owner's next
-   * message (a `resume` turn) sees both the question and the answer.
+   * message (a `resume` turn) sees both the question and the answer. One transaction: `wait`,
+   * compare-and-set from `running`, and the question row. Returns false without storing the message
+   * when another process changed the turn; the caller then publishes `failed` instead.
    */
   private async pause(turn: Turn, session: Session, question: string): Promise<boolean> {
     const now = this.deps.clock.now();
@@ -238,7 +329,12 @@ export class TurnRunner {
     });
   }
 
-  /** An owner message steered into this turn after the last model call was sent. */
+  /**
+   * An owner message steered into this turn after the last model call was sent. It looks at the
+   * last ten messages and compares their ids with the ones the context was built from; a matching
+   * owner message that is not withdrawn means the loop must run another step instead of replying.
+   * This is a heuristic: a steered message older than those ten would be missed.
+   */
   private async hasSteeredMessage(session: Session, turn: Turn, sent: Message[]): Promise<boolean> {
     const seen = new Set(sent.map((m) => m.id));
     const latest = await this.deps.repos.messages.listBySession(session.id, { limit: 10 });
@@ -249,7 +345,9 @@ export class TurnRunner {
 
   /**
    * A turn ended elsewhere (recovery after a crash, another process's Stop) must not keep running here:
-   * it would spend tokens and write into a conversation that has moved on.
+   * it would spend tokens and write into a conversation that has moved on. One database read per step
+   * after the first; a missing turn is also `TurnEnded`. Throws instead of returning a flag because
+   * the loop's catch path turns it into the turn's `failed` state.
    */
   private async assertStillRunning(turn: Turn): Promise<void> {
     const stored = await this.deps.repos.turns.get(turn.id);
@@ -258,6 +356,16 @@ export class TurnRunner {
     }
   }
 
+  /**
+   * One chat-model call. Builds the request from the built context (system prompt when present,
+   * messages, the tool specs — omitted when empty — temperature 0.7, 4096 output tokens and the
+   * turn/session metadata), publishes `llm.request`, then awaits `ModelRouter.complete` with the
+   * turn's abort signal. Streaming text deltas are republished as `turn.text_delta`; the final
+   * response is followed by an `llm.response` event and a `model_call` turn-event row (model ref,
+   * usage, finish reason). On a non-abort error it publishes `llm.error`, appends a `model_error`
+   * row and rethrows; an abort is rethrown without an error event because Stop owns that path. No
+   * retry happens here: a model request is never retried after a tool call has been emitted.
+   */
   private async callModel(
     session: Session,
     turn: Turn,
@@ -322,6 +430,15 @@ export class TurnRunner {
     }
   }
 
+  /**
+   * Runs one tool call through the pipeline, in the model's order, and turns its outcome into a
+   * stored tool result. Publishes `tool.started` and `tool.called` before execution, awaits the
+   * pipeline (which may itself await an approval card), then checks the abort signal again so a Stop
+   * during a slow tool cannot use its result. Publishes `tool.finished` with `ok`, plus
+   * `tool.result` or `tool.error`; a `repeated_failure` error becomes `TurnEnded` to stop the loop
+   * rather than retrying forever. The files a tool staged are returned for the reply. The pipeline
+   * receives `writeFenced`, so its writes hold the turn's row lock and fail after a Stop.
+   */
   private async executeTool(
     session: Session,
     turn: Turn,
@@ -357,6 +474,12 @@ export class TurnRunner {
     return { content: outcomeText(outcome), isError: !ok, files: outboundFiles(outcome) };
   }
 
+  /**
+   * Appends one message row for this turn (assistant content or a tool result) with the injected
+   * clock and `withdrawn: false`. Awaiting it is part of the step: the next context build reads it.
+   * The optional transaction is unused by the loop today but keeps the method usable inside a
+   * larger unit of work.
+   */
   private async store(
     session: Session,
     turnId: TurnId,
@@ -381,7 +504,12 @@ export class TurnRunner {
     );
   }
 
-  /** Applies a transition and saves it only if no one else moved the turn in the meantime. */
+  /**
+   * Applies a transition in memory, then saves it with compare-and-set from `expected` (`running`
+   * today). If another process moved the turn first, `turns.update` returns false, a warning is
+   * logged, and the caller decides what to publish; the local object stays mutated. Returns whether
+   * the row was saved.
+   */
   private async save(turn: Turn, expected: Turn['status'], apply: () => void): Promise<boolean> {
     apply();
     const saved = await this.deps.repos.turns.update(turn, expected);
@@ -390,7 +518,11 @@ export class TurnRunner {
   }
 }
 
-/** The owner message the check-in counts from; a session with none counts from its start. */
+/**
+ * The owner message the check-in counts from: the last owner message in the context that is not
+ * withdrawn, or the session's creation time when there is none. The context is in transcript order,
+ * so the scan runs backwards and stops at the first owner message.
+ */
 function lastOwnerAt(messages: readonly Message[], fallback: Date): Date {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]!;

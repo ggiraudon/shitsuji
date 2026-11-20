@@ -23,20 +23,20 @@ sequenceDiagram
 ## 1. `cli.ts`
 
 The entry point reads `process.argv`. `tui` starts the terminal client instead; anything else
-(default `server`) dynamically imports `startServer()` from `index.ts`. `main()` has a single
+(default `server`) dynamically imports [startServer](../../packages/core/src/index.ts) from `index.ts`. `main()` has a single
 `catch`: a `ConfigError` prints its message without a stack trace, anything else prints the error,
 and the process exits 1.
 
-## 2. `startServer()`
+## 2. [startServer](../../packages/core/src/index.ts)
 
-`startServer()` loads the configuration with `loadConfig()`, constructs the whole object graph
-with `createShitsuji(config)`, logs where the configuration came from, and calls `Shitsuji.start()`.
+[startServer](../../packages/core/src/index.ts) loads the configuration with `loadConfig()`, constructs the whole object graph
+with `createShitsuji(config)`, logs where the configuration came from, and calls [Shitsuji.start](../../packages/core/src/composition/Shitsuji.ts).
 It then prints the console banner and registers `SIGINT`/`SIGTERM` to call `stopServer()` and exit.
-The module keeps the running `Shitsuji` in `running`; `stopServer()` stops it and clears it.
+The module keeps the running [Shitsuji](../../packages/core/src/composition/Shitsuji.ts) in `running`; `stopServer()` stops it and clears it.
 
-## 3. `createShitsuji()`
+## 3. [createShitsuji](../../packages/core/src/composition/createShitsuji.ts)
 
-`createShitsuji()` is the only composition root. In order, it:
+[createShitsuji](../../packages/core/src/composition/createShitsuji.ts) is the only composition root. In order, it:
 
 1. writes the egress rules file for the sandbox proxy and creates the services (logger, clock,
    event bus);
@@ -44,12 +44,12 @@ The module keeps the running `Shitsuji` in `running`; `stopServer()` stops it an
    repositories;
 3. builds the plugin manager, the model router and the sandbox service, and opens the sandbox;
 4. builds the tool catalog and the tool pipeline, the context builder, the agent, the trust and
-   budget services, the channels and the optional API, and returns a `Shitsuji` with all of them
-   as `ShitsujiParts`.
+   budget services, the channels and the optional API, and returns a [Shitsuji](../../packages/core/src/composition/Shitsuji.ts) with all of them
+   as [ShitsujiParts](../../packages/core/src/composition/Shitsuji.ts).
 
-Nothing is listening and no turn runs yet: `createShitsuji()` only builds and connects objects.
+Nothing is listening and no turn runs yet: [createShitsuji](../../packages/core/src/composition/createShitsuji.ts) only builds and connects objects.
 
-## 4. `Shitsuji.start()`
+## 4. [Shitsuji.start](../../packages/core/src/composition/Shitsuji.ts)
 
 `start()` is the only place that brings the graph to life, and the order matters:
 
@@ -68,3 +68,6 @@ Nothing is listening and no turn runs yet: `createShitsuji()` only builds and co
 order, give running turns up to five seconds, stop the queue, close the sandbox, dispose plugins
 and run the extra shutdown steps. Channel, queue, sandbox and shutdown-step failures are logged and
 do not prevent the rest of the shutdown.
+
+
+

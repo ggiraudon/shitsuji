@@ -42,8 +42,9 @@ jobs:
         run: |
           set -o pipefail
           pnpm run docs 2>&1 | tee docs.log
-          # A broken {@link} must fail the build; missing comments are warnings for now.
-          ! grep -E 'Failed to resolve link|not included in the documentation' docs.log
+          # A broken {@link} or a source link to a missing file must fail the build; missing
+          # comments are warnings for now.
+          ! grep -E 'Failed to resolve link|The relative path .* is not a file' docs.log
 
   # Builds Shitsuji's own sandbox image and checks that the daemon inside it answers, authenticates,
   # refuses to leave its roots, runs commands as uid 1000 with no token in reach, and survives a stop,

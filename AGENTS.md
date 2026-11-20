@@ -85,6 +85,7 @@ Keep this list true as commands change.
 | `pnpm lint` | ESLint + Prettier check |
 | `pnpm check` | Type-check, lint, import-direction check and tests: **run before every commit** |
 | `pnpm eval --offline` | The evaluation scenarios against the recorded model replies (no key, no network) |
+| `pnpm run docs` | Build the API docs and walkthroughs into `docs-site/` (git-ignored; `pnpm docs` is a pnpm command) |
 | `pnpm eval --model <ref>` | The evaluation scenarios against a live model binding, with a report |
 | `docker compose up` | Start the stack (`core`, `postgres`, `sandbox`, `egress-proxy`, `sandboxd-gateway`) |
 | `docker compose -f compose.yaml -f compose.dev.yaml up -d postgres` | Only Postgres, published on 127.0.0.1:5432, for running core on the host |
