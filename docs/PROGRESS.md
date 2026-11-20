@@ -71,7 +71,8 @@ agent can reach the issues. Decisions P2, P6, M3, D2, T1 and T2 are made.
 ## Fourth pass steps
 
 See [11-fourth-pass-plan.md](11-fourth-pass-plan.md). Each step is also a GitHub issue (#69–#79); tick
-both until every agent can reach the issues. Decisions X1–X6 are made.
+both until every agent can reach the issues. Decisions X1–X7 are made. **The fourth pass is done**
+(2026-11-20); S44, the `opensandbox` driver, is deferred by the owner.
 
 - [x] **S40** The SandboxDriver port and the host driver
       *(The port from F08 and the `host` driver; the tools moved behind it with no behaviour change, and
@@ -119,7 +120,7 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
       generates the token before either side starts, core waits for the gateway and retries a cold
       daemon a bounded number of times, the core image has only Node, and the upgrade repair of an
       existing workspace is tested. README, AGENTS, the class map, F08 and this checklist are updated;
-      the owner's Telegram live check follows the merge.)*
+      the owner's Telegram live check passed on 2026-11-20 (#100–#102 fixed on the way).)*
 
 ## Acceptance criteria by feature
 
@@ -195,9 +196,8 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
 - [x] The workspace has no route to Postgres or the `core` admin API (network test).
 - [ ] `env` inside the workspace shows no model keys, only placeholders for the run's declared secrets.
       *(No model keys: done. The per-run placeholders are F12.)*
-- [ ] `curl` to a LAN address or to `core` fails; `pip install` works through the proxy.
-      *(The LAN/proxy probes pass and the image job now proves a real `pip install` + import through
-      the proxy; the live check from Telegram still follows.)*
+- [x] `curl` to a LAN address or to `core` fails; `pip install` works through the proxy.
+      *(The probes and the image job prove it; the Telegram live check confirmed it on 2026-11-20.)*
 - [ ] The `opensandbox` and `shitsuji` drivers both pass the conformance suite for every capability they
       claim, and switching `sandbox.driver` changes no tool name, schema or effect.
       *(`shitsuji` passes; `opensandbox` is deferred by the owner, S44/#74.)*
