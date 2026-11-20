@@ -1,8 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import fs from 'node:fs';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -33,7 +31,8 @@ interface Containers {
   network: string;
   ctl: string;
   secretVolume: string;
-  dir: string;
+  workspaceVolume: string;
+  handoffVolume: string;
   baseUrl: string;
   token: string;
 }
@@ -46,14 +45,32 @@ if (!dockerAvailable) {
   const containers = await start();
 
   afterAll(() => {
+    // A failed cleanup must not fail the suite: on a Linux runner the workspace is owned by the
+    // sandbox's uid 1000 and cannot be removed from the host, which is why both folders are
+    // volumes. Log anything the daemon would not remove, then leave it.
+    const failures: string[] = [];
+    const clean = (args: string[]) => {
+      const result = spawnSync('docker', args, { encoding: 'utf8' });
+      if (result.status !== 0 && !/no such (container|volume|network)/i.test(result.stderr ?? '')) {
+        failures.push(`docker ${args.join(' ')}: ${(result.stderr ?? '').trim()}`);
+      }
+    };
     for (const name of [containers.gateway, containers.proxy, containers.sandbox]) {
-      spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+      clean(['rm', '-f', name]);
     }
     for (const network of [containers.ctl, containers.network]) {
-      spawnSync('docker', ['network', 'rm', network], { stdio: 'ignore' });
+      clean(['network', 'rm', network]);
     }
-    spawnSync('docker', ['volume', 'rm', containers.secretVolume], { stdio: 'ignore' });
-    fs.rmSync(containers.dir, { recursive: true, force: true });
+    for (const volume of [
+      containers.secretVolume,
+      containers.workspaceVolume,
+      containers.handoffVolume,
+    ]) {
+      clean(['volume', 'rm', volume]);
+    }
+    if (failures.length > 0) {
+      console.warn(`Sandbox integration cleanup left something behind:\n${failures.join('\n')}`);
+    }
   });
 
   const driver = new ShitsujiSandboxDriver({
@@ -198,6 +215,8 @@ async function start(): Promise<Containers> {
   const sandbox = `shitsuji-sandbox-${suffix}`;
   const gateway = `shitsuji-gateway-${suffix}`;
   const secretVolume = `shitsuji-secret-${suffix}`;
+  const workspaceVolume = `shitsuji-workspace-${suffix}`;
+  const handoffVolume = `shitsuji-handoff-${suffix}`;
 
   try {
     docker([
@@ -236,12 +255,13 @@ async function start(): Promise<Containers> {
       'egress-proxy',
     );
 
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shitsuji-sandbox-it-'));
-    fs.mkdirSync(path.join(dir, 'workspace'));
-    fs.mkdirSync(path.join(dir, 'handoff'));
     const token = randomBytes(32).toString('hex');
     const port = String(await freePort());
 
+    // Both folders are volumes: the sandbox entrypoint owns them as uid 1000, which the CI runner
+    // (uid 1001) cannot delete from the host. With volumes, teardown is a daemon-side volume rm.
+    docker(['volume', 'create', workspaceVolume]);
+    docker(['volume', 'create', handoffVolume]);
     // The production path: core writes a token into the secret volume, whose directory is
     // root:1002 0770; commands (uid/gid 1000) cannot traverse it.
     docker(['volume', 'create', secretVolume]);
@@ -314,9 +334,9 @@ async function start(): Promise<Containers> {
       '--tmpfs',
       '/run/sandbox',
       '-v',
-      `${path.join(dir, 'workspace')}:/workspace`,
-      '-v',
-      `${path.join(dir, 'handoff')}:/handoff:ro`,
+      `${workspaceVolume}:/workspace`,
+      '--mount',
+      `source=${handoffVolume},target=/handoff,readonly`,
       '--mount',
       `source=${secretVolume},target=/run/sandbox-seed,readonly`,
       '-e',
@@ -363,7 +383,8 @@ async function start(): Promise<Containers> {
       network,
       ctl,
       secretVolume,
-      dir,
+      workspaceVolume,
+      handoffVolume,
       baseUrl: `http://127.0.0.1:${port}`,
       token,
     };
@@ -375,7 +396,9 @@ async function start(): Promise<Containers> {
     for (const name of [ctl, network]) {
       spawnSync('docker', ['network', 'rm', name], { stdio: 'ignore' });
     }
-    spawnSync('docker', ['volume', 'rm', secretVolume], { stdio: 'ignore' });
+    for (const volume of [secretVolume, workspaceVolume, handoffVolume]) {
+      spawnSync('docker', ['volume', 'rm', volume], { stdio: 'ignore' });
+    }
     throw error;
   }
 }
