@@ -139,9 +139,10 @@ export class TurnRunner {
    * error log; any other error is logged and also stored as `failed`. The `finally` removes the
    * abort signal from `StopController` whenever the loop was entered, including on a thrown error.
    *
-   * Note: the cancellation and failure paths save with compare-and-set but publish their event even
-   * when the save lost the race (another process may have ended the turn first); the same is true
-   * of the message withdrawal on cancellation.
+   * Every terminal write is a compare-and-set from `running`. If it loses (another process or
+   * startup recovery already ended the turn), nothing is withdrawn, no terminal event is published
+   * and no failure is logged: the stored turn and its event stand, and this runner returns a result
+   * that only describes what it would have done.
    */
   async run(turn: Turn): Promise<TurnResult> {
     const { repos, clock, events, log, stops } = this.deps;
@@ -162,9 +163,8 @@ export class TurnRunner {
       const outcome = await this.loop(session, turn, signal, soul);
       if (outcome.kind === 'question') {
         if (!(await this.pause(turn, session, outcome.text))) {
-          const error = 'The turn was ended elsewhere before it could ask';
-          events.publish('turn.status', { ...base, status: 'failed', error });
-          return { status: 'failed', error };
+          // Another process ended the turn first: leave its state and event alone.
+          return { status: 'failed', error: 'The turn was ended elsewhere before it could ask' };
         }
         events.publish('turn.status', { ...base, status: 'waiting', question: outcome.text });
         return { status: 'waiting', question: outcome.text };
@@ -172,9 +172,8 @@ export class TurnRunner {
       const reply = outcome.text;
       const files = outcome.files;
       if (!(await this.save(turn, 'running', () => turn.succeed(clock.now())))) {
-        const error = 'The turn was ended elsewhere before it finished';
-        events.publish('turn.status', { ...base, status: 'failed', error });
-        return { status: 'failed', error };
+        // Another process ended the turn first: its terminal state and event already stand.
+        return { status: 'failed', error: 'The turn was ended elsewhere before it finished' };
       }
       events.publish('turn.status', {
         ...base,
@@ -186,21 +185,28 @@ export class TurnRunner {
     } catch (error) {
       if (signal.aborted) {
         const reason = signal.reason instanceof TurnStopped ? signal.reason.message : 'stopped';
-        await repos.uow.run(async (tx) => {
+        const cancelled = await repos.uow.run(async (tx) => {
           turn.cancel(clock.now(), reason);
-          await repos.turns.update(turn, 'running', tx);
+          // A Stop that lost the race with another process must not withdraw that process's
+          // messages or report a second terminal state.
+          if (!(await repos.turns.update(turn, 'running', tx))) return false;
           // The request is withdrawn: the agent continues only if asked again (F04).
           await repos.messages.withdrawByTurn(turn.id, tx);
+          return true;
         });
-        events.publish('turn.status', { ...base, status: 'cancelled', error: reason });
+        if (cancelled) {
+          events.publish('turn.status', { ...base, status: 'cancelled', error: reason });
+        }
         return { status: 'cancelled', error: reason };
       }
       const reason = error instanceof Error ? error.message : String(error);
-      if (!(error instanceof TurnEnded)) {
-        log.error('Turn failed', { turnId: turn.id, error: serializeError(error) });
+      const saved = await this.save(turn, 'running', () => turn.fail(clock.now(), reason));
+      if (saved) {
+        if (!(error instanceof TurnEnded)) {
+          log.error('Turn failed', { turnId: turn.id, error: serializeError(error) });
+        }
+        events.publish('turn.status', { ...base, status: 'failed', error: reason });
       }
-      await this.save(turn, 'running', () => turn.fail(clock.now(), reason));
-      events.publish('turn.status', { ...base, status: 'failed', error: reason });
       return { status: 'failed', error: reason };
     } finally {
       stops.end(turn.id);
@@ -304,7 +310,7 @@ export class TurnRunner {
    * Ends the turn as `waiting`: the question is stored as Shitsuji's reply, so the owner's next
    * message (a `resume` turn) sees both the question and the answer. One transaction: `wait`,
    * compare-and-set from `running`, and the question row. Returns false without storing the message
-   * when another process changed the turn; the caller then publishes `failed` instead.
+   * when another process changed the turn; the caller then returns without publishing.
    */
   private async pause(turn: Turn, session: Session, question: string): Promise<boolean> {
     const now = this.deps.clock.now();
@@ -506,9 +512,9 @@ export class TurnRunner {
 
   /**
    * Applies a transition in memory, then saves it with compare-and-set from `expected` (`running`
-   * today). If another process moved the turn first, `turns.update` returns false, a warning is
-   * logged, and the caller decides what to publish; the local object stays mutated. Returns whether
-   * the row was saved.
+   * today). Returns whether the row was saved. On false another process moved the turn first: a
+   * warning is logged, the local object stays mutated but is not stored, and the caller must not
+   * publish a terminal event or log the turn as failed.
    */
   private async save(turn: Turn, expected: Turn['status'], apply: () => void): Promise<boolean> {
     apply();

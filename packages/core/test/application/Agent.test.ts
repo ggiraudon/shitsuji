@@ -8,8 +8,19 @@ import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { Agent } from '../../src/application/Agent.js';
 import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
 import { Approval } from '../../src/domain/model/Approval.js';
-import { asId, type ApprovalId, type OwnerId, type SessionId } from '../../src/domain/model/ids.js';
+import {
+  asId,
+  type ApprovalId,
+  type OwnerId,
+  type SessionId,
+  type TurnId,
+} from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
+import type {
+  ModelProvider,
+  ModelRequest,
+  ModelStreamEvent,
+} from '../../src/ports/ModelProvider.js';
 import {
   routerFor,
   ScriptedProvider,
@@ -20,13 +31,20 @@ import {
 
 const OWNER = asId<OwnerId>('owner');
 
-const setup = async (replies: ScriptedReply[], extra: { limits?: { chat: number } } = {}) => {
+const setup = async (
+  replies: ScriptedReply[],
+  extra: {
+    limits?: { chat: number };
+    provider?: ModelProvider & { requests: ModelRequest[] };
+  } = {},
+) => {
+  const { provider, ...agentOptions } = extra;
   const services = testServices();
   const seen: string[] = [];
   services.events.subscribePattern('*', (_p, e) => void seen.push(e.type));
   const repos = new InMemoryRepositories();
   const tools = new ToolCatalog();
-  const llm = new ScriptedProvider(replies);
+  const llm = provider ?? new ScriptedProvider(replies);
   const jobs = new InMemoryJobQueue(services.log, services.clock);
   const approvals = new ApprovalService({
     approvals: repos.approvals,
@@ -47,7 +65,7 @@ const setup = async (replies: ScriptedReply[], extra: { limits?: { chat: number 
     jobs,
     approvals,
     ...services,
-    ...extra,
+    ...agentOptions,
   });
   await jobs.start();
   await agent.start();
@@ -57,6 +75,34 @@ const setup = async (replies: ScriptedReply[], extra: { limits?: { chat: number 
 const calc = (expression: string, id = 'c1'): ScriptedReply => ({
   toolCalls: [{ id, name: 'math.evaluate', arguments: { expression } }],
 });
+
+/** A model call that blocks until the test releases it, so another worker can finish the turn. */
+class BlockingProvider implements ModelProvider {
+  readonly id = 'blocking';
+  readonly requests: ModelRequest[] = [];
+  private release?: (error: Error) => void;
+  private markStarted?: () => void;
+  readonly started = new Promise<void>((resolve) => {
+    this.markStarted = resolve;
+  });
+
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    this.requests.push(request);
+    this.markStarted?.();
+    await new Promise<never>((_, reject) => {
+      this.release = reject;
+    });
+    yield { type: 'done', finishReason: 'stop' }; // unreachable; satisfies the generator
+  }
+
+  fail(error: Error): void {
+    this.release?.(error);
+  }
+
+  async listModels(): Promise<string[]> {
+    return ['m'];
+  }
+}
 
 describe('Agent', () => {
   it('replies with the model text and publishes session and model events', async () => {
@@ -191,6 +237,62 @@ describe('Agent', () => {
     await agent.send('2+2?');
     expect(llm.requests[0]!.system).not.toContain('CALCULATOR WAS USED');
     expect(llm.requests[1]!.system).toContain('CALCULATOR WAS USED');
+  });
+});
+
+describe('TurnRunner terminal races (#94)', () => {
+  /** Another process or recovery finishes the turn while the runner is still in its model call. */
+  const finishElsewhere = async (repos: InMemoryRepositories, turnId: TurnId) => {
+    const turn = await repos.turns.get(turnId);
+    turn!.succeed(new Date());
+    expect(await repos.turns.update(turn!, 'running')).toBe(true);
+  };
+
+  it('does not withdraw or publish when the failure save loses the race', async () => {
+    const provider = new BlockingProvider();
+    const { agent, repos, services } = await setup([], { provider });
+    const statuses: string[] = [];
+    services.events.subscribe('turn.status', (e) => void statuses.push(e.status));
+
+    const submitted = await agent.submit('Hi');
+    await provider.started;
+    await finishElsewhere(repos, submitted.turnId);
+    provider.fail(new Error('model failed after the turn ended'));
+    await agent.idle();
+
+    const stored = await repos.turns.get(submitted.turnId);
+    expect(stored!.status).toBe('succeeded');
+    expect(stored!.error).toBeUndefined();
+    const owner = (await repos.messages.listBySession(submitted.sessionId)).find(
+      (m) => m.author === 'owner',
+    );
+    expect(owner!.withdrawn).toBe(false);
+    expect(statuses).not.toContain('failed');
+    expect(statuses).not.toContain('cancelled');
+  });
+
+  it('does not withdraw or publish when a Stop loses the race', async () => {
+    const provider = new BlockingProvider();
+    const { agent, repos, services } = await setup([], { provider });
+    const statuses: string[] = [];
+    services.events.subscribe('turn.status', (e) => void statuses.push(e.status));
+
+    const submitted = await agent.submit('Hi');
+    await provider.started;
+    await finishElsewhere(repos, submitted.turnId);
+    expect(await agent.stop(submitted.turnId)).toBe(true);
+    provider.fail(new Error('stopped'));
+    await agent.idle();
+
+    const stored = await repos.turns.get(submitted.turnId);
+    expect(stored!.status).toBe('succeeded');
+    expect(stored!.error).toBeUndefined();
+    const owner = (await repos.messages.listBySession(submitted.sessionId)).find(
+      (m) => m.author === 'owner',
+    );
+    expect(owner!.withdrawn).toBe(false);
+    expect(statuses).not.toContain('cancelled');
+    expect(statuses).not.toContain('failed');
   });
 });
 
