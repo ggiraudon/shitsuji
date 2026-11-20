@@ -27,8 +27,8 @@ export type JobHandler<T> = (job: Job<T>) => Promise<void>;
  * Durable background work. Enqueue with a Transaction to queue the job only if the surrounding writes
  * commit (e.g. store a turn and wake its worker atomically).
  *
- * A handler may run more than once (a retry after a crash), so it must be idempotent: `session.drain`
- * is, because the start of a turn is a compare-and-set.
+ * A handler may run more than once (a retry after it failed, or after the process died mid-job), so it
+ * must be idempotent: `session.drain` is, because the start of a turn is a compare-and-set.
  */
 export interface JobQueue {
   /** Opens the connection and starts polling. `Shitsuji.start` calls it before the agent registers. */

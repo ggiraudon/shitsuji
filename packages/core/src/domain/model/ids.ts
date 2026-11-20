@@ -31,8 +31,8 @@ export function newId<T extends Id<string>>(): T {
 
 /**
  * Marks an existing string (from the database, a request…) as an ID of a given kind. It only checks
- * that the string is non-empty; the format is the caller's business. Throws a `TypeError` for an
- * empty string, so an adapter that read a blank column fails at once instead of storing `""`.
+ * that the string is non-empty; the format is the caller's business (`createShitsuji` uses the literal
+ * `owner`). Throws a `TypeError` for an empty string.
  */
 export function asId<T extends Id<string>>(value: string): T {
   if (!value) throw new TypeError('An ID cannot be empty');

@@ -2,10 +2,10 @@
  * An amount of money as an integer number of micro-units (1/1,000,000 of the currency unit), so sums
  * of many tiny model costs stay exact. Immutable.
  *
- * Every operation that could lose precision throws a `RangeError` rather than rounding silently: a
- * constructor with an out-of-range `micros` or a currency that is not three uppercase letters, and
- * `plus`/`compare` on two different currencies. Prices come from the model catalogue, usage from the
- * ledger, and both end up in `BudgetStore` and the usage report.
+ * It never mixes currencies silently: the constructor rejects an out-of-range amount or a code that is
+ * not three uppercase letters, and `plus`/`compare` throw a `RangeError` when the two amounts differ in
+ * currency. Prices come from the model catalogue and usage from the ledger; both reach the budget and
+ * the usage report as `Money`.
  */
 export class Money {
   private constructor(
@@ -33,7 +33,7 @@ export class Money {
     return new Money(micros, currency);
   }
 
-  /** The amount as a decimal number, for display and config; do arithmetic on `micros` instead. */
+  /** The amount as a decimal number, for display; do arithmetic on `micros` to stay exact. */
   get amount(): number {
     return this.micros / 1_000_000;
   }

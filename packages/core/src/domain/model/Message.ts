@@ -37,7 +37,7 @@ export type MessageAuthor = 'owner' | 'assistant' | 'system';
 /**
  * One message of a session's transcript. Rows are appended in order and never edited; the only
  * change is {@link Message.withdrawn}, which a Stop sets on the owner messages it takes back. Thus
- * the transcript is also the audit trail of what the model was shown.
+ * the transcript is also the audit trail of what the model was shown, minus the withdrawn rows.
  */
 export interface Message {
   id: MessageId;

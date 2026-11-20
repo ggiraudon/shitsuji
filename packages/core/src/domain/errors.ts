@@ -93,8 +93,8 @@ export class BudgetExceeded extends ShitsujiError {
 
 /**
  * The workspace or desktop container could not be reached or answered in the expected shape. Thrown by
- * the sandbox drivers, `SandboxService` and the startup egress probe; never swallowed, because every
- * tool that needs the sandbox is unusable until it is fixed.
+ * the sandbox drivers, `SandboxService` and the startup egress probe; a turn that hits it fails with
+ * this message rather than pretending the action happened.
  */
 export class SandboxUnavailable extends ShitsujiError {
   override readonly name = 'SandboxUnavailable';

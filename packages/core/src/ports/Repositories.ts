@@ -176,7 +176,7 @@ export interface UsageRecord {
   /** The turn that made the request, when the call came from a turn. */
   turnId?: TurnId;
   sessionId?: SessionId;
-  /** The routing purpose ("chat", "compaction"…), for the per-purpose breakdown. */
+  /** The routing purpose ("chat", "summarize", "trust"…), for the per-purpose breakdown. */
   purpose?: string;
   provider: string;
   model: string;

@@ -87,9 +87,10 @@ export interface AgentRenderContext {
 }
 
 /**
- * One piece of context, rendered per model call. `ContextBuilder` sorts by placement, then order, then
- * id, evaluates the condition and joins the text; `render` returns null to add nothing. Injectables are
- * how SOUL, the tool index, rules and memory reach the prompt without the runtime knowing about them.
+ * One piece of context, rendered when `ContextBuilder` assembles a request. It sorts by placement, then
+ * order, then id, evaluates the condition and joins the text; `render` returns null to add nothing.
+ * Injectables are how SOUL, the tool index, rules and memory reach the prompt without the runtime
+ * knowing about them.
  */
 export interface ContextInjectable {
   /** Stable id, also used by `once` tracking and by the stability check. */

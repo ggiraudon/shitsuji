@@ -3,9 +3,10 @@ import type { SessionId, TurnId } from './ids.js';
 
 /**
  * queued → running → succeeded | waiting | failed | cancelled (docs/features/F04-agent-runtime.md).
- * Every write after the start is a compare-and-set from `running` (a Stop may also cancel a `queued`
- * turn), and a turn that reaches a terminal state never moves again. `waiting` is not terminal: the
- * owner's answer ends it as `succeeded` and the following `resume` turn carries on.
+ * Every write is a compare-and-set from the status the writer believed the turn had: `queued` for a
+ * Stop, `running` for a worker, `waiting` for the owner's answer. A turn that reaches a terminal state
+ * never moves again. `waiting` is not terminal: the owner's answer ends it as `succeeded` and the
+ * following `resume` turn carries on.
  */
 export type TurnStatus = 'queued' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -159,7 +160,7 @@ export class Turn {
     this.props.error = error;
   }
 
-  /** Ends a queued or running turn on the owner's stop (or a lost race); the reason is stored. */
+  /** Ends a queued or running turn on the owner's stop, or when the runner sees its abort signal. */
   cancel(at: Date, reason = 'cancelled'): void {
     this.transition('cancelled');
     this.props.endedAt = at;

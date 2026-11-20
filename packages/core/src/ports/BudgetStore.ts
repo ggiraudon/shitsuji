@@ -26,7 +26,7 @@ export interface BudgetLimits {
 /** Everything `reserve` needs: what to hold, for which owner and period, and the limits to check. */
 export interface ReserveInput {
   ownerId: OwnerId;
-  /** Made by the caller; unique, so a retried settle or release finds the same hold. */
+  /** Made by the caller; unique. Settle and release only touch a held row, so repeating one is safe. */
   id: string;
   amount: Money;
   background: boolean;
