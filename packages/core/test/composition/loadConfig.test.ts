@@ -163,6 +163,20 @@ describe('environment overrides', () => {
     expect(config.sandbox.egress.deny).toEqual(['bad.test', 'worse.test']);
   });
 
+  it('can require isolation from the environment, as Compose does (S49)', () => {
+    expect(
+      load({ SHITSUJI_SANDBOX_PROBES_REQUIRE_ISOLATION: 'true' }).config.sandbox.probes
+        .requireIsolation,
+    ).toBe(true);
+    expect(
+      load({ SHITSUJI_SANDBOX_PROBES_REQUIRE_ISOLATION: 'false' }).config.sandbox.probes
+        .requireIsolation,
+    ).toBe(false);
+    expect(() => load({ SHITSUJI_SANDBOX_PROBES_REQUIRE_ISOLATION: 'maybe' })).toThrow(
+      /requireIsolation/,
+    );
+  });
+
   it('reads Telegram from the environment, keeping the token secret (S32)', () => {
     const { config } = load({
       SHITSUJI_TELEGRAM_ENABLED: 'true',
