@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { inspect } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../../src/composition/config/loadConfig.js';
+import { expandConfigPaths, loadConfig } from '../../src/composition/config/loadConfig.js';
+import { shitsujiConfigSchema } from '../../src/composition/config/schema.js';
 import { ConfigError } from '../../src/domain/errors.js';
 import { Secret } from '../../src/domain/Secret.js';
 
@@ -125,6 +126,20 @@ models:
     expect(errorOf(() => load({ SHITSUJI_CONFIG: 'missing.yaml' })).message).toMatch(
       /Config file not found/,
     );
+  });
+});
+
+describe('resolving paths a direct schema parse leaves', () => {
+  it('expands ~ in dataDir and the default workspaceDir (the literal ~ folder bug)', () => {
+    const parsed = shitsujiConfigSchema.parse({
+      models: { providers: { fake: { kind: 'plugin' } }, purposes: { chat: 'fake/m' } },
+    });
+    expect(parsed.paths.dataDir).toBe('~/.shitsuji/data');
+
+    expandConfigPaths(parsed, '/home/sam');
+
+    expect(parsed.paths.dataDir).toBe(path.join('/home/sam', '.shitsuji/data'));
+    expect(parsed.tools.workspaceDir).toBe(path.join('/home/sam', '.shitsuji/data', 'workspace'));
   });
 });
 
