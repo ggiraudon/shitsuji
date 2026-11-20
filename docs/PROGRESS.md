@@ -139,7 +139,14 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       unreachable from the host, checks the supervisor's children have no capabilities while sandboxd
       keeps its four, and checks a command cannot signal the stream servers. The conformance suite and
       egress probes run against the desktop image too.)*
-- [ ] **S51** The viewer page
+- [x] **S51** The viewer page
+      *(core serves `/desktop` behind the owner-key exchange for an `HttpOnly`, `SameSite=Strict`
+      viewer cookie; the page uses the pinned `@novnc/novnc` client, fetches the view-only password
+      from the cookie-gated credentials route, and relays the same-origin WebSocket to the gateway's
+      view-only 6081 listener. `api.listen` / `SHITSUJI_API_BIND`, optional `api.tls.*` and one
+      warning beyond loopback without TLS. `/desktop` answers in Telegram and the TUI. Integration
+      tests cover the 401s, cookie expiry, the relay and view-only pointer input; the temporary VNC
+      relay services are removed.)*
 - [ ] **S52** Images the model can see in tool results
 - [ ] **S53** The desktop endpoints and `computer.act`
 - [ ] **S54** The accessibility tree: `desktop.inspect` and `desktop.act`
