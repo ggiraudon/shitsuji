@@ -2,6 +2,8 @@
   "$schema": "https://typedoc.org/schema.json",
   "entryPoints": [
     "packages/core/src/index.ts",
+    "packages/core/src/domain/index.ts",
+    "packages/core/src/ports/index.ts",
     "packages/core/src/composition/Shitsuji.ts",
     "packages/core/src/application/Agent.ts",
     "packages/core/src/application/channels/ChannelGateway.ts",
