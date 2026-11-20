@@ -33,6 +33,7 @@ interface Containers {
   secretVolume: string;
   workspaceVolume: string;
   handoffVolume: string;
+  homeVolume: string;
   baseUrl: string;
   token: string;
 }
@@ -65,6 +66,7 @@ if (!dockerAvailable) {
       containers.secretVolume,
       containers.workspaceVolume,
       containers.handoffVolume,
+      containers.homeVolume,
     ]) {
       clean(['volume', 'rm', volume]);
     }
@@ -131,6 +133,23 @@ if (!dockerAvailable) {
         expect(result.stdout).toContain('664 1000:1000');
         expect(result.stdout).toContain('775 1000:1000');
         expect(result.stdout).toContain('new');
+      } finally {
+        await sandbox.close();
+      }
+    });
+  });
+
+  describe('the Python environment (#102)', () => {
+    it('runs python3 and pip from the venv in the persistent home', async () => {
+      const sandbox = await driver.open({ ownerId: asId<OwnerId>('owner') });
+      try {
+        const out = await run(sandbox, [
+          'sh',
+          '-c',
+          'command -v python3; python3 -c "import sys; print(sys.prefix)"',
+        ]);
+        expect(out.stdout).toContain('/home/agent/.venv/bin/python3');
+        expect(out.stdout).toContain('/home/agent/.venv');
       } finally {
         await sandbox.close();
       }
@@ -244,6 +263,7 @@ async function start(): Promise<Containers> {
   const secretVolume = `shitsuji-secret-${suffix}`;
   const workspaceVolume = `shitsuji-workspace-${suffix}`;
   const handoffVolume = `shitsuji-handoff-${suffix}`;
+  const homeVolume = `shitsuji-home-${suffix}`;
 
   try {
     docker([
@@ -289,6 +309,7 @@ async function start(): Promise<Containers> {
     // (uid 1001) cannot delete from the host. With volumes, teardown is a daemon-side volume rm.
     docker(['volume', 'create', workspaceVolume]);
     docker(['volume', 'create', handoffVolume]);
+    docker(['volume', 'create', homeVolume]);
     // An existing stack's workspace: files core wrote earlier, owned by core (uid 1000) with
     // ordinary modes. The entrypoint must keep them and repair the group write for the daemon.
     docker([
@@ -381,6 +402,8 @@ async function start(): Promise<Containers> {
       `${workspaceVolume}:/workspace`,
       '--mount',
       `source=${handoffVolume},target=/handoff,readonly`,
+      '-v',
+      `${homeVolume}:/home/agent`,
       '--mount',
       `source=${secretVolume},target=/run/sandbox-seed,readonly`,
       '-e',
@@ -429,6 +452,7 @@ async function start(): Promise<Containers> {
       secretVolume,
       workspaceVolume,
       handoffVolume,
+      homeVolume,
       baseUrl: `http://127.0.0.1:${port}`,
       token,
     };
@@ -440,7 +464,7 @@ async function start(): Promise<Containers> {
     for (const name of [ctl, network]) {
       spawnSync('docker', ['network', 'rm', name], { stdio: 'ignore' });
     }
-    for (const volume of [secretVolume, workspaceVolume, handoffVolume]) {
+    for (const volume of [secretVolume, workspaceVolume, handoffVolume, homeVolume]) {
       spawnSync('docker', ['volume', 'rm', volume], { stdio: 'ignore' });
     }
     throw error;

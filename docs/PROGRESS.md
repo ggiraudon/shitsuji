@@ -196,7 +196,8 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
 - [ ] `env` inside the workspace shows no model keys, only placeholders for the run's declared secrets.
       *(No model keys: done. The per-run placeholders are F12.)*
 - [ ] `curl` to a LAN address or to `core` fails; `pip install` works through the proxy.
-      *(The LAN/proxy probes pass; the real `pip install` is part of the owner's live check.)*
+      *(The LAN/proxy probes pass and the image job now proves a real `pip install` + import through
+      the proxy; the live check from Telegram still follows.)*
 - [ ] The `opensandbox` and `shitsuji` drivers both pass the conformance suite for every capability they
       claim, and switching `sandbox.driver` changes no tool name, schema or effect.
       *(`shitsuji` passes; `opensandbox` is deferred by the owner, S44/#74.)*

@@ -47,14 +47,16 @@ jobs:
           ! grep -E 'Failed to resolve link|The relative path .* is not a file' docs.log
 
   # Builds Shitsuji's own sandbox image and checks that the daemon inside it answers, authenticates,
-  # refuses to leave its roots, runs commands as uid 1000 with no token in reach, and survives a stop,
-  # a timeout and a fork bomb (F08, S45–S46). Not part of the stack yet (S48).
+  # refuses to leave its roots, runs commands as uid 1000 with no token in reach, survives a stop, a
+  # timeout and a fork bomb, and installs a Python package through egress-proxy (F08, S45–S49).
   sandbox-image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build the sandbox image
         run: docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox:ci .
+      - name: Build the egress proxy image
+        run: docker build -f docker/egress-proxy/Dockerfile -t shitsuji/egress:ci .
       - name: sandboxd answers, authenticates, executes and stays confined
         run: |
           # The token lives in its own volume: root owns the directory, group 1002 is core's group,
@@ -67,6 +69,27 @@ jobs:
             --entrypoint sh -v sandbox-secret-ci:/secret shitsuji/sandbox:ci \
             -c 'printf %s ci-token > /secret/token && chmod 0644 /secret/token'
 
+          # The egress proxy is the sandbox's way out. It joins the internal test network through
+          # its own bridge so it can reach PyPI; the sandbox joins the internal network after it is
+          # created, for the published control port.
+          docker network create --internal sandbox-ci-net
+          docker run -d --name egress-ci --cap-drop ALL --security-opt no-new-privileges \
+            --read-only --tmpfs /tmp -e SANDBOX_EGRESS_ALLOW=pypi.org,files.pythonhosted.org \
+            shitsuji/egress:ci
+          docker network connect --alias egress-proxy sandbox-ci-net egress-ci
+          ready=no
+          for i in $(seq 1 20); do
+            if docker exec egress-ci node -e \
+              "fetch('http://127.0.0.1:3128/health').then(() => process.exit(0), () => process.exit(1))" \
+              > /dev/null 2>&1; then ready=yes; break; fi
+            sleep 1
+          done
+          if [ "$ready" != yes ]; then
+            echo "the egress proxy is not listening"
+            docker logs egress-ci
+            exit 1
+          fi
+
           # --init reaps the fork bomb's zombies; the compose service does the same in S48. The six
           # capabilities are exactly what the entrypoint and sandboxd need (see entrypoint.sh).
           docker run -d --name sandbox-ci --init --pids-limit 128 \
@@ -74,7 +97,9 @@ jobs:
             --cap-add SETGID --cap-add SETPCAP --cap-add KILL \
             --security-opt no-new-privileges \
             --mount source=sandbox-secret-ci,target=/run/sandbox-seed,readonly \
+            -e SANDBOX_EGRESS_PROXY=http://egress-proxy:3128 \
             -p 127.0.0.1:4555:4555 shitsuji/sandbox:ci
+          docker network connect sandbox-ci-net sandbox-ci
 
           ready=no
           for i in $(seq 1 20); do
@@ -104,6 +129,14 @@ jobs:
             curl -fsS -N -H 'x-sandbox-token: ci-token' -H 'content-type: application/json' \
               -d "$1" http://127.0.0.1:4555/exec
           }
+
+          # #102: Python comes from the venv in the persistent home, and pip installs go through
+          # egress-proxy (Debian's system Python is externally managed).
+          run '{"argv":["sh","-c","python3 -c \"import sys; print(sys.prefix)\"; pip install --quiet cowsay && python3 -c \"import cowsay; print(cowsay.__name__)\""],"timeoutMs":120000}' \
+            > /tmp/pip.json
+          cat /tmp/pip.json
+          grep -q '/home/agent/.venv' /tmp/pip.json
+          grep -qF '"text":"cowsay\n"' /tmp/pip.json
 
           # A file round-trip, and a symlink out refused (planted as the workspace's owner, since root
           # has no DAC_OVERRIDE here).
@@ -170,6 +203,8 @@ jobs:
           run '{"argv":["python3","-c","print(1)"]}' > /tmp/print2.json
           grep -qF '"text":"1\n"' /tmp/print2.json
           docker rm -f sandbox-ci
+          docker rm -f egress-ci
+          docker network rm sandbox-ci-net
           docker volume rm sandbox-secret-ci
       - name: Show the daemon log on failure
         if: failure()

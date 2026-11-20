@@ -63,6 +63,15 @@ chmod -R g+rwX /workspace 2>/dev/null || true
 chown 1000:1000 /workspace
 chmod 2770 /workspace
 
+# Debian marks the system Python as externally managed (PEP 668), so pip installs go into a venv in
+# the persistent home volume. Create it once, on first start, and give it back to the command user.
+if [ ! -x /home/agent/.venv/bin/python ]; then
+  echo "sandbox: creating the Python virtualenv in /home/agent/.venv" >&2
+  chown -R root:root /home/agent
+  python3 -m venv --clear /home/agent/.venv
+  chown -R 1000:1000 /home/agent
+fi
+
 # /handoff is mounted read-only in Compose, so its mode cannot change; core-created files are
 # world-readable, which is what commands need. chmod failing with EROFS is the signal to leave it.
 if chmod 2750 /handoff 2>/dev/null; then

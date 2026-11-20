@@ -78,7 +78,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SandboxDaem
     ...(env.SANDBOX_COMMAND_GID && { commandGid: Number(env.SANDBOX_COMMAND_GID) }),
     commandHome: env.SANDBOX_COMMAND_HOME ?? '/home/agent',
     commandUser: env.SANDBOX_COMMAND_USER ?? 'agent',
-    commandPath: env.SANDBOX_COMMAND_PATH ?? '/usr/local/bin:/usr/bin:/bin:/home/agent/.local/bin',
+    commandPath:
+      env.SANDBOX_COMMAND_PATH ??
+      '/home/agent/.venv/bin:/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin',
     setprivPath: env.SANDBOX_SETPRIV ?? '/usr/bin/setpriv',
     ...(commandProxy && { commandProxy }),
   };

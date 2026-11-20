@@ -119,6 +119,24 @@ export class SandboxService {
     }
   }
 
+  /**
+   * Where an attachment from the owner lives, as the active driver names it (#100). The note the
+   * model receives must use the sandbox's absolute path, not core's host path: a shitsuji attachment
+   * under `<dataDir>/handoff` becomes `/handoff/photo.jpg`, which works both in the file tools and
+   * in a shell command whose cwd is `/workspace`. The host driver keeps its absolute path. A
+   * missing sandbox or an unresolvable file falls back to the bare name.
+   */
+  async attachmentPath(hostPath: string): Promise<string> {
+    const files = this.opened?.sandbox.files;
+    if (!files) return hostPath;
+    const name = hostPath.split(/[\\/]/).pop() ?? hostPath;
+    try {
+      return await files.resolveRead(name);
+    } catch {
+      return name;
+    }
+  }
+
   /** Driver health, then the egress claim again (S42); a broken claim throws `SandboxUnavailable`. */
   async health(): Promise<DriverHealth> {
     const health = await this.deps.driver.health();

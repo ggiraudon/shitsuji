@@ -7,6 +7,7 @@ import {
   type TurnId,
 } from '../../domain/model/ids.js';
 import type { Message } from '../../domain/model/Message.js';
+import { sanitizeMessage } from '../../domain/model/Message.js';
 import { Approval, type ApprovalProps } from '../../domain/model/Approval.js';
 import { Session, type SessionKind } from '../../domain/model/Session.js';
 import type { SoulFragment, SoulRevision } from '../../domain/model/Soul.js';
@@ -229,7 +230,7 @@ export class InMemoryRepositories implements Repositories {
       if (this.state.messages.some((m) => m.id === message.id)) {
         throw new Error(`Message ${message.id} already exists`);
       }
-      this.state.messages.push(copy(message));
+      this.state.messages.push(copy(sanitizeMessage(message)));
     },
     get: async (id: MessageId) => {
       const m = this.state.messages.find((x) => x.id === id);

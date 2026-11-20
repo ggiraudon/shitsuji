@@ -3,16 +3,22 @@ import { z } from 'zod/v4';
 import type { ExecEvent, SandboxExec, SandboxFiles } from '../../../ports/SandboxDriver.js';
 import type { OutboundFiles } from '../../../ports/OutboundFiles.js';
 import { BaseTool, type ToolContext, type ToolOutput } from '../../../ports/Tool.js';
+import { binaryKindOf } from './binary.js';
 
 const MAX_READ_BYTES = 1_000_000;
 
 const readInput = z.object({
-  path: z.string().min(1).describe('File path, relative to the workspace'),
+  path: z
+    .string()
+    .min(1)
+    .describe('File path relative to the workspace, or a bare handoff file name such as photo.jpg'),
 });
 
 export class WorkspaceReadTool extends BaseTool<typeof readInput> {
   readonly name = 'workspace.read';
-  readonly description = 'Read a text file from the workspace or the handoff folder.';
+  readonly description =
+    'Read a text file from the workspace or the handoff folder. A handoff attachment can be named ' +
+    'by its bare file name (e.g. photo.jpg) or by its absolute sandbox path (e.g. /handoff/photo.jpg).';
   readonly input = readInput;
   readonly effect = 'read' as const;
   override readonly target = 'workspace' as const;
@@ -30,7 +36,17 @@ export class WorkspaceReadTool extends BaseTool<typeof readInput> {
         isError: true,
       };
     }
-    return { content: await this.files.read(file), data: { bytes: stat.size } };
+    const bytes = await this.files.readBytes(file);
+    const binary = binaryKindOf(bytes);
+    if (binary) {
+      return {
+        content:
+          `${p} is a ${binary} file (${stat.size} bytes); it is binary and cannot be read as ` +
+          'text. Use workspace.list or workspace.send for attachments.',
+        isError: true,
+      };
+    }
+    return { content: new TextDecoder('utf-8').decode(bytes), data: { bytes: stat.size } };
   }
 }
 
@@ -130,12 +146,16 @@ function occurrences(text: string, needle: string): number {
 }
 
 const listInput = z.object({
-  path: z.string().default('.').describe('Folder, relative to the workspace'),
+  path: z
+    .string()
+    .default('.')
+    .describe('Folder relative to the workspace, or a handoff folder such as /handoff'),
 });
 
 export class WorkspaceListTool extends BaseTool<typeof listInput> {
   readonly name = 'workspace.list';
-  readonly description = 'List the files and folders in a workspace or handoff folder.';
+  readonly description =
+    'List the files and folders in the workspace or a handoff folder (/handoff).';
   readonly input = listInput;
   readonly effect = 'read' as const;
   override readonly target = 'workspace' as const;
@@ -157,7 +177,7 @@ const findInput = z.object({
   path: z
     .string()
     .default('.')
-    .describe('Folder to search, relative to the workspace or the handoff folder'),
+    .describe('Folder to search, relative to the workspace or a handoff folder such as /handoff'),
   glob: z
     .string()
     .optional()
@@ -256,7 +276,12 @@ function globToRegExp(glob: string): RegExp {
 }
 
 const sendInput = z.object({
-  path: z.string().min(1).describe('File path in the workspace or the handoff folder'),
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      'File path in the workspace or the handoff folder; a bare handoff file name such as photo.jpg works',
+    ),
   caption: z.string().max(1024).optional().describe('A short caption for the recipient'),
 });
 

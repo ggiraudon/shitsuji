@@ -70,4 +70,10 @@ describe('sandboxd config (F08, S45–S46)', () => {
       configFromEnv({ SANDBOX_TOKEN: 'x', SANDBOX_EGRESS_PROXY: 'socks5://egress-proxy:1080' }),
     ).toThrow(/http/);
   });
+
+  it('puts the persistent Python venv first on a command PATH (#102)', () => {
+    const config = configFromEnv({ SANDBOX_TOKEN: 'x' });
+    expect(config.commandPath.split(':')[0]).toBe('/home/agent/.venv/bin');
+    expect(config.commandPath).toContain('/home/agent/.local/bin');
+  });
 });

@@ -10,6 +10,7 @@ import {
 } from '../../domain/model/ids.js';
 import { Approval } from '../../domain/model/Approval.js';
 import type { ContentPart, Message } from '../../domain/model/Message.js';
+import { stripNul } from '../../domain/model/Message.js';
 import { Session } from '../../domain/model/Session.js';
 import type { SoulFragment, SoulRevision } from '../../domain/model/Soul.js';
 import { Thread } from '../../domain/model/Thread.js';
@@ -416,7 +417,7 @@ export class PostgresRepositories implements Repositories {
               sql<string | null>`${m.turnId ?? null}::text`.as('turn_id'),
               sql<string>`${m.role}::text`.as('role'),
               sql<string>`${m.author}::text`.as('author'),
-              sql<string>`${JSON.stringify(m.parts)}::jsonb`.as('content'),
+              sql<string>`${JSON.stringify(stripNul(m.parts))}::jsonb`.as('content'),
               sql<string | null>`${m.channel ?? null}::text`.as('channel'),
               sql<string | null>`${m.externalRef ?? null}::text`.as('external_ref'),
               sql<boolean>`${m.withdrawn}::boolean`.as('withdrawn'),
