@@ -127,7 +127,7 @@ describe('createShitsuji', () => {
             egress: { allow: ['example.com'], deny: ['*.evil.test'] },
           },
         }),
-        { services: testServices(), plugins: [plugin] },
+        { services: testServices(), plugins: [plugin], sandboxRetry: { attempts: 1, delayMs: 0 } },
       ),
     ).rejects.toThrow(SandboxUnavailable);
 

@@ -690,70 +690,80 @@ classDiagram
 
 ## 8. The agent's computers
 
-[F08](features/F08-workspace-sandbox.md), [F09](features/F09-browser.md), [F10](features/F10-desktop.md). Three ports so
-each environment can move to a VM or a cloud sandbox without touching the runtime.
+[F08](features/F08-workspace-sandbox.md), [F09](features/F09-browser.md), [F10](features/F10-desktop.md). One
+`SandboxDriver` port, with the standard tools owned by core and registered by capability; a driver can add
+`<id>.*` tools but cannot change a standard tool's effect.
 
 ```mermaid
 classDiagram
   direction LR
-  class WorkspaceBackend {
+  class SandboxDriver {
     <<interface>>
-    +exec(request, signal) ExecEvent[]
-    +files() WorkspaceFiles
-    +health() HealthStatus
+    +id string
+    +capabilities() SandboxCapabilities
+    +open(lease) Sandbox
+    +health() DriverHealth
+    +extraTools() Tool[]
   }
-  class DockerWorkspaceBackend
-  class RemoteVmWorkspaceBackend {
-    later
+  class Sandbox {
+    +files SandboxFiles
+    +exec SandboxExec
+    +egress SandboxEgress
+    +close()
   }
-  class BrowserBackend {
+  class SandboxFiles {
     <<interface>>
-    +open(sessionId, opts) BrowserSession
+    +resolve(p) string
+    +read(p) string
+    +write(p, text, opts)
+    +list(p) FileEntry[]
+    +mkdir(p)
   }
-  class BrowserSession {
+  class SandboxExec {
     <<interface>>
-    +snapshot() PageSnapshot
-    +click(ref)
-    +type(ref, text)
-    +signIn(login)
+    +run(request, signal) ExecEvent[]
   }
-  class CdpBrowserBackend {
-    Playwright connectOverCDP
-  }
-  class ComputerBackend {
+  class SandboxEgress {
     <<interface>>
-    +state() ComputerState
-    +screenshot() Image
-    +act(action, signal) ActionResult
-    +liveView() LiveViewTicket
-    +setControl(mode)
+    +reachable(host, port, timeoutMs) bool
   }
-  class DockerDesktopBackend
-  class E2BDesktopBackend {
-    later
+  class SandboxService {
+    +start()
+    +health()
+    +tools() Tool[]
   }
-  class AccessibilityReader {
-    <<interface>>
-    +tree(window) A11ySnapshot
-    +act(snapshot, ref, action)
+  class EgressProbe {
+    +check(sandbox, capabilities) EgressReport
   }
-  class AtSpiReader {
-    Python helper via daemon
+  class HostSandboxDriver {
+    core's own process
+  }
+  class ShitsujiSandboxDriver {
+    HTTP + NDJSON to sandboxd
+  }
+  class OpenSandboxDriver {
+    deferred (S44)
   }
 
-  WorkspaceBackend <|.. DockerWorkspaceBackend
-  WorkspaceBackend <|.. RemoteVmWorkspaceBackend
-  BrowserBackend <|.. CdpBrowserBackend
-  BrowserBackend ..> BrowserSession
-  CdpBrowserBackend --> SecretBroker : sign-in fill
-  ComputerBackend <|.. DockerDesktopBackend
-  ComputerBackend <|.. E2BDesktopBackend
-  DockerDesktopBackend --> AccessibilityReader
-  AccessibilityReader <|.. AtSpiReader
+  SandboxService --> SandboxDriver
+  SandboxService --> EgressProbe
+  SandboxDriver <|.. HostSandboxDriver
+  SandboxDriver <|.. ShitsujiSandboxDriver
+  SandboxDriver <|.. OpenSandboxDriver
+  SandboxDriver ..> Sandbox : open
+  Sandbox --> SandboxFiles
+  Sandbox --> SandboxExec
+  Sandbox --> SandboxEgress
 ```
 
-`CdpBrowserBackend`, `AccessibilityReader` and `AtSpiReader` are *(named here)*. Inside the containers, the
-workspace and desktop **daemons** are separate small programs that these adapters call over HTTP.
+`ShitsujiSandboxDriver` speaks `packages/sandbox-protocol` to `sandboxd` in the `sandbox` container. Compose
+puts a `sandboxd-gateway` relay in front of it, so core never joins the sandbox network; `egress-proxy` is
+the sandbox's only way out. `EgressProbe` asks the driver to check a LAN address, core's API and Postgres at
+startup and on `health()`; a contradicted `lanBlocked` claim refuses the driver.
+
+Browser, desktop and computer-use operations (F09, F10) are capabilities of the same sandbox and driver, not
+separate ports: the daemon in the sandbox image grows the endpoints and the driver exposes them behind the
+same capability gate. The desktop layer is `shitsuji/sandbox-desktop` on top of `shitsuji/sandbox`.
 
 ## 9. Integrations
 

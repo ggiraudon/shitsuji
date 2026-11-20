@@ -23,7 +23,15 @@ export interface SandboxServiceDeps {
   /** Checks the driver's egress claim at startup and on health() (S42). */
   egress: EgressProbe;
   log: Logger;
+  /**
+   * How long a cold start waits for the driver's health check (S49). Compose starts core after the
+   * gateway, but a daemon can still be a second behind; source runs keep the one-attempt default
+   * in tests.
+   */
+  retry?: { attempts: number; delayMs: number };
 }
+
+const DEFAULT_RETRY = { attempts: 10, delayMs: 2_000 };
 
 /**
  * The one sandbox `core` talks to (F08, S40). It opens the driver's sandbox at startup, builds the
@@ -57,7 +65,7 @@ export class SandboxService {
   async start(): Promise<void> {
     if (this.opened) return;
     const driver = this.deps.driver;
-    const health = await driver.health();
+    const health = await this.waitForHealth();
     if (!health.ok) {
       throw new SandboxUnavailable(
         `The ${driver.id} sandbox is not healthy: ${health.detail ?? 'no detail given'}`,
@@ -88,6 +96,27 @@ export class SandboxService {
       egress: capabilities.egress,
       reachable: report.reachable.map((target) => `${target.host}:${target.port}`),
     });
+  }
+
+  /**
+   * A bounded wait for the driver's health check (S49): Compose orders the services, but sandboxd
+   * can still be starting when core is, and a restart is worse than a few seconds in the log. The
+   * last answer is returned to the caller, which turns it into `SandboxUnavailable`.
+   */
+  private async waitForHealth(): Promise<DriverHealth> {
+    const retry = this.deps.retry ?? DEFAULT_RETRY;
+    for (let attempt = 1; ; attempt++) {
+      const health = await this.deps.driver.health();
+      if (health.ok || attempt >= retry.attempts) return health;
+      this.deps.log.warn('Sandbox not ready; retrying', {
+        driver: this.deps.driver.id,
+        attempt,
+        attempts: retry.attempts,
+        delayMs: retry.delayMs,
+        detail: health.detail ?? 'no detail given',
+      });
+      await new Promise((resolve) => setTimeout(resolve, retry.delayMs));
+    }
   }
 
   /** Driver health, then the egress claim again (S42); a broken claim throws `SandboxUnavailable`. */

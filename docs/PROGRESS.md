@@ -114,7 +114,12 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
       Core generates the token into its own `sandbox-secret` volume (root:1002 0770, so commands
       cannot traverse to it) and writes `sandbox.egress.*` for the proxy; the
       conformance suite and the egress probes run against the real images in `pnpm test:integration`.)*
-- [ ] **S49** Switch the default, live check and docs
+- [x] **S49** Switch the default, live check and docs
+      *(Compose selects the `shitsuji` driver and requires isolation; the `sandbox-secret` one-shot
+      generates the token before either side starts, core waits for the gateway and retries a cold
+      daemon a bounded number of times, the core image has only Node, and the upgrade repair of an
+      existing workspace is tested. README, AGENTS, the class map, F08 and this checklist are updated;
+      the owner's Telegram live check follows the merge.)*
 
 ## Acceptance criteria by feature
 
@@ -185,14 +190,17 @@ both until every agent can reach the issues. Decisions X1–X6 are made.
 
 ### [F08 — Sandbox drivers and the workspace](features/F08-workspace-sandbox.md)
 
-- [ ] `workspace.exec("python3 -c 'print(1)'")` returns `1`; the command never runs on the host.
-- [ ] A fork bomb or `sleep infinity &` is contained (PID limit) and cleaned up on Stop.
-- [ ] The workspace has no route to Postgres or the `core` admin API (network test).
+- [x] `workspace.exec("python3 -c 'print(1)'")` returns `1`; the command never runs on the host.
+- [x] A fork bomb or `sleep infinity &` is contained (PID limit) and cleaned up on Stop.
+- [x] The workspace has no route to Postgres or the `core` admin API (network test).
 - [ ] `env` inside the workspace shows no model keys, only placeholders for the run's declared secrets.
+      *(No model keys: done. The per-run placeholders are F12.)*
 - [ ] `curl` to a LAN address or to `core` fails; `pip install` works through the proxy.
-- [ ] The `opensandbox` and `shitsuji` drivers both pass the conformance suite for every capability they claim,
-      and switching `sandbox.driver` changes no tool name, schema or effect.
-- [ ] A driver that claims `lanBlocked` while a probe gets through is refused at startup.
+      *(The LAN/proxy probes pass; the real `pip install` is part of the owner's live check.)*
+- [ ] The `opensandbox` and `shitsuji` drivers both pass the conformance suite for every capability they
+      claim, and switching `sandbox.driver` changes no tool name, schema or effect.
+      *(`shitsuji` passes; `opensandbox` is deferred by the owner, S44/#74.)*
+- [x] A driver that claims `lanBlocked` while a probe gets through is refused at startup.
 
 ### [F09 — Browser automation](features/F09-browser.md)
 

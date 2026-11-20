@@ -18,7 +18,7 @@ the tools and registers the ones the driver supports. Three drivers are planned:
 |--------|-----------|------|
 | `host` | Today's workspace tools on the host, wrapped as a driver. No isolation; it reports no egress control | First, so nothing changes while the port lands |
 | `opensandbox` | A self-hosted [OpenSandbox](https://github.com/opensandbox-group/OpenSandbox) server, reached through its TypeScript SDK | Next, to test real isolation early |
-| `shitsuji` | Our own `sandbox` container with `sandboxd`, plus `egress-proxy` | Then; the default once it passes the conformance suite |
+| `shitsuji` | Our own `sandbox` container with `sandboxd`, plus `egress-proxy` | The Compose default (S49); `host` from source |
 
 ## Inspiration
 
@@ -267,6 +267,19 @@ until core marks the file ready. Commands get `HTTP_PROXY`/`HTTPS_PROXY` and the
 from `SANDBOX_EGRESS_PROXY`, with `NO_PROXY` covering only loopback. `pnpm test:integration` builds
 the sandbox and proxy images and runs the conformance suite and the egress probes against them.
 
+**What S49 builds.** `compose.yaml` selects `sandbox.driver: shitsuji` (X3) and sets
+`sandbox.probes.requireIsolation: true`, so the deployed stack refuses a driver that makes no isolation
+claim or cannot prove one; `pnpm dev` from source keeps `host`. The `sandbox-secret` one-shot now
+generates the token before core or the sandbox starts (core still generates it when the file is absent,
+e.g. from source), and core depends on `sandboxd-gateway` being healthy, so a fresh `docker compose up`
+has no token/gateway cycle. `SandboxService` also waits for a cold daemon's health check a bounded
+number of times (ten attempts, two seconds apart, one warning per attempt), so a sandbox that is a
+second behind never costs core a restart. The runtime core image has only Node: the command-line tools
+live in the sandbox image. An existing `workspace` is kept as is; the entrypoint repairs its group
+write before it closes the folder (the repair used to run after the folder was closed to root, when
+root had no `DAC_OVERRIDE` and silently did nothing). The integration suite seeds such a workspace and
+proves the daemon can append to a 0644 file core wrote earlier.
+
 **sandboxd**, a small TypeScript daemon in `packages/sandbox-daemon`, sharing types with `core` through
 `packages/sandbox-protocol` (X1), listening only on the `sandbox` network:
 
@@ -322,6 +335,11 @@ Folders organise work; they are not security boundaries (one sandbox per owner).
 - The `opensandbox` and `shitsuji` drivers both pass the conformance suite for every capability they claim,
   and switching `sandbox.driver` changes no tool name, schema or effect.
 - A driver that claims `lanBlocked` while a probe gets through is refused at startup.
+
+**Status after S49.** The command, containment, network, egress and refusal criteria are covered by the
+conformance suite and the container probes; `workspace.driver` is `shitsuji` in Compose. Still open: the
+owner's live check from Telegram (including a real `pip install`), the F12 credential placeholders, and the
+`opensandbox` half of the driver criterion (S44 is deferred by the owner, #74).
 
 ## Risks and open questions
 

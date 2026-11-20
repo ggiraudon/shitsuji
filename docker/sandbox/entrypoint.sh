@@ -55,11 +55,13 @@ chown 1001:1000 "$TOKEN_DIR"
 chmod 0700 "$TOKEN_DIR"
 
 # The workspace is owned by the command user; group write (and the daemon's umask 0002) lets the
-# daemon's files API write there too, and the recursive chmod repairs files core created as 0644.
+# daemon's files API write there too. Root here has FOWNER but no DAC_OVERRIDE, so the recursive
+# repair runs while the folder is still traversable by root; then it is closed again for commands.
 mkdir -p /workspace /handoff
+chmod 2775 /workspace 2>/dev/null || true
+chmod -R g+rwX /workspace 2>/dev/null || true
 chown 1000:1000 /workspace
 chmod 2770 /workspace
-chmod -R g+rwX /workspace 2>/dev/null || true
 
 # /handoff is mounted read-only in Compose, so its mode cannot change; core-created files are
 # world-readable, which is what commands need. chmod failing with EROFS is the signal to leave it.

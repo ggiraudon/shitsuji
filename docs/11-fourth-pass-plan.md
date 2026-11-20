@@ -1,6 +1,6 @@
 # Fourth pass plan: F08 sandbox drivers
 
-> **Status:** planned; decisions X1–X6 taken on 2026-11-18.
+> **Status:** built (S40–S49); the owner's Telegram live check follows the merge.
 
 The fourth pass starts Phase 2 ("its own computer"). Today `workspace.exec` and the file tools run inside
 `core`'s own container, next to the model keys, the vault and the database password. This pass moves them

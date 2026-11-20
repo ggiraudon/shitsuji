@@ -13,6 +13,8 @@ services:
         condition: service_healthy
       sandbox-secret:
         condition: service_completed_successfully
+      sandboxd-gateway:
+        condition: service_healthy
     environment:
       # Use a URL-safe POSTGRES_PASSWORD (letters, digits, - and _), since it goes into this URL.
       DATABASE_URL: postgres://shitsuji:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/shitsuji
@@ -28,6 +30,10 @@ services:
       # Telegram reaches out by long polling, so no port is published for it (F06, S32).
       SHITSUJI_TELEGRAM_ENABLED: ${SHITSUJI_TELEGRAM_ENABLED:-false}
       SHITSUJI_TELEGRAM_TOKEN: ${SHITSUJI_TELEGRAM_TOKEN:-}
+      # The Compose stack runs on the sandbox driver (X3); `pnpm dev` from source keeps `host`.
+      SHITSUJI_SANDBOX_DRIVER: shitsuji
+      # A driver that cannot prove isolation is refused in the deployed stack (W4, S49).
+      SHITSUJI_SANDBOX_PROBES_REQUIRE_ISOLATION: 'true'
       # The sandboxd control port (S48). The gateway is the only path from core into the sandbox
       # network: core must not join that network, or the sandbox could dial its API.
       SHITSUJI_SANDBOX_URL: http://sandboxd-gateway:4555
@@ -133,6 +139,14 @@ services:
       - |
         chown 0:1002 /run/sandbox-secret
         chmod 0770 /run/sandbox-secret
+        # Generate the token once, before core or the sandbox starts: otherwise the sandbox would
+        # wait for core while core waits for the gateway, which waits for the sandbox (S49).
+        if [ ! -s /run/sandbox-secret/token ]; then
+          node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))" \
+            > /run/sandbox-secret/token
+        fi
+        chown 1000:1002 /run/sandbox-secret/token
+        chmod 0644 /run/sandbox-secret/token
     user: '0:0'
     volumes:
       - sandbox-secret:/run/sandbox-secret
