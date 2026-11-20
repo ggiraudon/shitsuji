@@ -28,6 +28,7 @@ function fakeClient(history: MessageDto[] = []) {
     resolved: [] as { id: string; decision: string }[],
   };
   const client: TuiClient = {
+    desktopUrl: 'http://127.0.0.1:3001/desktop',
     history: async () => ({ sessionId: 's1', messages: history }),
     send: async (content: string) => {
       calls.sent.push(content);
@@ -213,6 +214,19 @@ describe('TUI', () => {
     const frame = ui.lastFrame()!;
     expect(frame).toContain('Send /start ABCD2345 to the bot');
     expect(frame).toContain('valid until 00:10 UTC');
+    ui.unmount();
+  });
+
+  it('shows the desktop viewer URL with /desktop (S51)', async () => {
+    const { client } = fakeClient();
+    const ui = render(<ShitsujiApp client={client} />);
+    await tick();
+
+    await type(ui.stdin, '/desktop');
+    ui.stdin.write('\r');
+    await tick();
+
+    expect(ui.lastFrame()).toContain('http://127.0.0.1:3001/desktop');
     ui.unmount();
   });
 

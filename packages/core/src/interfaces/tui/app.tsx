@@ -34,6 +34,7 @@ export type TuiClient = Pick<
   | 'pair'
   | 'approvals'
   | 'resolveApproval'
+  | 'desktopUrl'
 >;
 
 let counter = 0;
@@ -194,7 +195,7 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
       if (text === '/help') {
         return add(
           'note',
-          'Enter: send (also while working). Esc: stop. /new: new conversation. /soul: the standing instructions. /pair: pair a chat. /approve, /decline: answer an approval card. /usage: what it cost. /activity: recent tool calls. /exit: quit.',
+          'Enter: send (also while working). Esc: stop. /new: new conversation. /soul: the standing instructions. /pair: pair a chat. /approve, /decline: answer an approval card. /usage: what it cost. /activity: recent tool calls. /desktop: watch the desktop. /exit: quit.',
         );
       }
       if (text.startsWith('/approve') || text.startsWith('/decline')) {
@@ -287,6 +288,9 @@ export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxL
           add('error', (error as Error).message);
         }
         return;
+      }
+      if (text === '/desktop') {
+        return add('note', `Watch the desktop (watch-only): ${client.desktopUrl}`);
       }
       if (text === '/new') {
         session.current = await client.newSession();

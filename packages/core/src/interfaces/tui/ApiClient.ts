@@ -41,6 +41,11 @@ export class ApiClient {
     }
   }
 
+  /** The watch-only desktop viewer (S51); the owner signs in there with the same key. */
+  get desktopUrl(): string {
+    return `${this.base}/desktop`;
+  }
+
   send(content: string, sessionId?: string): Promise<PostMessageResponse> {
     return this.request('POST', '/api/messages', { content, sessionId });
   }
