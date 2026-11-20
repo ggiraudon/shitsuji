@@ -47,7 +47,7 @@ The `sandbox` service from F08, switched to the desktop image. Only the differen
 
 ```yaml
 sandbox:
-  image: shitsuji/sandbox-desktop    # FROM shitsuji/sandbox + Xvfb/x11vnc + XFCE + D-Bus/AT-SPI + Chromium + LibreOffice + noVNC
+  image: shitsuji/sandbox-desktop    # FROM shitsuji/sandbox + Xvfb/x11vnc + XFCE + D-Bus/AT-SPI + Chromium + LibreOffice
   shm_size: 1g                       # Chromium needs it
   mem_limit: 6g                      # workspace and desktop together
   pids_limit: 2048
@@ -65,22 +65,24 @@ root init for no extra benefit, and Compose's `init: true` already reaps zombies
 | `xfce4-session` | 1000 | — | Window manager and desktop |
 | `x11vnc` (full) | 1001 | `127.0.0.1:5900` | VNC with the full-control password |
 | `x11vnc -viewonly` | 1001 | `127.0.0.1:5901` | VNC with the view-only password |
-| `websockify` | 1000 | sandbox network 6080 | noVNC + WebSocket for full control |
-| `websockify` | 1000 | sandbox network 6081 | noVNC + WebSocket for watch-only |
+| `websockify` | 1001 | sandbox network 6080 | Raw WebSocket for full control |
+| `websockify` | 1001 | sandbox network 6081 | Raw WebSocket for watch-only |
 | `chromium --remote-debugging-pipe --force-renderer-accessibility`, launched by `sandboxd` | 1000 | — (a CDP pipe to `sandboxd`, no port; Y3) | The agent's browser ([F09](F09-browser.md)) |
 | `sandboxd` desktop endpoints (+ AT-SPI helper) | 1001 | 4555 (the same daemon as F08) | Accessibility tree, screenshots, OCR, input, window list, app launch, clipboard |
 
 Xvnc serves one password and one mode. Two passwords (view-only and full control) therefore need two VNC
-servers on one display, so the image uses Xvfb plus two `x11vnc` instances. They run as uid 1001 because the
-passwords are generated at start into `/run/sandbox` (0700) as 0400 files owned by 1001: a command (uid 1000)
-cannot traverse the folder, and `sandboxd` (1001) reads the same files for the viewer. The VNC servers bind
-loopback; websockify is the only network-facing part. The passwords are new on every container start.
+servers on one display, so the image uses Xvfb plus two `x11vnc` instances. The two x11vnc servers and the
+two `websockify` instances run as uid 1001: the passwords are generated at start into `/run/sandbox`
+(0700) as 0400 files owned by 1001, and a command (uid 1000, no capabilities) must not be able to read
+them, signal the stream servers or bind their ports. `sandboxd` (1001) reads the passwords for the viewer.
+The VNC servers bind loopback; websockify is the only network-facing part. The passwords are new on every
+container start.
 
 No desktop port is published to the host. You watch through `core`'s authenticated viewer page at
-`/desktop` (decision Y1; the web UI of [F07](F07-web-ui.md) absorbs it later): `core` relays the WebSocket
-through `sandboxd-gateway` to websockify, with the view-only VNC password until you take control. CDP stays
-inside the container (Y3). The viewer is on `127.0.0.1` by default; it can be published on your LAN, with
-optional TLS (Y2).
+`/desktop` (decision Y1; the web UI of [F07](F07-web-ui.md) absorbs it later): `core` serves the page and
+its bundled noVNC client, and relays the raw WebSocket through `sandboxd-gateway` to websockify, with the
+view-only VNC password until you take control. CDP stays inside the container (Y3). The viewer is on
+`127.0.0.1` by default; it can be published on your LAN, with optional TLS (Y2).
 
 ### The S50 image
 
@@ -89,19 +91,21 @@ and the capability split stay exactly as F08 built them; only a desktop layer is
 matters: build and tag `shitsuji/sandbox` first, which Compose does with its `sandbox-base` service.
 
 - Package list (no recommends): XFCE, Xvfb and x11vnc, D-Bus and AT-SPI, Chromium, LibreOffice with
-  the GTK VCL plugin, Thunar, xfce4-terminal, `xdotool`, `wmctrl`, `xclip`, `scrot`, websockify and
-  the noVNC static files, plus x11-utils.
+  the GTK VCL plugin, Thunar, xfce4-terminal, `xdotool`, `wmctrl`, `xclip`, `scrot`, websockify, plus
+  x11-utils. The noVNC client is not in the image: `core` serves it with the viewer page (S51).
 - The base entrypoint still runs first as root (token, workspace repair, venv) and then execs
   `sandbox-desktop`, which generates the VNC passwords and starts supervisord. sandboxd is started by
   the supervisor as uid 1001 with the same four ambient capabilities; the desktop programs are uid
-  1000. Only the VNC servers are 1001, for the password files explained above.
+  1000. Only the stream servers (x11vnc and websockify) are 1001, so commands cannot read the
+  passwords or take over the ports.
 - Hardening is unchanged: setuid bits are stripped again after the desktop packages, `cap_drop: ALL`
   plus CHOWN/FOWNER/SETUID/SETGID/SETPCAP/KILL, `no-new-privileges`, a read-only root with `/tmp` and
   `/run/sandbox` as tmpfs, and no published port.
 - Compose gives the service `shm_size: 1g`, `mem_limit: 6g`, `pids_limit: 2048` and
   `SCREEN=1440x900x24`. The `sandbox-image` CI job waits for `:0`, lists an XFCE window, starts
   Chromium, checks that no setuid file remains and that 5900/6080/6081 are unreachable from the host,
-  and the conformance suite and egress probes also run against the desktop image.
+  checks that the supervisor's children keep no capabilities and that a command cannot signal the
+  stream servers, and the conformance suite and egress probes also run against the desktop image.
 
 ### Desktop endpoints of sandboxd
 
@@ -248,6 +252,11 @@ Two tools, matching the levels above:
 3. You sign in, solve the CAPTCHA, or fix something; then press **Give back**.
 4. The waiting turn resumes with a note of what changed (new screenshot).
 
+The display has no X access control (`Xvfb -ac`), so any process in the sandbox can read the screen and the
+keystrokes, including what you type while you have control. Do not enter a password, a one-time code or any
+other secret during Take control; credential entry belongs to the
+[F12](F12-secrets-vault.md) path.
+
 From Telegram, the agent sends a "Take control" link that opens the web UI on that screen.
 
 ## Workspace and desktop in one sandbox
@@ -274,6 +283,13 @@ in Chromium can be processed by a script and opened in LibreOffice without movin
 
 - **Resource use.** A desktop plus Chromium wants 2–4 GB RAM. Allow stopping the desktop processes when idle and
   starting them on demand (`DesktopCapability.state()` + an idle timer); the shell stays up.
+- **Chromium's process sandbox is off.** The setuid helper is stripped and the container has no user
+  namespaces, so `sandboxd` starts Chromium with `--no-sandbox` ([F09](F09-browser.md), S57). The container
+  is then the only boundary around a hostile page; that is why it holds no secrets, has no route to `core`
+  and leaves only through `egress-proxy`.
+- **The X display has no access control.** `Xvfb -ac` accepts every local client, so any process in the
+  sandbox can read the screen and the keystrokes. During Take control that includes what you type; see the
+  warning there and use the [F12](F12-secrets-vault.md) credential path, never the desktop, for secrets.
 - **Pixel-based control is slow and error-prone** with today's models; treat it as the fallback, not the main
   path.
 - **Tree quality varies by app.** GTK and Qt apps are usually good; XFCE panel applets, some Electron apps

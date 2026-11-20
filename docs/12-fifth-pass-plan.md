@@ -80,24 +80,26 @@ packages/
 #### S50. The desktop image
 - `docker/sandbox-desktop`, `FROM shitsuji/sandbox`, with a fixed package list: Xvfb and x11vnc (two
   servers, for the two passwords below), XFCE, a session D-Bus and `at-spi2-core`, Chromium, LibreOffice
-  (GTK VCL), Thunar, xfce4-terminal, `xdotool`, `wmctrl`, `xclip`, `scrot`, websockify and the noVNC
-  static files.
+  (GTK VCL), Thunar, xfce4-terminal, `xdotool`, `wmctrl`, `xclip`, `scrot`, websockify.
 - A small supervisor (supervisord: one Debian config starts programs as different uids, and Compose's
-  `init: true` already reaps zombies) starts D-Bus, AT-SPI, Xvfb, XFCE and websockify as uid 1000, after
-  the existing root entrypoint has done its repairs. The two x11vnc servers are uid 1001 so only
-  `sandboxd` can read the passwords. `sandboxd` stays uid 1001, and the hardening from S46/S48 stays:
-  setuid bits stripped, `cap_drop: ALL` plus the existing short list, no-new-privileges, a read-only root
-  with tmpfs mounts.
+  `init: true` already reaps zombies) starts D-Bus, AT-SPI, Xvfb and XFCE as uid 1000, after the existing
+  root entrypoint has done its repairs. The two x11vnc and two websockify servers are uid 1001, so only
+  `sandboxd` can read the passwords and a command cannot signal them or bind their ports. `sandboxd` stays
+  uid 1001, and the hardening from S46/S48 stays: setuid bits stripped, `cap_drop: ALL` plus the existing
+  short list, no-new-privileges, a read-only root with tmpfs mounts.
 - The accessibility settings from [F10](features/F10-desktop.md#making-apps-publish-a-tree-in-the-container):
   `GTK_MODULES=gail:atk-bridge`, `QT_ACCESSIBILITY=1`, toolkit accessibility on, and Chromium with
   `--force-renderer-accessibility`.
 - VNC has **two passwords**, generated at start into a file only `sandboxd` can read: one view-only, one full
-  control. websockify listens on the sandbox network only. No port is published.
+  control. websockify exposes only the raw WebSocket on the sandbox network; `core` serves the viewer page
+  and its noVNC client (S51). No port is published.
 - Compose: `sandbox` uses the desktop image, `shm_size: 1g`, `mem_limit: 6g`, `pids_limit: 2048`,
   `SCREEN=1440x900x24`.
 - *Check:* the `sandbox-image` CI job builds the desktop image, waits for `:0`, lists an XFCE window with
   `wmctrl`, starts Chromium, finds no setuid file, and probes that 5900/6080/6081 are not reachable from
-  outside the sandbox network. The conformance suite and egress probes also run against it.
+  outside the sandbox network. It also checks that the supervisor's children have no capabilities, that
+  only `sandboxd` keeps its four, and that a command cannot signal the stream servers. The conformance suite
+  and egress probes also run against it.
 
 #### S51. The viewer page
 - `core` serves `GET /desktop`: a single page with the noVNC client, served from `core` (no CDN), in

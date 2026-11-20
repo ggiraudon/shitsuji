@@ -99,7 +99,7 @@ flowchart LR
     web --> core
     core[core\nAPI · runtime · scheduler\nchannel gateway · trust · vault]
     core --> db[(postgres\n+ pgvector)]
-    core -- sandbox driver --> sb[sandbox\nsandboxd: shell + files\ndesktop layer: XFCE · Chromium · noVNC]
+    core -- sandbox driver --> sb[sandbox\nsandboxd: shell + files\ndesktop layer: XFCE · Chromium · VNC/WebSocket]
     core -. optional .-> llm[ollama / localai]
     sb --> eg[egress-proxy
 LAN block · credential swap]
@@ -114,7 +114,7 @@ LAN block · credential swap]
 |---------|-------|----------------|---------|-------|
 | `core` | `shitsuji/core` (Node 22) | Yes: model keys, vault, Telegram token | `internal` + `egress` | The only service that talks to the database and to model APIs |
 | `postgres` | `pgvector/pgvector` | DB password | `internal` only | Threads, turns, tasks, memory, usage, jobs (pg-boss) |
-| `sandbox` | `shitsuji/sandbox` (Debian + Python, Node, git, ffmpeg, pandoc, … + `sandboxd`), or `shitsuji/sandbox-desktop` built on it (XFCE + Xvfb/x11vnc + noVNC + Chromium + LibreOffice + AT-SPI) | **None** (placeholders only) | `sandbox` only | Used by the `shitsuji` sandbox driver ([F08](features/F08-workspace-sandbox.md)). Runs commands as an unprivileged user through `sandboxd`, and hosts the agent's GUI and browser. Chromium exposes CDP only on the `sandbox` network; noVNC for "Take control". No route to Postgres. |
+| `sandbox` | `shitsuji/sandbox` (Debian + Python, Node, git, ffmpeg, pandoc, … + `sandboxd`), or `shitsuji/sandbox-desktop` built on it (XFCE + Xvfb/x11vnc + Chromium + LibreOffice + AT-SPI) | **None** (placeholders only) | `sandbox` only | Used by the `shitsuji` sandbox driver ([F08](features/F08-workspace-sandbox.md)). Runs commands as an unprivileged user through `sandboxd`, and hosts the agent's GUI and browser. Chromium exposes CDP only on the `sandbox` network; `core` serves the noVNC viewer for "Take control". No route to Postgres. |
 | `egress-proxy` | `shitsuji/egress` (Node) | Its own CA key and a token for `core`; no stored secrets | `sandbox` + `internal` + `egress` | The sandbox's only way out: blocks your LAN and `core`, tunnels ordinary HTTPS, and swaps placeholders for real credentials on bound hosts ([F12](features/F12-secrets-vault.md#the-credential-injecting-egress-proxy)) |
 | `ollama` / `localai` | upstream | None | `internal` | Compose **profile** `local-models`, off by default |
 | `proxy` | `caddy` | TLS certs | `public` + `internal` | Optional HTTPS for remote access. Binds `127.0.0.1` by default. |
