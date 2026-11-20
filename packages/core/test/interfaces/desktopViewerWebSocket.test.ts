@@ -1,5 +1,5 @@
-import net, { type AddressInfo } from 'node:net';
-import WebSocket from 'ws';
+import type { AddressInfo } from 'node:net';
+import WebSocket, { WebSocketServer } from 'ws';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryLogger } from '../../src/adapters/logging/loggers.js';
 import { asId, type OwnerId } from '../../src/domain/model/ids.js';
@@ -13,11 +13,10 @@ import type { ApiDeps } from '../../src/interfaces/http/createApi.js';
 const KEY = 'owner-key';
 const OWNER = asId<OwnerId>('owner');
 
-let upstream: net.Server;
+let upstream: WebSocketServer;
 let upstreamPort: number;
 let connections = 0;
 let api: RunningApi;
-const sockets = new Set<net.Socket>();
 
 const setupApi = (cookieTtlMs = 60_000): Promise<RunningApi> => {
   return startApiServer(
@@ -90,21 +89,20 @@ const echo = (cookie: string): Promise<{ banner: string; echoed: string }> =>
 
 beforeEach(async () => {
   connections = 0;
-  upstream = net.createServer((socket) => {
+  upstream = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  upstream.on('connection', (socket) => {
     connections += 1;
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-    socket.write('banner\n');
-    socket.on('data', (data) => socket.write(`echo:${data.toString()}`));
+    socket.send('banner\n');
+    socket.on('message', (data) => socket.send(`echo:${data.toString()}`));
   });
-  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => upstream.once('listening', resolve));
   upstreamPort = (upstream.address() as AddressInfo).port;
   api = await setupApi();
 });
 
 afterEach(async () => {
   await api.close();
-  for (const socket of sockets) socket.destroy();
+  for (const client of upstream.clients) client.terminate();
   await new Promise<void>((resolve) => upstream.close(() => resolve()));
 });
 

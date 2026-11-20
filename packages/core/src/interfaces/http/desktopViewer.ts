@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import net from 'node:net';
 import { dirname, resolve, sep } from 'node:path';
 import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { UpgradeWebSocket } from 'hono/ws';
+import WebSocket from 'ws';
 import type { OwnerId } from '../../domain/model/ids.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { Logger } from '../../ports/Logger.js';
@@ -170,36 +170,44 @@ export function registerViewer(app: Hono, deps: ViewerDeps): void {
         return next();
       },
       deps.upgradeWebSocket(() => {
-        let upstream: net.Socket | undefined;
+        let upstream: WebSocket | undefined;
         return {
           onOpen(_event, ws) {
-            const socket = net.connect({ host: deps.stream.host, port: deps.stream.port });
+            const socket = new WebSocket(`ws://${deps.stream.host}:${deps.stream.port}/`, {
+              perMessageDeflate: false,
+            });
             upstream = socket;
-            socket.on('data', (chunk) => {
-              if (ws.readyState === 1) ws.send(new Uint8Array(chunk));
+            socket.on('message', (data) => {
+              if (ws.readyState === 1) ws.send(new Uint8Array(data as Buffer));
             });
             socket.on('error', () => ws.close(1011, 'viewer stream unavailable'));
             socket.on('close', () => ws.close(1000, 'viewer stream closed'));
           },
           onMessage(event) {
-            if (!upstream) return;
+            if (!upstream || upstream.readyState !== WebSocket.OPEN) return;
             const data = event.data;
             if (typeof data === 'string') {
-              upstream.write(data);
+              upstream.send(data);
             } else if (data instanceof ArrayBuffer) {
-              upstream.write(Buffer.from(data));
+              upstream.send(new Uint8Array(data), { binary: true });
             } else if (ArrayBuffer.isView(data)) {
-              upstream.write(Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+              upstream.send(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), {
+                binary: true,
+              });
             } else if (typeof Blob !== 'undefined' && data instanceof Blob) {
-              void data.arrayBuffer().then((buffer) => upstream?.write(Buffer.from(buffer)));
+              void data.arrayBuffer().then((buffer) => {
+                if (upstream?.readyState === WebSocket.OPEN) {
+                  upstream.send(new Uint8Array(buffer), { binary: true });
+                }
+              });
             }
           },
           onClose() {
-            upstream?.destroy();
+            upstream?.close();
             upstream = undefined;
           },
           onError() {
-            upstream?.destroy();
+            upstream?.terminate();
             upstream = undefined;
           },
         };
