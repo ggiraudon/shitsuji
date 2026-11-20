@@ -237,6 +237,51 @@ describe('exec supervisor (F08, S46)', () => {
     expect(Date.now() - started).toBeLessThan(10_000);
   });
 
+  it('gives a command the egress proxy variables, and NO_PROXY with nothing internal', async () => {
+    const proxied = new ExecSupervisor(
+      {
+        resolveExisting: async () => path.join(base, 'workspace'),
+      } as unknown as SandboxPaths,
+      {
+        maxTimeoutMs: 10_000,
+        maxOutputBytes: 10_000,
+        env: {
+          PATH: '/bin:/usr/bin',
+          HOME: '/home/agent',
+          LANG: 'C.UTF-8',
+          USER: 'agent',
+          proxy: 'http://egress-proxy:3128',
+        },
+      },
+    );
+    const events: ExecEvent[] = [];
+    await proxied.run(
+      {
+        argv: argv('console.log(JSON.stringify(process.env))'),
+        cwd: '.',
+        env: {},
+        timeoutMs: 10_000,
+      },
+      (event) => events.push(event),
+    );
+    const env = JSON.parse(textOf(events).trim()) as Record<string, string>;
+
+    expect(env).toMatchObject({
+      HTTP_PROXY: 'http://egress-proxy:3128',
+      HTTPS_PROXY: 'http://egress-proxy:3128',
+      NO_PROXY: '127.0.0.1,localhost,::1',
+    });
+    // Windows environment names are case-insensitive, so only one spelling survives there.
+    if (process.platform !== 'win32') {
+      expect(env).toMatchObject({
+        http_proxy: 'http://egress-proxy:3128',
+        https_proxy: 'http://egress-proxy:3128',
+        no_proxy: '127.0.0.1,localhost,::1',
+      });
+    }
+    expect(env.NO_PROXY).not.toMatch(/core|postgres|egress-proxy/);
+  });
+
   it.skipIf(process.platform === 'win32')(
     'stops the whole process group, including a detached child',
     async () => {

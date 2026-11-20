@@ -111,6 +111,12 @@ describe('sandbox files API (F08, S45)', () => {
     expect(await files.stat('workspace', 'nope.txt')).toEqual({ exists: false });
   });
 
+  it('creates a folder inside the workspace, and refuses the read-only root', async () => {
+    expect(await files.mkdir('workspace', 'shared/tools')).toEqual({ created: true });
+    expect(fs.statSync(path.join(base, 'workspace', 'shared', 'tools')).isDirectory()).toBe(true);
+    expect(await codeOf(files.mkdir('handoff', 'outbox'))).toBe('read_only');
+  });
+
   it('moves a file, refusing to overwrite unless asked', async () => {
     const write = (name: string, content: string) =>
       files.write('workspace', {

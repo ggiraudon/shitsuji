@@ -1,49 +1,72 @@
 #!/bin/sh
 # sandboxd's entrypoint (F08, S46). It runs as root once, so it can make the files writable by the
-# command user and put the sandbox token where only the daemon can read it; then it starts the daemon
-# as uid 1001, keeping just the capabilities commands and stops need.
+# command user and install the sandbox token where only the daemon can read it; then it starts the
+# daemon as uid 1001, keeping just the capabilities commands and stops need.
 #
 # Why uid separation: /proc/<pid>/environ keeps a process's startup environment, so a token kept in
 # the daemon's environment (or in a file the same uid can read) is readable by anything running as
-# that uid. The daemon is 1001, commands are 1000, and the token file is 0400 owned by 1001.
+# that uid. The daemon is 1001, commands are 1000, and the token is 0400 owned by 1001 inside a 0700
+# folder. That folder is a tmpfs in Compose (the root filesystem is read-only).
+#
+# Two ways to give the daemon its token:
+#   - Compose mounts the `sandbox-secret` volume read-only at /run/sandbox-seed. Its root is
+#     root:1002 0770 and the token is 0644; only this root entrypoint (the directory's owner) can
+#     read it, while commands (uid 1000, no group 1002) cannot even traverse the directory.
+#   - CI and development set SANDBOX_TOKEN and this script writes /run/sandbox/token itself.
 #
 # The container needs only these capabilities (compose uses cap_drop: ALL + cap_add):
 #   CHOWN   chown the token file and the workspace
-#   FOWNER  chmod files in the workspace that core created
+#   FOWNER  chmod files in the workspace that core created, and the token folder
 #   SETUID  start the daemon as 1001 and each command as 1000
 #   SETGID  the same, for the group
 #   SETPCAP set the daemon's ambient capabilities and empty each command's bounding set
 #   KILL    stop a command that runs as another uid
+#
+# It has no DAC_OVERRIDE, so it opens the token folder while it installs the token, then closes it
+# before sandboxd (and therefore any command) starts.
 set -eu
 
 TOKEN_FILE="${SANDBOX_TOKEN_FILE:-/run/sandbox/token}"
+TOKEN_DIR="$(dirname "$TOKEN_FILE")"
+SEED_FILE="${SANDBOX_TOKEN_SEED:-/run/sandbox-seed/token}"
 
-mkdir -p "$(dirname "$TOKEN_FILE")"
-# Write the token while the folder is root-owned: as root without DAC_OVERRIDE, writing into a
-# folder owned by someone else would be denied.
-chown root:root "$(dirname "$TOKEN_FILE")"
-chmod 0755 "$(dirname "$TOKEN_FILE")"
-if [ -n "${SANDBOX_TOKEN:-}" ]; then
+# A fresh stack starts the sandbox before core has generated the token; wait instead of looping.
+waited=0
+while [ ! -s "$SEED_FILE" ] && [ -z "${SANDBOX_TOKEN:-}" ] && [ "$waited" -lt 60 ]; do
+  sleep 1
+  waited=$((waited + 1))
+done
+
+# Open the folder while the token is installed; root here has FOWNER and CHOWN but not DAC_OVERRIDE.
+chown root:root "$TOKEN_DIR" 2>/dev/null || true
+chmod 0755 "$TOKEN_DIR" 2>/dev/null || true
+if [ -s "$SEED_FILE" ]; then
+  cp "$SEED_FILE" "$TOKEN_FILE"
+elif [ -n "${SANDBOX_TOKEN:-}" ]; then
   printf '%s' "$SANDBOX_TOKEN" > "$TOKEN_FILE"
-fi
-unset SANDBOX_TOKEN
-
-if [ ! -s "$TOKEN_FILE" ]; then
-  echo "sandbox: SANDBOX_TOKEN (or SANDBOX_TOKEN_FILE) is required; refusing to start without authentication" >&2
+else
+  echo "sandbox: no token: mount one at $SEED_FILE or set SANDBOX_TOKEN; refusing to start without authentication" >&2
   exit 1
 fi
+unset SANDBOX_TOKEN
 chown 1001:1000 "$TOKEN_FILE"
 chmod 0400 "$TOKEN_FILE"
-chown 1001:1000 "$(dirname "$TOKEN_FILE")"
-chmod 0700 "$(dirname "$TOKEN_FILE")"
+chown 1001:1000 "$TOKEN_DIR"
+chmod 0700 "$TOKEN_DIR"
 
 # The workspace is owned by the command user; group write (and the daemon's umask 0002) lets the
 # daemon's files API write there too, and the recursive chmod repairs files core created as 0644.
 mkdir -p /workspace /handoff
-chown 1000:1000 /workspace /handoff
+chown 1000:1000 /workspace
 chmod 2770 /workspace
-chmod 2750 /handoff
-chmod -R g+rwX /workspace /handoff 2>/dev/null || true
+chmod -R g+rwX /workspace 2>/dev/null || true
+
+# /handoff is mounted read-only in Compose, so its mode cannot change; core-created files are
+# world-readable, which is what commands need. chmod failing with EROFS is the signal to leave it.
+if chmod 2750 /handoff 2>/dev/null; then
+  chown 1000:1000 /handoff 2>/dev/null || true
+  chmod -R g+rwX /handoff 2>/dev/null || true
+fi
 
 export SANDBOX_TOKEN_FILE="$TOKEN_FILE"
 export SANDBOX_COMMAND_UID="${SANDBOX_COMMAND_UID:-1000}"

@@ -107,11 +107,40 @@ describe('createShitsuji', () => {
     const { plugin } = fakes([]);
 
     await expect(
-      createShitsuji(config({ sandbox: { driver: 'shitsuji' } }), {
+      createShitsuji(config({ sandbox: { driver: 'opensandbox' } }), {
         services: testServices(),
         plugins: [plugin],
       }),
     ).rejects.toThrow(SandboxUnavailable);
+  });
+
+  it('generates the sandbox token and the proxy rules before opening the shitsuji driver (#78)', async () => {
+    const { plugin } = fakes([]);
+
+    // No sandboxd is listening, so the open fails; the shared files must exist all the same.
+    await expect(
+      createShitsuji(
+        config({
+          sandbox: {
+            driver: 'shitsuji',
+            url: 'http://127.0.0.1:1',
+            egress: { allow: ['example.com'], deny: ['*.evil.test'] },
+          },
+        }),
+        { services: testServices(), plugins: [plugin] },
+      ),
+    ).rejects.toThrow(SandboxUnavailable);
+
+    const token = fs.readFileSync(path.join(dataDir, 'sandbox.token'), 'utf8').trim();
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(path.join(dataDir, 'sandbox.token')).mode & 0o777).toBe(0o644);
+    }
+    expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'sandbox.egress.json'), 'utf8'))).toEqual({
+      allow: ['example.com'],
+      deny: ['*.evil.test'],
+      ready: true,
+    });
   });
 
   it('shows only "Stopped." when the owner stops a turn (#68)', async () => {

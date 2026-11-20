@@ -1,5 +1,7 @@
-import { createPolicy } from './rules.js';
+import fs from 'node:fs';
+import { createPolicy, type EgressPolicy } from './rules.js';
 import { createEgressProxy, type ProxyLogger } from './proxy.js';
+import { mergeRules, readRulesFile } from './rulesFile.js';
 
 /** Logs refusals and startup without ever touching request content. */
 const log: ProxyLogger = {
@@ -18,29 +20,77 @@ const listOf = (value: string | undefined): string[] =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 
+/** Before core has written the rules, nothing leaves: fail closed rather than open. */
+function closedPolicy(): EgressPolicy {
+  return {
+    allow: [],
+    deny: [],
+    decide: () => ({ allowed: false, reason: 'the egress rules are not ready yet' }),
+  };
+}
+
 function main(): void {
-  const allow = listOf(process.env.SANDBOX_EGRESS_ALLOW);
-  const deny = listOf(process.env.SANDBOX_EGRESS_DENY);
+  const fromEnv = {
+    allow: listOf(process.env.SANDBOX_EGRESS_ALLOW),
+    deny: listOf(process.env.SANDBOX_EGRESS_DENY),
+  };
+  // Core writes sandbox.egress.* here (S48). A missing file is fine for the env-only path, but
+  // once a path is configured the proxy starts closed until core marks the rules ready.
+  const file = process.env.SANDBOX_EGRESS_FILE?.trim() || undefined;
+  const policyOf = (): EgressPolicy => {
+    if (!file) return createPolicy(mergeRules(fromEnv, undefined));
+    const body = readRulesFile(file);
+    if (!body || !body.ready) return closedPolicy();
+    return createPolicy(mergeRules(fromEnv, body));
+  };
+  let policy = policyOf();
+
+  // The proxy keeps this delegating object, so a reload swaps the policy without a restart.
+  const current: EgressPolicy = {
+    get allow() {
+      return policy.allow;
+    },
+    get deny() {
+      return policy.deny;
+    },
+    decide: (host, addresses) => policy.decide(host, addresses),
+  };
+
   const port = Number(process.env.SANDBOX_EGRESS_PORT ?? 3128);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error('SANDBOX_EGRESS_PORT must be a port number between 1 and 65535.');
   }
-  let policy;
-  try {
-    policy = createPolicy({ allow, deny });
-  } catch (error) {
-    // A bad rule is a configuration error: refuse to start rather than run with a wider policy.
-    throw new Error(`invalid egress rules: ${(error as Error).message}`);
-  }
-  const server = createEgressProxy({ policy, log });
+
+  const server = createEgressProxy({ policy: current, log });
   server.listen(port, '0.0.0.0', () => {
     log.info('egress-proxy listening', {
       port,
-      mode: allow.length > 0 ? 'allow-list' : 'open',
-      allow: allow.length,
-      deny: deny.length,
+      mode: policy.allow.length > 0 ? 'allow-list' : 'open',
+      allow: policy.allow.length,
+      deny: policy.deny.length,
+      ...(file && { rulesFile: file }),
     });
   });
+
+  if (file) {
+    // A bind-mounted file changes in place, so poll it; a bad edit keeps the policy already in
+    // force rather than widening it.
+    fs.watchFile(file, { interval: 2_000, persistent: false }, () => {
+      try {
+        policy = policyOf();
+        log.info('egress rules reloaded', {
+          mode: policy.allow.length > 0 ? 'allow-list' : 'open',
+          allow: policy.allow.length,
+          deny: policy.deny.length,
+        });
+      } catch (error) {
+        log.warn('ignored an invalid egress rules change', {
+          reason: error instanceof Error ? error.message : 'unknown error',
+        });
+      }
+    });
+  }
+
   const stop = () => server.close(() => process.exit(0));
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);

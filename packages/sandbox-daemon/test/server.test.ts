@@ -58,12 +58,12 @@ describe('sandboxd HTTP surface (F08, S45)', () => {
   it('answers health without a token, and says it has no exec yet', async () => {
     const health = await call('/health', { method: 'GET' });
     expect(health.status).toBe(200);
-    expect(await health.json()).toMatchObject({ ok: true, version: 2 });
+    expect(await health.json()).toMatchObject({ ok: true, version: 3 });
 
     const capabilities = await call('/capabilities', { method: 'GET', token: TOKEN });
     expect(capabilities.status).toBe(200);
     expect(await capabilities.json()).toEqual({
-      version: 2,
+      version: 3,
       files: { roots: ['workspace', 'handoff'] },
       exec: { maxTimeoutMs: 60_000 },
     });

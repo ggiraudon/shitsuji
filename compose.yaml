@@ -11,6 +11,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      sandbox-secret:
+        condition: service_completed_successfully
     environment:
       # Use a URL-safe POSTGRES_PASSWORD (letters, digits, - and _), since it goes into this URL.
       DATABASE_URL: postgres://shitsuji:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/shitsuji
@@ -26,6 +28,15 @@ services:
       # Telegram reaches out by long polling, so no port is published for it (F06, S32).
       SHITSUJI_TELEGRAM_ENABLED: ${SHITSUJI_TELEGRAM_ENABLED:-false}
       SHITSUJI_TELEGRAM_TOKEN: ${SHITSUJI_TELEGRAM_TOKEN:-}
+      # The sandboxd control port (S48). The gateway is the only path from core into the sandbox
+      # network: core must not join that network, or the sandbox could dial its API.
+      SHITSUJI_SANDBOX_URL: http://sandboxd-gateway:4555
+      # The token goes into its own volume, not the shared data one (S48): its directory is
+      # root:1002 0770, and core has group 1002 so it can write; commands (uid 1000, gid 1000)
+      # cannot traverse it even though they share core's uid number.
+      SHITSUJI_SANDBOX_TOKEN_FILE: /run/sandbox-secret/token
+    # Lets core (uid 1000) write into the token directory, which is root:1002 0770.
+    group_add: ['1002']
     ports:
       # The webhook, on this machine only. Remote access comes later (05-open-questions D2).
       - '127.0.0.1:${SHITSUJI_WEBHOOK_PORT:-3000}:3000'
@@ -33,6 +44,7 @@ services:
       - '127.0.0.1:${SHITSUJI_API_PORT:-3001}:3001'
     volumes:
       - coredata:/data
+      - sandbox-secret:/run/sandbox-secret
     networks: [internal, egress]
     read_only: true
     tmpfs: [/tmp]
@@ -79,19 +91,168 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # The sandbox's only way out (F08, S47). Off by default with the sandbox it serves (S48 adds the
-  # service on the `sandbox` network and maps sandbox.egress.* to the two lists below). No published
-  # port: only containers on the internal network can reach it.
+  # Prepares the files the sandbox needs in the shared volume before its containers are created
+  # (S48): Compose file mounts resolve when the container is created, so these must exist first.
+  # Existing deployments keep their workspace and handoff; only missing files are made.
+  sandbox-files:
+    image: shitsuji/core
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+    entrypoint: ['node', '-e']
+    command:
+      - |
+        const fs = require('node:fs');
+        fs.mkdirSync('/data/workspace', { recursive: true });
+        fs.mkdirSync('/data/handoff', { recursive: true });
+        // The token moved to the sandbox-secret volume (S48); drop the old data-dir copy if present.
+        fs.rmSync('/data/sandbox.token', { force: true });
+        if (!fs.existsSync('/data/sandbox.egress.json')) {
+          fs.writeFileSync('/data/sandbox.egress.json', '{"ready":false}\n');
+        }
+    user: '1000:1000'
+    volumes:
+      - coredata:/data
+    network_mode: 'none'
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    restart: 'no'
+
+  # The token's directory (S48): root owns it, core is in group 1002, and 0770 keeps commands
+  # (uid/gid 1000) from even traversing it. Root here has only CHOWN and FOWNER, which is enough
+  # because it owns the fresh volume.
+  sandbox-secret:
+    image: shitsuji/core
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+    entrypoint: ['sh', '-c']
+    command:
+      - |
+        chown 0:1002 /run/sandbox-secret
+        chmod 0770 /run/sandbox-secret
+    user: '0:0'
+    volumes:
+      - sandbox-secret:/run/sandbox-secret
+    network_mode: 'none'
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+    security_opt: ['no-new-privileges:true']
+    restart: 'no'
+
+  # The sandbox itself (F08, S48). No `user:`: the entrypoint starts as root, takes the token core
+  # generated and starts sandboxd as uid 1001; commands run as 1000. The only network is `sandbox`,
+  # whose only way out is egress-proxy.
+  sandbox:
+    image: shitsuji/sandbox
+    build:
+      context: .
+      dockerfile: docker/sandbox/Dockerfile
+    init: true
+    pids_limit: 1024
+    mem_limit: 4g
+    cpus: 2
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID, SETPCAP, KILL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    tmpfs: ['/tmp:size=1g', '/run/sandbox:size=1m']
+    volumes:
+      - type: volume
+        source: coredata
+        target: /workspace
+        volume: { subpath: workspace }
+      - type: volume
+        source: coredata
+        target: /handoff
+        volume: { subpath: handoff }
+        read_only: true
+      - type: volume
+        source: sandbox-secret
+        target: /run/sandbox-seed
+        read_only: true
+      - sandbox-home:/home/agent
+    networks: [sandbox]
+    environment:
+      SANDBOX_TOKEN_SEED: /run/sandbox-seed/token
+      SANDBOX_TOKEN_FILE: /run/sandbox/token
+      # Commands get this as HTTP(S)_PROXY and the lowercase forms (S48).
+      SANDBOX_EGRESS_PROXY: http://egress-proxy:3128
+    depends_on:
+      sandbox-files:
+        condition: service_completed_successfully
+      sandbox-secret:
+        condition: service_completed_successfully
+      egress-proxy:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4555/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # The only path from core into the sandbox network (S48): core talks to sandboxd through this
+  # relay, so the sandbox cannot dial core's API and the lanBlocked probe holds. It forwards one
+  # port and knows no token; sandboxd still authenticates core.
+  sandboxd-gateway:
+    image: shitsuji/sandbox
+    entrypoint: ['node', '/app/dist/gateway-main.js']
+    environment:
+      SANDBOX_GATEWAY_PORT: 4555
+      SANDBOX_GATEWAY_TARGET: sandbox:4555
+    networks: [internal, sandbox]
+    read_only: true
+    tmpfs: [/tmp]
+    user: '1000:1000'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    depends_on:
+      sandbox:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const s=require('node:net').connect(4555,'127.0.0.1');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # The sandbox's only way out (F08, S47). On the `sandbox` network only; no published port, so only
+  # the sandbox can use it. Core writes `sandbox.egress.allow/deny` to the mounted rules file (S48).
   egress-proxy:
-    profiles: ['sandbox']
     image: shitsuji/egress
     build:
       context: .
       dockerfile: docker/egress-proxy/Dockerfile
     environment:
-      # Empty is the open default: private addresses are always blocked. Comma- or space-separated.
+      # The env lists still apply, merged with the file; empty is the open default.
       SANDBOX_EGRESS_ALLOW: ${SANDBOX_EGRESS_ALLOW:-}
       SANDBOX_EGRESS_DENY: ${SANDBOX_EGRESS_DENY:-}
+      # Until core writes `ready: true`, the proxy denies everything rather than starting open.
+      SANDBOX_EGRESS_FILE: /etc/egress/rules.json
+    volumes:
+      - type: volume
+        source: coredata
+        target: /etc/egress/rules.json
+        volume: { subpath: sandbox.egress.json }
+        read_only: true
+    depends_on:
+      sandbox-files:
+        condition: service_completed_successfully
     networks: [sandbox, egress]
     read_only: true
     tmpfs: [/tmp]
@@ -135,13 +296,17 @@ networks:
     internal: true
   # Outbound internet for core (model APIs, Telegram later). Postgres is not on it.
   egress: {}
-  # The sandbox's isolated network (F08, S47): no route out except through egress-proxy, and core is
-  # not on it.
+  # The sandbox's isolated network (F08, S47): no route out except through egress-proxy. The sandbox
+  # and the relay are on it; core is not (S48), so the sandbox cannot reach core's API.
   sandbox:
     internal: true
 
 volumes:
   pgdata:
   coredata:
+  # The sandbox token: root:1002 0770, out of a command's reach (F08, S48).
+  sandbox-secret:
+  # pip/npm installs and, later, browser profiles for commands (F08, S48).
+  sandbox-home:
   # OpenSandbox's SQLite store for the spike; separate from the stack's data.
   opensandbox-data:

@@ -22,6 +22,8 @@ export interface SandboxDaemonConfig {
   commandPath: string;
   /** `setpriv`, which drops each command to the command identity and clears its capabilities. */
   setprivPath: string;
+  /** The egress proxy commands get in HTTP_PROXY/HTTPS_PROXY (S48); unset means no proxy. */
+  commandProxy?: string;
 }
 
 /**
@@ -52,6 +54,18 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SandboxDaem
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error('SANDBOX_PORT must be a port number between 1 and 65535.');
   }
+  const commandProxy = env.SANDBOX_EGRESS_PROXY?.trim() || undefined;
+  if (commandProxy) {
+    let url: URL;
+    try {
+      url = new URL(commandProxy);
+    } catch {
+      throw new Error('SANDBOX_EGRESS_PROXY must be an http:// or https:// URL.');
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('SANDBOX_EGRESS_PROXY must be an http:// or https:// URL.');
+    }
+  }
   return {
     token,
     port,
@@ -66,5 +80,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SandboxDaem
     commandUser: env.SANDBOX_COMMAND_USER ?? 'agent',
     commandPath: env.SANDBOX_COMMAND_PATH ?? '/usr/local/bin:/usr/bin:/bin:/home/agent/.local/bin',
     setprivPath: env.SANDBOX_SETPRIV ?? '/usr/bin/setpriv',
+    ...(commandProxy && { commandProxy }),
   };
 }

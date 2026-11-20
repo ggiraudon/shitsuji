@@ -149,6 +149,20 @@ describe('environment overrides', () => {
     expect(() => load({ SHITSUJI_API_ENABLED: 'maybe' })).toThrow(/api\.enabled/);
   });
 
+  it('reads the sandbox driver, its URL and the egress lists from the environment (S48)', () => {
+    const { config } = load({
+      SHITSUJI_SANDBOX_DRIVER: 'shitsuji',
+      SHITSUJI_SANDBOX_URL: 'http://sandboxd-gateway:4555',
+      SHITSUJI_SANDBOX_EGRESS_ALLOW: 'example.com, *.example.org',
+      SHITSUJI_SANDBOX_EGRESS_DENY: 'bad.test  worse.test',
+    });
+
+    expect(config.sandbox.driver).toBe('shitsuji');
+    expect(config.sandbox.url).toBe('http://sandboxd-gateway:4555');
+    expect(config.sandbox.egress.allow).toEqual(['example.com', '*.example.org']);
+    expect(config.sandbox.egress.deny).toEqual(['bad.test', 'worse.test']);
+  });
+
   it('reads Telegram from the environment, keeping the token secret (S32)', () => {
     const { config } = load({
       SHITSUJI_TELEGRAM_ENABLED: 'true',

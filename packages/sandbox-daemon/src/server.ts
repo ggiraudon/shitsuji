@@ -11,8 +11,12 @@ import {
   healthReplySchema,
   listFilesReplySchema,
   listFilesRequestSchema,
+  mkdirReplySchema,
+  mkdirRequestSchema,
   moveFileReplySchema,
   moveFileRequestSchema,
+  probeReplySchema,
+  probeRequestSchema,
   readFileReplySchema,
   readFileRequestSchema,
   signalExecReplySchema,
@@ -31,6 +35,7 @@ import { tokenMatches } from './auth.js';
 import type { ExecSupervisor } from './exec.js';
 import { invalidRequest, notFound, SandboxHttpError, tooLarge } from './errors.js';
 import type { SandboxFilesService } from './files.js';
+import { probePort } from './probe.js';
 
 export interface SandboxServerDeps {
   token: string;
@@ -104,6 +109,16 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
           const request = parse(statFileRequestSchema, body);
           const reply = await deps.files.stat(request.root as SandboxRoot, request.path);
           return send(res, 200, statFileReplySchema.parse(reply));
+        }
+        case SANDBOX_ROUTES.mkdir: {
+          const request = parse(mkdirRequestSchema, body);
+          const reply = await deps.files.mkdir(request.root, request.path);
+          return send(res, 200, mkdirReplySchema.parse(reply));
+        }
+        case SANDBOX_ROUTES.probe: {
+          const request = parse(probeRequestSchema, body);
+          const reachable = await probePort(request.host, request.port, request.timeoutMs);
+          return send(res, 200, probeReplySchema.parse({ reachable }));
         }
         case SANDBOX_ROUTES.move: {
           const request = parse(moveFileRequestSchema, body);

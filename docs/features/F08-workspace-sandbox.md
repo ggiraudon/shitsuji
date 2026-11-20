@@ -123,10 +123,14 @@ and never inherit the daemon's, so nothing the daemon holds is in `env`.
 keeps the startup environment, so deleting `SANDBOX_TOKEN` from `process.env` does not remove it, and a
 same-uid command could read either the environment or a file. So the image runs commands as uid 1000
 (`agent`) and sandboxd as uid 1001 (`sandboxd`), with the token in `/run/sandbox/token` (0400, owned by
-1001). A root entrypoint writes or takes the token, owns it to 1001, fixes the workspace modes (2770,
-owned by 1000, group-writable so the daemon's files API works) and starts the daemon with only `SETUID`,
-`SETGID`, `SETPCAP` and `KILL`. A command therefore cannot read the token file, the daemon's
-`/proc/<pid>/environ`, or the token in `env` — the container test checks all three.
+1001). In Compose the token comes from its own `sandbox-secret` volume: its directory is `root:1002`
+mode 0770 and the token is 0644. Core (uid 1000, **group 1002** via `group_add`) writes the token; a
+command (uid 1000, gid 1000) cannot traverse the directory, so it cannot read the seed file even
+though the file itself is world-readable. The root entrypoint owns the directory, reads the seed, owns
+the installed token to 1001, fixes the workspace modes (2770, owned by 1000, group-writable so the
+daemon's files API works) and starts the daemon with only `SETUID`, `SETGID`, `SETPCAP` and `KILL`.
+A command therefore cannot read the seed or `/run/sandbox/token`, the daemon's `/proc/<pid>/environ`,
+or a token in `env` — the container test checks all of it.
 
 **A command gets no capabilities.** `spawn(..., { uid })` only calls `setuid`, and a non-root to non-root
 change does not clear the capability sets, so the daemon's ambient `SETUID`/`SETGID`/`KILL` would survive
@@ -213,9 +217,10 @@ sandbox:
   # sandboxd as uid 1001; commands run as 1000 (S46).
   init: true
   cap_drop: [ALL]
+  cap_add: [CHOWN, FOWNER, SETUID, SETGID, SETPCAP, KILL]
   security_opt: [no-new-privileges:true]
   read_only: true
-  tmpfs: ["/tmp:size=1g"]
+  tmpfs: ["/tmp:size=1g", "/run/sandbox:size=1m"]
   pids_limit: 1024
   mem_limit: 4g
   cpus: 2
@@ -228,11 +233,39 @@ sandbox:
       source: coredata
       target: /handoff
       volume: { subpath: handoff }
+      read_only: true
+    - type: volume                   # the token, in its own volume: root:1002 0770 (S48)
+      source: sandbox-secret
+      target: /run/sandbox-seed
+      read_only: true
     - sandbox-home:/home/agent       # pip/npm installs, later browser profiles
   networks: [sandbox]                # internet only through egress-proxy
   environment:
-    SANDBOX_TOKEN: ${SANDBOX_TOKEN}  # only secret: authenticates core to sandboxd
+    SANDBOX_EGRESS_PROXY: http://egress-proxy:3128  # HTTP(S)_PROXY for commands (S48)
 ```
+
+Core is **not** on the `sandbox` network (S48): a small `sandboxd-gateway` relay, on `internal` and
+`sandbox` only, forwards core's control port to sandboxd. Without it the sandbox could dial core's
+admin API on the shared bridge, and the `lanBlocked` probe would rightly refuse the driver; Docker
+networks have no per-port isolation.
+
+**What S48 builds.** `packages/core/src/adapters/sandbox/shitsuji` is an HTTP client for sandboxd
+that validates every reply with `sandbox-protocol`; it reports `lanBlocked: true` and
+`credentialSwap: false`. Compose adds `sandbox`, `sandboxd-gateway` and `egress-proxy`, plus
+one-shot `sandbox-files` and `sandbox-secret` services that seed the workspace and the closed
+`"ready": false` rules file, and prepare the token volume (`root:1002` 0770), because Compose
+resolves file subpaths when it creates a container. Core generates the token on first start
+(32 random bytes) into the `sandbox-secret` volume, which it mounts at `/run/sandbox-secret`
+with `group_add: ['1002']`, so core can write into the root-owned 0770 directory but commands
+(uid 1000, gid 1000) cannot. The sandbox mounts the same volume read-only at `/run/sandbox-seed`;
+the root entrypoint copies the token to `/run/sandbox/token` (0400, uid 1001). Since root runs
+with `cap_drop: ALL`, it has no `DAC_OVERRIDE`: it opens the 0700 folder while it copies the
+token, then closes it before sandboxd starts, and it can read the seed because it owns that
+directory. `sandbox.egress.allow/deny` is written to
+`<dataDir>/sandbox.egress.json`, which the proxy mounts and polls; the proxy denies everything
+until core marks the file ready. Commands get `HTTP_PROXY`/`HTTPS_PROXY` and the lowercase forms
+from `SANDBOX_EGRESS_PROXY`, with `NO_PROXY` covering only loopback. `pnpm test:integration` builds
+the sandbox and proxy images and runs the conformance suite and the egress probes against them.
 
 **sandboxd**, a small TypeScript daemon in `packages/sandbox-daemon`, sharing types with `core` through
 `packages/sandbox-protocol` (X1), listening only on the `sandbox` network:
@@ -241,7 +274,8 @@ sandbox:
 |----------|---------|
 | `POST /exec` | Start a command: `{ argv, cwd, env, timeoutMs, stdin? }` → stream of stdout/stderr chunks, then the exit code |
 | `POST /exec/:id/signal` | Stop a command: kill its whole process group, then `SIGKILL` after a grace period |
-| `POST /files/read`, `/files/write`, `/files/list`, `/files/stat`, `/files/move` | File API confined to `/workspace` and `/handoff` (paths resolved, symlinks checked) |
+| `POST /files/read`, `/files/write`, `/files/list`, `/files/stat`, `/files/move`, `/files/mkdir` | File API confined to `/workspace` and `/handoff` (paths resolved, symlinks checked) |
+| `POST /probe` | Whether an address answers a TCP connection from inside the sandbox (S42 probes) |
 | `GET /capabilities`, `GET /health` | What this image supports; Compose health checks |
 
 The supervisor starts each command in its own process session (`setsid`), tracks every descendant, enforces

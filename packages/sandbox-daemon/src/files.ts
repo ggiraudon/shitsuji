@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type {
   ListFilesReply,
+  MkdirReply,
   MoveFileRequest,
   MoveFileReply,
   ReadFileReply,
@@ -81,6 +82,12 @@ export class SandboxFilesService {
       isDirectory: stat.isDirectory(),
       modifiedAt: stat.mtime.toISOString(),
     };
+  }
+
+  async mkdir(root: SandboxRoot, relative: string): Promise<MkdirReply> {
+    const dir = await this.paths.resolveForWrite(root, relative, true);
+    await fs.mkdir(dir, { recursive: true });
+    return { created: true };
   }
 
   async move(root: SandboxRoot, request: MoveFileRequest): Promise<MoveFileReply> {

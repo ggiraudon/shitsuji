@@ -7,7 +7,7 @@ import { z } from 'zod';
  */
 
 /** Bumped when a change is not backwards compatible. */
-export const SANDBOX_PROTOCOL_VERSION = 2;
+export const SANDBOX_PROTOCOL_VERSION = 3;
 
 /** The header `core` sends; the value is the sandbox's `SANDBOX_TOKEN`. */
 export const SANDBOX_TOKEN_HEADER = 'x-sandbox-token';
@@ -131,6 +131,32 @@ export type MoveFileRequest = z.infer<typeof moveFileRequestSchema>;
 export const moveFileReplySchema = z.object({ moved: z.literal(true) }).strict();
 export type MoveFileReply = z.infer<typeof moveFileReplySchema>;
 
+/** Creates a folder inside a root (the service makes `shared/` and `tools/` at open, S45). */
+export const mkdirRequestSchema = z
+  .object({
+    root: sandboxRootSchema,
+    path: sandboxPathSchema,
+    createParents: z.boolean().default(true),
+  })
+  .strict();
+export type MkdirRequest = z.infer<typeof mkdirRequestSchema>;
+
+export const mkdirReplySchema = z.object({ created: z.literal(true) }).strict();
+export type MkdirReply = z.infer<typeof mkdirReplySchema>;
+
+/** Asks the daemon whether an address answers a TCP connection from inside the sandbox (S42 probes). */
+export const probeRequestSchema = z
+  .object({
+    host: z.string().min(1).max(253),
+    port: z.number().int().min(1).max(65_535),
+    timeoutMs: z.number().int().min(1).max(30_000).default(2_000),
+  })
+  .strict();
+export type ProbeRequest = z.infer<typeof probeRequestSchema>;
+
+export const probeReplySchema = z.object({ reachable: z.boolean() }).strict();
+export type ProbeReply = z.infer<typeof probeReplySchema>;
+
 export const SANDBOX_ERROR_CODES = [
   'invalid_request',
   'unauthorized',
@@ -240,5 +266,7 @@ export const SANDBOX_ROUTES = {
   list: '/files/list',
   stat: '/files/stat',
   move: '/files/move',
+  mkdir: '/files/mkdir',
+  probe: '/probe',
   exec: '/exec',
 } as const;

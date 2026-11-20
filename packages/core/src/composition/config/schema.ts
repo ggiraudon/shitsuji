@@ -234,6 +234,26 @@ export const shitsujiConfigSchema = z
     sandbox: z
       .object({
         driver: z.enum(['host', 'opensandbox', 'shitsuji']).default('host'),
+        /** The sandboxd service the `shitsuji` driver calls (S48); compose points this at its relay. */
+        url: z.string().url().default('http://127.0.0.1:4555'),
+        /**
+         * Where core keeps the token it generates for sandboxd (S48). Compose mounts the same file
+         * read-only at `/run/sandbox/token`; nothing in a command can read it.
+         */
+        tokenFile: z.string().optional(),
+        /**
+         * What the egress-proxy may let out (X7). Core writes them to `egress.file` at startup, so
+         * the proxy follows this file instead of the owner hand-editing `.env`.
+         */
+        egress: z
+          .object({
+            allow: z.array(z.string().min(1)).default([]),
+            deny: z.array(z.string().min(1)).default([]),
+            /** Where core writes the rules the proxy reads; defaults to `<dataDir>/sandbox.egress.json`. */
+            file: z.string().optional(),
+          })
+          .strict()
+          .default({}),
         /** What the egress check tries from inside the sandbox (F08, S42; X2). */
         probes: z
           .object({

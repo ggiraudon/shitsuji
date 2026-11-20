@@ -2,7 +2,7 @@
 # Shitsuji's sandbox image (F08, S45). Build from the repository root:
 #   docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox .
 # It runs sandboxd and the tools the agent uses. Exec supervision and egress control arrive in S46
-# and S47; this image is not in compose.yaml until S48.
+# and S47; it joins compose.yaml in S48.
 #
 # The base image is pinned by digest so a rebuild does not silently change Debian packages.
 
@@ -64,9 +64,12 @@ RUN apt-get update \
 RUN groupmod -n agent node \
  && usermod -l agent -d /home/agent -m node \
  && useradd -u 1001 -g agent -M -d /home/sandboxd -s /usr/sbin/nologin sandboxd \
- && mkdir -p /home/agent /home/sandboxd /workspace /handoff /run/sandbox \
+ && mkdir -p /home/agent /home/sandboxd /workspace /handoff /run/sandbox /run/sandbox-seed \
  && chown -R agent:agent /home/agent /workspace /handoff \
  && chown 1001:1000 /home/sandboxd /run/sandbox \
+ && chown 0:1002 /run/sandbox-seed \
+ && chmod 0700 /run/sandbox \
+ && chmod 0770 /run/sandbox-seed \
  && chmod 2770 /workspace \
  && chmod 2750 /handoff
 
@@ -79,7 +82,8 @@ COPY --from=build --chown=agent:agent /out ./
 COPY --chmod=0755 docker/sandbox/entrypoint.sh /usr/local/bin/sandbox-entrypoint
 EXPOSE 4555
 # The entrypoint starts as root, prepares the token file and workspace, then drops to uid 1001.
-# It refuses to start without SANDBOX_TOKEN or SANDBOX_TOKEN_FILE (compose provides one in S48).
+# Compose mounts the secret volume (root:1002 0770, token 0644) read-only at /run/sandbox-seed; CI
+# and development set SANDBOX_TOKEN instead.
 ENTRYPOINT ["/usr/local/bin/sandbox-entrypoint"]
 
 

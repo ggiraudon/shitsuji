@@ -35,13 +35,24 @@ jobs:
         run: docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox:ci .
       - name: sandboxd answers, authenticates, executes and stays confined
         run: |
+          # The token lives in its own volume: root owns the directory, group 1002 is core's group,
+          # and 0770 keeps commands (uid/gid 1000) out. Root here has only CHOWN and FOWNER.
+          docker volume create sandbox-secret-ci
+          docker run --rm --user 0:0 --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
+            --entrypoint sh -v sandbox-secret-ci:/secret shitsuji/sandbox:ci \
+            -c 'chown 0:1002 /secret && chmod 0770 /secret'
+          docker run --rm --user 1000:1000 --group-add 1002 \
+            --entrypoint sh -v sandbox-secret-ci:/secret shitsuji/sandbox:ci \
+            -c 'printf %s ci-token > /secret/token && chmod 0644 /secret/token'
+
           # --init reaps the fork bomb's zombies; the compose service does the same in S48. The six
           # capabilities are exactly what the entrypoint and sandboxd need (see entrypoint.sh).
           docker run -d --name sandbox-ci --init --pids-limit 128 \
             --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add SETUID \
             --cap-add SETGID --cap-add SETPCAP --cap-add KILL \
             --security-opt no-new-privileges \
-            -e SANDBOX_TOKEN=ci-token -p 127.0.0.1:4555:4555 shitsuji/sandbox:ci
+            --mount source=sandbox-secret-ci,target=/run/sandbox-seed,readonly \
+            -p 127.0.0.1:4555:4555 shitsuji/sandbox:ci
 
           ready=no
           for i in $(seq 1 20); do
@@ -84,19 +95,27 @@ jobs:
             -H 'content-type: application/json' -d '{"root":"workspace","path":"etc-link/passwd"}' \
             http://127.0.0.1:4555/files/read)" = "403"
 
-          # Commands run as uid 1000, with a clean environment.
+          # Commands run as uid 1000, with a clean environment. The token is not in their reach:
+          # not through the seed volume, not through /run/sandbox, not in env, not in a readable
+          # file whose name mentions it.
           run '{"argv":["python3","-c","print(1)"]}' > /tmp/print1.json
           grep -qF '"text":"1\n"' /tmp/print1.json
-          # The daemon is not PID 1: the container runs with an init, so find it by its command line.
-          run '{"argv":["sh","-c","id -u; cat /run/sandbox/token 2>&1; env; DAEMON=$(pgrep -x node); grep -c SANDBOX_TOKEN /proc/$DAEMON/environ 2>&1"]}' \
+          run '{"argv":["sh","-c","id -u; cat /run/sandbox-seed/token 2>&1; ls /run/sandbox-seed 2>&1; cat /run/sandbox/token 2>&1; env; DAEMON=$(pgrep -x node); grep -c SANDBOX_TOKEN /proc/$DAEMON/environ 2>&1; find / -xdev -name \"*token*\" -readable 2>/dev/null | grep -E \"sandbox|seed\"; echo done"]}' \
             > /tmp/token.json
           cat /tmp/token.json
           grep -qF '"text":"1000\n"' /tmp/token.json
+          test "$(grep -o 'Permission denied' /tmp/token.json | wc -l)" -ge 2
           if grep -q 'ci-token' /tmp/token.json || grep -q 'SANDBOX_TOKEN=' /tmp/token.json; then
             echo "the token reached a command"
             exit 1
           fi
-          grep -q 'Permission denied' /tmp/token.json
+          # The value is in no readable file.
+          run '{"argv":["sh","-c","grep -rl \"$T\" /etc /home /workspace /tmp /app /usr /opt /var /run 2>/dev/null | wc -l"],"env":{"T":"ci-token"}}' \
+            > /tmp/token-grep.json
+          grep -qF '"text":"0\n"' /tmp/token-grep.json
+          # The directory itself is root:1002 0770; root owns it, so it can read the token.
+          docker exec sandbox-ci sh -c 'ls -ld /run/sandbox-seed; ls -l /run/sandbox-seed/token' > /tmp/seed.txt
+          grep -qE '^drwxrwx--- .*root +1002 .*/run/sandbox-seed$' /tmp/seed.txt
 
           # A command keeps no capabilities and cannot become another uid (the daemon's ambient
           # SETUID/SETGID/KILL must not survive into it).
@@ -129,6 +148,7 @@ jobs:
           run '{"argv":["python3","-c","print(1)"]}' > /tmp/print2.json
           grep -qF '"text":"1\n"' /tmp/print2.json
           docker rm -f sandbox-ci
+          docker volume rm sandbox-secret-ci
       - name: Show the daemon log on failure
         if: failure()
         run: docker logs sandbox-ci || true
