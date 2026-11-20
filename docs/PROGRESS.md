@@ -122,6 +122,26 @@ both until every agent can reach the issues. Decisions X1–X7 are made. **The f
       existing workspace is tested. README, AGENTS, the class map, F08 and this checklist are updated;
       the owner's Telegram live check passed on 2026-11-20 (#100–#102 fixed on the way).)*
 
+## Fifth pass steps
+
+See [12-fifth-pass-plan.md](12-fifth-pass-plan.md). Each step is also a GitHub issue (#109–#121, under F10 #107
+and F09 #108); tick both until every
+agent can reach the issues. Decisions Y1–Y4 are made.
+
+- [ ] **S50** The desktop image
+- [ ] **S51** The viewer page
+- [ ] **S52** Images the model can see in tool results
+- [ ] **S53** The desktop endpoints and `computer.act`
+- [ ] **S54** The accessibility tree: `desktop.inspect` and `desktop.act`
+- [ ] **S55** Take control and Give back
+- [ ] **S56** The desktop end to end
+- [ ] **S57** The browser in `sandboxd`
+- [ ] **S58** Reading pages
+- [ ] **S59** Committing steps and the trust check
+- [ ] **S60** Browser takeover and profiles
+- [ ] **S61** The browser end to end
+- [ ] **S62** Live check and docs
+
 ## Acceptance criteria by feature
 
 ### [F01 — Core architecture and composition root](features/F01-core-architecture.md)

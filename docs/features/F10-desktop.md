@@ -62,12 +62,15 @@ Processes inside, started by a small supervisor (s6 or supervisord):
 | `Xvnc` (TigerVNC) or `Xvfb` + `x11vnc` | VNC 5900 | Virtual display `:0` |
 | `dbus-daemon --session` + `at-spi2-registryd` | — (in-container only) | Accessibility bus the apps publish their trees on |
 | `xfce4-session` | — | Window manager and desktop |
-| `chromium --remote-debugging-port=9222 --force-renderer-accessibility` | CDP 9222 (bound to the sandbox interface) | The agent's browser ([F09](F09-browser.md)) |
-| `websockify` + noVNC | 6080 | Browser-based remote view, proxied by `core` |
+| `chromium --remote-debugging-pipe --force-renderer-accessibility`, launched by `sandboxd` | — (a CDP pipe to `sandboxd`, no port; Y3) | The agent's browser ([F09](F09-browser.md)) |
+| `websockify` | 6080 | The VNC stream as a WebSocket, relayed by `core` to the viewer page |
 | `sandboxd` desktop endpoints (+ AT-SPI helper) | 8700 (the same daemon as F08) | Accessibility tree, screenshots, OCR, input, window list, app launch, clipboard |
 
-`core` **proxies** noVNC and CDP; neither port is published to the host. You reach the desktop only through
-`core`'s authenticated web UI.
+No desktop port is published to the host. You watch through `core`'s authenticated viewer page at
+`/desktop` (decision Y1; the web UI of [F07](F07-web-ui.md) absorbs it later): `core` relays the WebSocket
+through `sandboxd-gateway` to websockify, with a view-only VNC password until you take control. CDP stays
+inside the container (Y3). The viewer is on `127.0.0.1` by default; it can be published on your LAN, with
+optional TLS (Y2).
 
 ### Desktop endpoints of sandboxd
 
