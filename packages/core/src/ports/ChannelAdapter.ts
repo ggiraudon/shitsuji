@@ -1,9 +1,12 @@
 import type { SessionId, TurnId } from '../domain/model/ids.js';
 
-/** A channel's id, e.g. "webhook", "telegram", "web". */
+/** A channel's id, e.g. "webhook", "telegram", "web". It is also the prefix of a reply channel. */
 export type ChannelId = string;
 
-/** What a channel can show, so a renderer can degrade what it cannot (F06). */
+/**
+ * What a channel can show, so a renderer can degrade what it cannot (F06). The adapter declares this
+ * once at startup; `MessageRenderer` reads it instead of asking the transport.
+ */
 export interface ChannelCapabilities {
   markdown: 'full' | 'basic' | 'none';
   /** Inline keyboards or cards. */
@@ -26,25 +29,32 @@ export interface ChannelTarget {
   replyTo?: MessageRef;
 }
 
+/** A message on a channel, enough to reply to it or edit it later. */
 export interface MessageRef {
   channel: ChannelId;
   chatId: string;
   messageId?: string;
 }
 
+/** A file to deliver. `path` is readable by the adapter itself, which uploads the bytes. */
 export interface FileRef {
   name: string;
-  /** A path in the handoff folder, once files are stored (F08, T2). */
+  /** Absolute path on the core machine (a staged file or a handoff-folder file, F08, S41). */
   path?: string;
   mediaType?: string;
 }
 
+/** One button of a `choices` part; `id` is what the channel sends back when it is pressed. */
 export interface ChoiceOption {
   id: string;
   label: string;
 }
 
-/** One piece of an outbound message. A renderer turns these into what the channel can show. */
+/**
+ * One piece of an outbound message. A renderer turns these into what the channel can show: text and
+ * links as text, files and images as attachments, choices as buttons, an approval as its card. An
+ * adapter that cannot show a kind degrades it to text and reports that in `RenderedMessage.degraded`.
+ */
 export type OutboundPart =
   | { kind: 'text'; markdown: string }
   | { kind: 'file'; fileRef: FileRef; caption?: string }
@@ -53,8 +63,14 @@ export type OutboundPart =
   | { kind: 'approval'; approvalId: string; summary: string; actionLabel: string }
   | { kind: 'link'; url: string; label: string };
 
+/**
+ * Why a message is sent: `final` answers the turn, `question` asks the owner something (a card or a
+ * check-in), `update` is meant to replace an earlier message while work runs, and `nudge` to open a
+ * conversation proactively. The runtime sends only `final` and `question` today.
+ */
 export type OutboundIntent = 'update' | 'final' | 'question' | 'nudge';
 
+/** Everything one outbound message is made of, with its intent. */
 export interface OutboundMessage {
   parts: OutboundPart[];
   replyTo?: MessageRef;
@@ -68,7 +84,7 @@ export interface RenderedMessage {
   degraded: OutboundPart['kind'][];
 }
 
-/** Renders an OutboundMessage the way one channel can show it (F06). */
+/** Renders an OutboundMessage the way one channel can show it (F06). Pure: no I/O, no state. */
 export interface MessageRenderer {
   render(message: OutboundMessage, capabilities: ChannelCapabilities): RenderedMessage;
 }
@@ -91,7 +107,11 @@ export interface InboundAttachment {
   size?: number;
 }
 
-/** A message arriving from a channel, before the gateway decides what it means (F06, S31). */
+/**
+ * A message arriving from a channel, before the gateway decides what it means (F06, S31). The adapter
+ * fills what its transport knows; `sessionId` and the callback payload are for channels that can route
+ * precisely (the API and inline buttons). The gateway maps the chat to an owner thread and session.
+ */
 export interface InboundMessage {
   /** The adapter that received it: "webhook", "telegram", "api". */
   channel: ChannelId;
@@ -110,7 +130,11 @@ export interface InboundMessage {
   metadata?: Record<string, unknown>;
 }
 
-/** What the runtime did with an inbound message. */
+/**
+ * What the runtime did with an inbound message: started or steered a turn, answered it itself (pairing,
+ * a command, an approval), or ignored it. The webhook reports it back to its client; chat adapters mostly
+ * log it, and the reply itself goes out through `deliver`.
+ */
 export type InboundResult =
   | { kind: 'turn'; sessionId: SessionId; turnId: TurnId; steered: boolean }
   /** The gateway answered itself (pairing, a command, an approval): no turn ran. */
@@ -121,13 +145,17 @@ export type InboundResult =
   /** Nothing happened: an unpaired chat, or a message with no text. */
   | { kind: 'ignored'; reason: string };
 
-/** The one way an adapter hands a message to the core. */
 /** The chat an adapter may ask about before it stores a file (F06, #44). */
 export interface InboundChat {
   channel: ChannelId;
   chatId: string;
 }
 
+/**
+ * The one way an adapter hands a message to the core: `ChannelGateway.receive` after a pairing check,
+ * and it is what the adapter gets from `start`. It must not throw for a bad message; an unpaired or
+ * empty one comes back as `ignored`.
+ */
 export interface InboundSink {
   receive(message: InboundMessage): Promise<InboundResult>;
   /**
@@ -140,6 +168,10 @@ export interface InboundSink {
 /**
  * A chat channel. The adapter owns transport and formatting; the core owns what a message means.
  * Adding a channel is one adapter class plus a plugin manifest (F06).
+ *
+ * Lifecycle: `start` once with the sink, `stop` once on shutdown or when the transport dies. The
+ * adapter must not start turns itself: every inbound message goes through `sink.receive`, so pairing,
+ * commands and approvals are decided in one place.
  */
 export interface ChannelAdapter {
   readonly id: ChannelId;
@@ -156,12 +188,19 @@ export interface ChannelAdapter {
   typing?(target: ChannelTarget): Promise<void>;
 }
 
-/** Template for adapters: running state and the sink; subclasses implement deliver(). */
+/**
+ * Template for adapters: running state and the sink; subclasses implement deliver(). A subclass starts
+ * and stops its own client around `super.start(sink)` and `super.stop()` (see `TelegramChannelAdapter`),
+ * then feeds every inbound message to `sink.receive`. `deliver` may throw on a transport failure; the
+ * caller (`Shitsuji.deliverTo`) logs it and does not retry.
+ */
 export abstract class BaseChannelAdapter implements ChannelAdapter {
   abstract readonly id: ChannelId;
   abstract readonly capabilities: ChannelCapabilities;
   readonly requiresPairing?: boolean = false;
+  /** Set by `start`; subclasses call `this.sink?.receive(...)` for every inbound message. */
   protected sink?: InboundSink;
+  /** True between `start` and `stop`; for subclasses that guard their own timers and handlers. */
   protected running = false;
 
   async start(sink: InboundSink): Promise<void> {
@@ -176,6 +215,7 @@ export abstract class BaseChannelAdapter implements ChannelAdapter {
 
   abstract deliver(target: ChannelTarget, message: OutboundMessage): Promise<DeliveryReceipt>;
 
+  /** Whether `start` has run and `stop` has not. */
   isRunning(): boolean {
     return this.running;
   }

@@ -1,16 +1,24 @@
 /**
  * An amount of money as an integer number of micro-units (1/1,000,000 of the currency unit), so sums
  * of many tiny model costs stay exact. Immutable.
+ *
+ * It never mixes currencies silently: the constructor rejects an out-of-range amount or a code that is
+ * not three uppercase letters, and `plus`/`compare` throw a `RangeError` when the two amounts differ in
+ * currency. Prices come from the model catalogue and usage from the ledger; both reach the budget and
+ * the usage report as `Money`.
  */
 export class Money {
   private constructor(
+    /** The amount in micro-units; always a safe integer. */
     readonly micros: number,
+    /** ISO 4217 code (three uppercase letters), e.g. `USD`. */
     readonly currency: string,
   ) {
     if (!Number.isSafeInteger(micros)) throw new RangeError(`Money out of range: ${micros} micros`);
     if (!/^[A-Z]{3}$/.test(currency)) throw new RangeError(`Invalid currency code: ${currency}`);
   }
 
+  /** Nothing spent. */
   static zero(currency = 'USD'): Money {
     return new Money(0, currency);
   }
@@ -20,14 +28,17 @@ export class Money {
     return new Money(Math.round(amount * 1_000_000), currency);
   }
 
+  /** From a value already in micro-units, e.g. one read from the database. */
   static fromMicros(micros: number, currency = 'USD'): Money {
     return new Money(micros, currency);
   }
 
+  /** The amount as a decimal number, for display; do arithmetic on `micros` to stay exact. */
   get amount(): number {
     return this.micros / 1_000_000;
   }
 
+  /** Sum of two amounts in the same currency; throws a `RangeError` when they differ. */
   plus(other: Money): Money {
     this.sameCurrency(other);
     return new Money(this.micros + other.micros, this.currency);
@@ -38,11 +49,13 @@ export class Money {
     return new Money(Math.round(this.micros * factor), this.currency);
   }
 
+  /** Ordering for limits; throws a `RangeError` when the currencies differ. */
   compare(other: Money): -1 | 0 | 1 {
     this.sameCurrency(other);
     return Math.sign(this.micros - other.micros) as -1 | 0 | 1;
   }
 
+  /** True when the amount is exactly zero. */
   isZero(): boolean {
     return this.micros === 0;
   }
@@ -54,10 +67,12 @@ export class Money {
     return `${whole}.${decimals.padEnd(2, '0')} ${this.currency}`;
   }
 
+  /** Micro-units and currency, so a stored or API value keeps its exact amount. */
   toJSON(): { micros: number; currency: string } {
     return { micros: this.micros, currency: this.currency };
   }
 
+  /** Rejects arithmetic across currencies instead of inventing an exchange rate. */
   private sameCurrency(other: Money): void {
     if (other.currency !== this.currency) {
       throw new RangeError(`Cannot combine ${this.currency} and ${other.currency}`);

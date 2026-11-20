@@ -1,6 +1,7 @@
 /**
  * One text file the application reads and writes, such as the SOUL.md export. The application never
- * touches the file system itself; the adapter decides where the file lives.
+ * touches the file system itself; the adapter decides where the file lives. `read` reports a missing
+ * file as undefined, so the first run (no file yet) is a normal state, not an error.
  */
 export interface TextFile {
   /** Where the file is, for messages to the owner. */

@@ -6,6 +6,7 @@ import type { Transaction } from './Repositories.js';
  * The SOUL's storage: ordered fragments and numbered revisions. The fragments are the editable copy;
  * a revision is the assembled text a turn ran with, so history and undo need no re-assembly (F04, Q6).
  */
+/** The SOUL's storage. `replaceFragments` and `appendRevision` belong in one transaction. */
 export interface SoulStore {
   /** Every fragment, in position order. */
   fragments(ownerId: OwnerId, tx?: Transaction): Promise<SoulFragment[]>;

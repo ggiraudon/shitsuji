@@ -6,7 +6,8 @@ import type { Transaction } from './Repositories.js';
 
 /**
  * What a tool does, so the pipeline (and later the trust service, F11) can decide how careful to be.
- * Ordered from harmless to most consequential.
+ * Ordered from harmless to most consequential. The trust policy reads it per call (a tool may compute
+ * its effect from its arguments), so it must describe the call, not the worst possible use of the tool.
  */
 export type ToolEffect =
   | 'read' // reads state, changes nothing (search, read a file)
@@ -16,6 +17,7 @@ export type ToolEffect =
   | 'external' // acts on the outside world (send an email, post, submit a form)
   | 'payment'; // spends money
 
+/** The effects as a runtime list, so code can iterate them; keep it in step with {@link ToolEffect}. */
 export const TOOL_EFFECTS: readonly ToolEffect[] = [
   'read',
   'compute',
@@ -25,7 +27,11 @@ export const TOOL_EFFECTS: readonly ToolEffect[] = [
   'payment',
 ];
 
-/** Where the tool runs. Only `core` exists until the workspace and desktop containers (F08, F10). */
+/**
+ * Where the tool runs. `core` is this process, `workspace` is the agent's sandbox, `desktop` is the GUI
+ * in that sandbox and `mcp` an MCP server; the last two are declared for F10 and MCP tools, which do
+ * not exist yet. The trust rules and receipts use it, so an action says where it happened.
+ */
 export type ToolTarget = 'core' | 'workspace' | 'desktop' | 'mcp';
 
 /** How a tool call was allowed, for receipts and the activity log (F22, F11). */
@@ -54,7 +60,10 @@ export interface TrustDecision {
   approvalId?: string;
 }
 
-/** What a running tool may use, and nothing else. */
+/**
+ * What a running tool may use, and nothing else. There is no repository, no model and no config here:
+ * a tool that needs the outside world uses its own adapter, injected when it was built.
+ */
 export interface ToolContext {
   turnId: string;
   sessionId: string;
@@ -77,7 +86,10 @@ export interface ToolOutput {
   data?: Record<string, unknown>;
 }
 
-/** The result of a call after the pipeline: what the model is told. */
+/**
+ * The result of a call after the pipeline: what the model is told. An `error` names its reason so the
+ * model can react (`invalid_input`, `denied`…) and the loop can stop on `repeated_failure`.
+ */
 export type ToolOutcome =
   | { kind: 'ok'; content: string; data?: Record<string, unknown> }
   | {
@@ -94,6 +106,11 @@ export type ToolOutcome =
       data?: Record<string, unknown>;
     };
 
+/**
+ * One capability the model can call. The input schema is the contract: the model sees its JSON Schema
+ * and the pipeline validates the arguments against it before `run`. `effect`, `target` and
+ * `untrustedOutput` are what the trust and wrapping middlewares use, so they must be accurate.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a registry holds tools of any input type
 export interface Tool<I = any> {
   /** Dotted, e.g. "workspace.exec". Adapters map dots for providers that refuse them. */
@@ -102,6 +119,7 @@ export interface Tool<I = any> {
   readonly description: string;
   /** Validates the model's arguments; its JSON Schema is what the model sees. */
   readonly input: z.ZodType;
+  /** What it does, or a function of its arguments when that changes the answer. */
   readonly effect: ToolEffect | ((args: I) => ToolEffect);
   readonly target: ToolTarget;
   /** Hidden from the prompt until found with tool_search (F05). */
@@ -111,7 +129,10 @@ export interface Tool<I = any> {
   run(args: I, ctx: ToolContext): Promise<ToolOutput>;
 }
 
-/** Template for tools: sensible defaults; subclasses give name, description, input, effect and run. */
+/**
+ * Template for tools: sensible defaults; subclasses give name, description, input, effect and run.
+ * `target` starts at `core`, so a tool runs in this process unless the subclass says otherwise.
+ */
 export abstract class BaseTool<S extends z.ZodType> implements Tool<z.infer<S>> {
   abstract readonly name: string;
   abstract readonly description: string;
@@ -137,7 +158,11 @@ export interface OutboundFile {
   caption?: string;
 }
 
-/** The files a tool result asks to attach; an ordinary result has none. */
+/**
+ * The files a tool result asks to attach; an ordinary result has none. Entries missing a `path` or
+ * `name` are dropped rather than failing the call, because the field comes from tool-provided
+ * `data`, not from a schema.
+ */
 export function outboundFiles(outcome: ToolOutcome): OutboundFile[] {
   const files = outcome.data?.files;
   if (!Array.isArray(files)) return [];
@@ -156,7 +181,11 @@ export function outboundFiles(outcome: ToolOutcome): OutboundFile[] {
   return parsed;
 }
 
-/** The tool as the model sees it: name, description and a JSON Schema of its arguments. */
+/**
+ * The tool as the model sees it: name, description and a JSON Schema of its arguments. The draft-7
+ * schema is generated from the zod input in `io: 'input'` mode, so defaults and transforms are what the
+ * model must send; `$schema` is dropped because providers reject it.
+ */
 export function toolSpec(tool: Tool): ToolSpec {
   const schema = z.toJSONSchema(tool.input, { target: 'draft-7', io: 'input' }) as Record<
     string,

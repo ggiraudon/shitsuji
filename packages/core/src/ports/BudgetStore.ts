@@ -2,7 +2,10 @@ import type { OwnerId, SessionId, TurnId } from '../domain/model/ids.js';
 import type { Money } from '../domain/model/Money.js';
 import type { Transaction } from './Repositories.js';
 
-/** A hold placed before a model request and released when the request ends. */
+/**
+ * A hold placed before a model request and released when the request ends. It carries a conservative
+ * maximum, not the real cost: the usage ledger holds what was actually spent once the request settles.
+ */
 export interface BudgetReservation {
   id: string;
   ownerId: OwnerId;
@@ -14,14 +17,16 @@ export interface BudgetReservation {
   createdAt: Date;
 }
 
+/** The ceilings for one owner: the month's total spend, and how much of it background work may use. */
 export interface BudgetLimits {
   monthly: Money;
   background: Money;
 }
 
+/** Everything `reserve` needs: what to hold, for which owner and period, and the limits to check. */
 export interface ReserveInput {
   ownerId: OwnerId;
-  /** Made by the caller; unique. */
+  /** Made by the caller; unique. Settle and release only touch a held row, so repeating one is safe. */
   id: string;
   amount: Money;
   background: boolean;
@@ -35,11 +40,15 @@ export interface ReserveInput {
   turnId?: TurnId;
 }
 
+/** Either a hold, or the limit that refused it; the caller turns the reason into a `BudgetExceeded`. */
 export type ReserveOutcome =
   | { reserved: true; reservation: BudgetReservation }
   | { reserved: false; reason: 'monthly_limit' | 'background_allowance' };
 
-/** A price in another currency cannot be compared without a rate we do not have. */
+/**
+ * A price in another currency cannot be compared without a rate we do not have. Called by both budget
+ * adapters before they touch the stored totals; throws a `TypeError` naming both currencies.
+ */
 export function assertSameCurrency(amount: Money, limits: BudgetLimits): void {
   if (
     limits.monthly.currency !== amount.currency ||
