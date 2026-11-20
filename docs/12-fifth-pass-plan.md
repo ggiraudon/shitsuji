@@ -1,6 +1,6 @@
 # Fifth pass plan: F10 desktop, then F09 browser
 
-> **Status:** planned (S50–S62).
+> **Status:** in progress (S50 done; S51-S62 planned).
 
 The fifth pass finishes most of Phase 2 ("its own computer"). The sandbox from the fourth pass gets a
 graphical desktop that you can watch, the agent learns to use it (structure first, pixels last), and its
@@ -58,7 +58,7 @@ Decided on 2026-11-20 and recorded in
 
 ```
 docker/
-└── sandbox-desktop/           FROM shitsuji/sandbox: Xvnc, XFCE, D-Bus + AT-SPI, Chromium, LibreOffice,
+└── sandbox-desktop/           FROM shitsuji/sandbox: Xvfb + x11vnc, XFCE, D-Bus + AT-SPI, Chromium, LibreOffice,
                                Thunar, xfce4-terminal, websockify, a process supervisor
 packages/
 ├── sandbox-protocol/          desktop and browser routes and reply schemas
@@ -78,13 +78,16 @@ packages/
 ### The desktop you can watch
 
 #### S50. The desktop image
-- `docker/sandbox-desktop`, `FROM shitsuji/sandbox`, with pinned packages: TigerVNC (`Xvnc` on `:0`), XFCE,
-  a session D-Bus and `at-spi2-core`, Chromium, LibreOffice (GTK VCL), Thunar, xfce4-terminal, `xdotool`,
-  `wmctrl`, `xclip`, `scrot`, websockify and the noVNC static files.
-- A small supervisor (s6-overlay or supervisord; pick one in the PR and say why) starts D-Bus, AT-SPI,
-  Xvnc, XFCE and websockify as uid 1000, after the existing root entrypoint has done its repairs.
-  `sandboxd` stays uid 1001, and the hardening from S46/S48 stays: setuid bits stripped, `cap_drop: ALL`
-  plus the existing short list, no-new-privileges, a read-only root with tmpfs mounts.
+- `docker/sandbox-desktop`, `FROM shitsuji/sandbox`, with a fixed package list: Xvfb and x11vnc (two
+  servers, for the two passwords below), XFCE, a session D-Bus and `at-spi2-core`, Chromium, LibreOffice
+  (GTK VCL), Thunar, xfce4-terminal, `xdotool`, `wmctrl`, `xclip`, `scrot`, websockify and the noVNC
+  static files.
+- A small supervisor (supervisord: one Debian config starts programs as different uids, and Compose's
+  `init: true` already reaps zombies) starts D-Bus, AT-SPI, Xvfb, XFCE and websockify as uid 1000, after
+  the existing root entrypoint has done its repairs. The two x11vnc servers are uid 1001 so only
+  `sandboxd` can read the passwords. `sandboxd` stays uid 1001, and the hardening from S46/S48 stays:
+  setuid bits stripped, `cap_drop: ALL` plus the existing short list, no-new-privileges, a read-only root
+  with tmpfs mounts.
 - The accessibility settings from [F10](features/F10-desktop.md#making-apps-publish-a-tree-in-the-container):
   `GTK_MODULES=gail:atk-bridge`, `QT_ACCESSIBILITY=1`, toolkit accessibility on, and Chromium with
   `--force-renderer-accessibility`.
@@ -93,8 +96,8 @@ packages/
 - Compose: `sandbox` uses the desktop image, `shm_size: 1g`, `mem_limit: 6g`, `pids_limit: 2048`,
   `SCREEN=1440x900x24`.
 - *Check:* the `sandbox-image` CI job builds the desktop image, waits for `:0`, lists an XFCE window with
-  `wmctrl`, starts Chromium, finds no setuid file, and probes that 5900/6080 are not reachable from outside
-  the sandbox network.
+  `wmctrl`, starts Chromium, finds no setuid file, and probes that 5900/6080/6081 are not reachable from
+  outside the sandbox network. The conformance suite and egress probes also run against it.
 
 #### S51. The viewer page
 - `core` serves `GET /desktop`: a single page with the noVNC client, served from `core` (no CDN), in
