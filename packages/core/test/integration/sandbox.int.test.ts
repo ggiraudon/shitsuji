@@ -16,7 +16,8 @@ import { describeSandboxContract } from '../contracts/sandbox.contract.js';
  */
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
-const SANDBOX_IMAGE = 'shitsuji/sandbox:integration';
+const repoSandboxImage = 'shitsuji/sandbox:integration';
+const SANDBOX_IMAGE = process.env.SANDBOX_TEST_IMAGE ?? repoSandboxImage;
 const EGRESS_IMAGE = 'shitsuji/egress:integration';
 const docker = (args: string[], input?: string): string =>
   execFileSync('docker', args, { cwd: repoRoot, encoding: 'utf8', input, stdio: 'pipe' });
@@ -243,10 +244,13 @@ async function run(
 
 /** Builds the images if needed and starts the proxy and the sandbox on a private network. */
 async function start(): Promise<Containers> {
-  for (const [image, dockerfile] of [
-    [SANDBOX_IMAGE, 'docker/sandbox/Dockerfile'],
-    [EGRESS_IMAGE, 'docker/egress-proxy/Dockerfile'],
-  ] as const) {
+  const images: [string, string][] = process.env.SANDBOX_TEST_IMAGE
+    ? [[EGRESS_IMAGE, 'docker/egress-proxy/Dockerfile']]
+    : [
+        [repoSandboxImage, 'docker/sandbox/Dockerfile'],
+        [EGRESS_IMAGE, 'docker/egress-proxy/Dockerfile'],
+      ];
+  for (const [image, dockerfile] of images) {
     if (spawnSync('docker', ['image', 'inspect', image], { stdio: 'ignore' }).status !== 0) {
       docker(['build', '-f', dockerfile, '-t', image, '.']);
     }
@@ -372,7 +376,9 @@ async function start(): Promise<Containers> {
       sandbox,
       '--init',
       '--pids-limit',
-      '256',
+      '512',
+      '--shm-size',
+      '1g',
       '--cap-drop',
       'ALL',
       '--cap-add',

@@ -22,6 +22,14 @@ jobs:
       - run: pnpm check
       # Postgres in Docker via Testcontainers (the runner has Docker).
       - run: pnpm test:integration
+      # The desktop image is the same sandbox with a desktop layer, so the same conformance suite and
+      # egress probes must pass on it (F10, S50).
+      - name: The conformance suite passes on the desktop image
+        run: |
+          docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox .
+          docker build -f docker/sandbox-desktop/Dockerfile -t shitsuji/sandbox-desktop:integration .
+          SANDBOX_TEST_IMAGE=shitsuji/sandbox-desktop:integration \
+            pnpm --filter @shitsuji/core test:integration -- sandbox
       - run: pnpm build
 
   # Builds the generated API documentation and the walkthrough pages on every PR. Warnings are shown
@@ -54,9 +62,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build the sandbox image
-        run: docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox:ci .
+        run: docker build -f docker/sandbox/Dockerfile -t shitsuji/sandbox -t shitsuji/sandbox:ci .
       - name: Build the egress proxy image
         run: docker build -f docker/egress-proxy/Dockerfile -t shitsuji/egress:ci .
+      - name: Build the desktop image
+        run: docker build -f docker/sandbox-desktop/Dockerfile -t shitsuji/sandbox-desktop:ci .
       - name: sandboxd answers, authenticates, executes and stays confined
         run: |
           # The token lives in its own volume: root owns the directory, group 1002 is core's group,
@@ -206,9 +216,99 @@ jobs:
           docker rm -f egress-ci
           docker network rm sandbox-ci-net
           docker volume rm sandbox-secret-ci
-      - name: Show the daemon log on failure
+
+      - name: The desktop image serves :0, XFCE and Chromium inside the sandbox network only
+        run: |
+          docker network create --internal desktop-net
+          docker volume create desktop-home
+          docker volume create desktop-workspace
+          docker volume create desktop-handoff
+
+          # No published desktop ports. The gateway forwards sandboxd's control port so the test can
+          # talk to it; the desktop is only on the internal network.
+          docker run -d --name desktop-ci --init --pids-limit 2048 --shm-size 1g \
+            --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --cap-add SETUID \
+            --cap-add SETGID --cap-add SETPCAP --cap-add KILL \
+            --security-opt no-new-privileges --network desktop-net \
+            --read-only --tmpfs /tmp:size=1g --tmpfs /run/sandbox:size=1m \
+            -v desktop-home:/home/agent -v desktop-workspace:/workspace \
+            -v desktop-handoff:/handoff:ro -e SANDBOX_TOKEN=desktop-token \
+            -e SCREEN=1440x900x24 shitsuji/sandbox-desktop:ci
+          docker run -d --name desktop-gateway --network bridge \
+            --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp \
+            --entrypoint node -e SANDBOX_GATEWAY_TARGET=desktop-ci:4555 \
+            -p 127.0.0.1:4556:4555 shitsuji/sandbox:ci /app/dist/gateway-main.js
+          docker network connect desktop-net desktop-gateway
+
+          ready=no
+          for i in $(seq 1 60); do
+            if curl -fs http://127.0.0.1:4556/health > /dev/null 2>&1; then ready=yes; break; fi
+            sleep 1
+          done
+          if [ "$ready" != yes ]; then
+            echo "the desktop sandboxd is not healthy"
+            docker logs desktop-ci
+            exit 1
+          fi
+
+          # :0 is up and XFCE publishes windows.
+          for i in $(seq 1 60); do
+            if docker exec -u 1000:1000 -e DISPLAY=:0 desktop-ci xdpyinfo > /dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          for i in $(seq 1 60); do
+            docker exec -u 1000:1000 -e DISPLAY=:0 -e HOME=/home/agent desktop-ci \
+              wmctrl -l > /tmp/desktop-windows.txt 2>/dev/null || true
+            if grep -qi 'xfce4-panel\|Desktop' /tmp/desktop-windows.txt; then break; fi
+            sleep 1
+          done
+          cat /tmp/desktop-windows.txt
+          grep -qi 'xfce4-panel\|Desktop' /tmp/desktop-windows.txt
+
+          # Chromium starts on the display with accessibility forced on.
+          docker exec -d -u 1000:1000 -e DISPLAY=:0 -e HOME=/home/agent \
+            -e XDG_RUNTIME_DIR=/tmp/runtime-agent \
+            -e DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-session \
+            desktop-ci /usr/bin/chromium --no-sandbox --no-first-run \
+            --force-renderer-accessibility \
+            --user-data-dir=/home/agent/.config/chromium-ci about:blank
+          for i in $(seq 1 30); do
+            docker exec -u 1000:1000 -e DISPLAY=:0 -e HOME=/home/agent desktop-ci \
+              wmctrl -l > /tmp/desktop-windows.txt 2>/dev/null || true
+            if grep -qi chromium /tmp/desktop-windows.txt; then break; fi
+            sleep 1
+          done
+          grep -qi chromium /tmp/desktop-windows.txt
+
+          # No setuid helper survived the desktop packages.
+          test -z "$(docker exec desktop-ci sh -c 'find / -xdev -perm -4000 -print -quit 2>/dev/null')"
+
+          # The VNC passwords are in a folder only uid 1001 can enter, and 5900/6080/6081 are not
+          # reachable from the host (no port is published).
+          denied="$(docker exec -u 1000:1000 desktop-ci \
+            cat /run/sandbox/vnc-passwords.json 2>&1 || true)"
+          echo "$denied"
+          echo "$denied" | grep -q 'Permission denied'
+          test -z "$(docker port desktop-ci)"
+          for port in 5900 6080 6081; do
+            if (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+              echo "desktop port ${port} is reachable from the host"
+              exit 1
+            fi
+          done
+
+          # Inside the sandbox network, websockify serves the noVNC page.
+          docker exec desktop-gateway node -e \
+            "fetch('http://desktop-ci:6080/vnc.html').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+
+          docker rm -f desktop-ci desktop-gateway
+          docker network rm desktop-net
+          docker volume rm desktop-home desktop-workspace desktop-handoff
+      - name: Show the desktop log on failure
         if: failure()
-        run: docker logs sandbox-ci || true
+        run: docker logs desktop-ci || true
 
   # Builds the egress proxy and checks that it refuses private, loopback and metadata addresses while
   # tunnelling a public host, and that the allow list narrows the open default (F08, S47).
