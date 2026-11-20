@@ -269,7 +269,8 @@ export class Shitsuji {
    * covers a manager that rejects as a whole.
    *
    * The five-second wait is deliberate: a turn still running after it is left to recovery at the
-   * next start rather than blocking shutdown. `stop()` is not idempotent by design; the process
+   * next start rather than blocking shutdown. The timer is unref'd and cleared, so a fast idle does
+   * not keep a library or test process alive. `stop()` is not idempotent by design; the process
    * calls it once from its signal handler.
    */
   async stop(): Promise<void> {
@@ -289,7 +290,17 @@ export class Shitsuji {
     }
     this.started = [];
     // Give running turns a moment to finish; anything still running is recovered at next start.
-    await Promise.race([this.agent.idle(), new Promise((r) => setTimeout(r, 5000))]);
+    // The timer is unref'd and cleared so a fast idle does not keep a library or test process alive.
+    let waitTimer: NodeJS.Timeout | undefined;
+    const wait = new Promise<void>((resolve) => {
+      waitTimer = setTimeout(resolve, 5000);
+      waitTimer.unref?.();
+    });
+    try {
+      await Promise.race([this.agent.idle(), wait]);
+    } finally {
+      if (waitTimer) clearTimeout(waitTimer);
+    }
     try {
       await this.jobs.stop();
     } catch (error) {

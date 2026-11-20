@@ -54,4 +54,25 @@ describe('Shitsuji.stop (#95)', () => {
     expect(messages).toContain('Plugin dispose failed');
     expect(messages).toContain('Shitsuji stopped');
   });
+
+  it('unrefs and clears the five-second wait timer (#98)', async () => {
+    const unref = vi.fn();
+    const timer = { unref } as unknown as NodeJS.Timeout;
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, 'setTimeout')
+      .mockReturnValue(timer as unknown as ReturnType<typeof setTimeout>);
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation(() => undefined);
+    try {
+      const shitsuji = new Shitsuji(parts({}));
+      await shitsuji.stop();
+
+      expect(unref).toHaveBeenCalledTimes(1);
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(timer);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
+  });
 });
