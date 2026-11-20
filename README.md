@@ -95,6 +95,7 @@ and commands.
 ```bash
 pnpm install
 pnpm check
+pnpm run docs   # API docs + walkthroughs in docs-site/index.html
 ```
 
 To run core from source against a local Postgres:

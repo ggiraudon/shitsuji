@@ -1,0 +1,34 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "packages/core/src/index.ts",
+    "packages/core/src/composition/Shitsuji.ts",
+    "packages/core/src/application/Agent.ts",
+    "packages/core/src/application/channels/ChannelGateway.ts",
+    "packages/core/src/application/runtime/MessageIntake.ts",
+    "packages/core/src/application/runtime/TurnRunner.ts",
+    "packages/core/src/application/runtime/TurnScheduler.ts",
+    "packages/sandbox-protocol/src/index.ts",
+    "packages/sandbox-daemon/src/index.ts",
+    "packages/egress-proxy/src/index.ts"
+  ],
+  "entryPointStrategy": "resolve",
+  "tsconfig": "tsconfig.docs.json",
+  "out": "docs-site",
+  "readme": "README.md",
+  "projectDocuments": ["docs/walkthroughs/startup.md", "docs/walkthroughs/message-journey.md"],
+  "plugin": ["typedoc-plugin-mermaid"],
+  "excludePrivate": false,
+  "excludePrivateClassFields": false,
+  "excludeProtected": false,
+  "excludeInternal": false,
+  "mermaidVersion": "12.3.0",
+  "validation": {
+    "notDocumented": true
+  },
+  "treatValidationWarningsAsErrors": false,
+  "treatWarningsAsErrors": false,
+  "navigationLinks": {
+    "Docs": "https://github.com/ggiraudon/shitsuji/tree/master/docs"
+  }
+}

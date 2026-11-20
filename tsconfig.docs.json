@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react",
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "packages/core/src/**/*",
+    "packages/sandbox-protocol/src/**/*",
+    "packages/sandbox-daemon/src/**/*",
+    "packages/egress-proxy/src/**/*"
+  ]
+}
