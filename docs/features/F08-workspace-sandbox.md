@@ -280,6 +280,17 @@ write before it closes the folder (the repair used to run after the folder was c
 root had no `DAC_OVERRIDE` and silently did nothing). The integration suite seeds such a workspace and
 proves the daemon can append to a 0644 file core wrote earlier.
 
+**What the S49 live check fixed (#100–#102).** The attachment note now uses the active driver's
+path (`SandboxFiles.display`: a bare `photo.jpg` for `shitsuji`), not core's `/data/handoff/...`, and
+the read/list/find/send descriptions say how to address `/handoff`. `workspace.read` refuses a binary
+file with its size and detected type instead of decoding it as text, and the message repositories
+strip U+0000 from stored content as a safety net, so one bad tool result cannot fail a turn with a
+Postgres jsonb error; the owner-facing failure line maps that error to plain words. Commands use a
+Python virtualenv at `/home/agent/.venv`: the root entrypoint creates it in the persistent
+`sandbox-home` volume on first start and `/home/agent/.venv/bin` is first on `PATH`, so `pip install`
+works without `--user` (Debian's system Python is externally managed) and survives restarts. The
+image CI job installs and imports `cowsay` through `egress-proxy`.
+
 **sandboxd**, a small TypeScript daemon in `packages/sandbox-daemon`, sharing types with `core` through
 `packages/sandbox-protocol` (X1), listening only on the `sandbox` network:
 

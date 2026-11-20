@@ -31,7 +31,7 @@ ENV NODE_ENV=production \
     PYTHONUNBUFFERED=1 \
     NPM_CONFIG_PREFIX=/home/agent/.npm-global \
     SANDBOX_TOKEN_FILE=/run/sandbox/token \
-    PATH=/home/agent/.npm-global/bin:/home/agent/.local/bin:$PATH
+    PATH=/home/agent/.venv/bin:/home/agent/.npm-global/bin:/home/agent/.local/bin:$PATH
 
 # The tools the agent is promised (F08). Python first-class, plus the document, media and search
 # utilities; no compilers or shells beyond what Debian ships.
