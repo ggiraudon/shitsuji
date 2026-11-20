@@ -72,7 +72,7 @@ capability (F15).
 | # | Decision |
 |---|----------|
 | Y1 | Before the web UI (F07), you watch the desktop on **one minimal viewer page** that `core` serves at `/desktop`: noVNC, watch-only until Take control, behind the owner key (exchanged for a short-lived viewer cookie, never put in a URL). F07 absorbs it later |
-| Y2 | The viewer is on **this PC by default** (`127.0.0.1`). A config switch (`api.listen`, `SHITSUJI_API_BIND`) can publish it on the LAN, and **TLS is optional** (`api.tls.cert` / `api.tls.key`), so it can be used plain inside your network; binding beyond loopback without TLS only logs a warning. This does not decide D2 (remote access from outside) |
+| Y2 | The viewer is on **this PC by default** (`127.0.0.1`). A config switch (`api.publishedHost` / `SHITSUJI_API_PUBLISH`, with `api.listen` / `SHITSUJI_API_BIND` for the in-container bind) can publish it on the LAN, and **TLS is optional** (`api.tls.cert` / `api.tls.key`), so it can be used plain inside your network; publishing beyond loopback without TLS only logs a warning. `api.publicUrl` / `SHITSUJI_PUBLIC_URL` supplies the links core sends. This does not decide D2 (remote access from outside) |
 | Y3 | **Playwright runs inside `sandboxd`**, against a Chromium it launches with a CDP pipe. CDP never leaves the container and is out of the commands' reach; `core` stays off the sandbox network and uses browser endpoints on the token-protected API |
 | Y4 | The desktop is **always on** in the fifth pass. Idle stop and start-on-demand come later |
 

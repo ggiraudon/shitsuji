@@ -143,10 +143,12 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       *(core serves `/desktop` behind the owner-key exchange for an `HttpOnly`, `SameSite=Strict`
       viewer cookie; the page uses the pinned `@novnc/novnc` client, fetches the view-only password
       from the cookie-gated credentials route, and relays the same-origin WebSocket to the gateway's
-      view-only 6081 listener. `api.listen` / `SHITSUJI_API_BIND`, optional `api.tls.*` and one
-      warning beyond loopback without TLS. `/desktop` answers in Telegram and the TUI. Integration
-      tests cover the 401s, cookie expiry, the relay and view-only pointer input; the temporary VNC
-      relay services are removed.)*
+      view-only 6081 listener. `api.listen` is the in-container bind; `api.publishedHost` /
+      `api.publishedPort` follow the Compose publish and decide the TLS warning; `api.publicUrl` is
+      the base for every link. Optional `api.tls.*`. Login is throttled after five wrong keys, and
+      login, logout and the stream upgrade reject a cross-origin `Origin`. `/desktop` answers in
+      Telegram and the TUI. Integration tests cover the 401s, cookie expiry, the relay and view-only
+      pointer input; the temporary VNC relay services are removed.)*
 - [ ] **S52** Images the model can see in tool results
 - [ ] **S53** The desktop endpoints and `computer.act`
 - [ ] **S54** The accessibility tree: `desktop.inspect` and `desktop.act`

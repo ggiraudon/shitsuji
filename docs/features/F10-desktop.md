@@ -124,10 +124,17 @@ matters: build and tag `shitsuji/sandbox` first, which Compose does with its `sa
   `sandboxd-gateway`'s view-only listener on 6081 as a WebSocket client and bridges the frames; the
   gateway's second listener forwards to websockify's 6081 view-only stream. Core never joins the
   sandbox network. 6080 (full control) is not exposed until S55.
-- Config (Y2): `api.listen` (default `127.0.0.1`, `SHITSUJI_API_BIND`), `api.tls.cert` / `api.tls.key`
-  serve HTTPS when both are set, and one warning is logged when the API is bound beyond loopback
-  without TLS.
-- `/desktop` on Telegram and in the TUI replies with the viewer URL.
+- `POST /desktop/login` is throttled: after five wrong keys from one address in five minutes it
+  answers 429 until the window ends and logs once. Login, logout and the stream upgrade also reject a
+  cross-origin `Origin` when one is present.
+- Config (Y2): `api.listen` is the in-container bind (`SHITSUJI_API_BIND`); `api.publishedHost` /
+  `api.publishedPort` describe what Docker publishes (`SHITSUJI_API_PUBLISH` /
+  `SHITSUJI_API_PUBLISHED`). The warning follows the published host, so the default Compose
+  `0.0.0.0` inside the container with a loopback published port stays quiet. `api.tls.cert` /
+  `api.tls.key` serve HTTPS when both are set.
+- `api.publicUrl` (`SHITSUJI_PUBLIC_URL`) is the base for every link core sends; it defaults to
+  `http(s)://127.0.0.1:<published port>`. `/desktop` on Telegram and in the TUI replies with
+  `api.publicUrl` + `/desktop`.
 
 ### Desktop endpoints of sandboxd
 
