@@ -55,6 +55,7 @@ import { WebToolsPlugin } from '../plugins/webToolsPlugin.js';
 import { AnthropicPlugin, OpenAICompatiblePlugin } from '../plugins/modelPlugins.js';
 import type { ShitsujiConfig } from './config/schema.js';
 import { expandConfigPaths } from './config/loadConfig.js';
+import { publicUrlOf } from './config/publicUrl.js';
 import { startApiServer } from './apiServer.js';
 import { loadPluginsFromDirectory } from './loadPluginsFromDirectory.js';
 import { createCoreServices, type CoreServices } from './services.js';
@@ -387,6 +388,7 @@ export async function createShitsuji(
   const pairing = new PairingService(services.clock);
   const startsApi = options.api ?? config.api.enabled;
   const viewerStream = viewerStreamOf(config);
+  const viewerUrl = viewerStream ? `${publicUrlOf(config)}/desktop` : undefined;
 
   return new Shitsuji({
     agent,
@@ -405,7 +407,7 @@ export async function createShitsuji(
     clock: services.clock,
     approvals,
     readTypedApproval: (text, approval) => typedApproval.read(text, approval),
-    viewerAvailable: Boolean(viewerStream),
+    viewerUrl,
     prepare:
       startsApi || channels.size > 0
         ? async () => {
@@ -441,6 +443,7 @@ export async function createShitsuji(
             {
               listen: config.api.listen,
               port: config.api.port,
+              ...(config.api.publishedHost && { published: config.api.publishedHost }),
               ...(config.api.tls && { tls: config.api.tls }),
             },
           )

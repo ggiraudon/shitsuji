@@ -170,6 +170,18 @@ describe('environment overrides', () => {
     // The old variable still works for an existing .env.
     expect(load({ SHITSUJI_API_HOST: '192.168.1.5' }).config.api.listen).toBe('192.168.1.5');
 
+    expect(
+      load({
+        SHITSUJI_API_PUBLISHED: '0.0.0.0',
+        SHITSUJI_API_PUBLISHED_PORT: '3100',
+        SHITSUJI_PUBLIC_URL: 'https://shitsuji.example',
+      }).config.api,
+    ).toMatchObject({
+      publishedHost: '0.0.0.0',
+      publishedPort: 3100,
+      publicUrl: 'https://shitsuji.example',
+    });
+
     const config = shitsujiConfigSchema.parse({
       api: { tls: { cert: '~/certs/cert.pem', key: '~/certs/key.pem' } },
     });

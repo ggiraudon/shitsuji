@@ -24,8 +24,15 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SHITSUJI_SEARXNG_URL: http://searxng:8080
       # The API and the webhook listen on all interfaces inside the container; the ports below keep
-      # them on this machine. Both need the owner key.
+      # them on this machine by default. Set SHITSUJI_API_PUBLISH=0.0.0.0 to publish the API on the
+      # LAN (Y2); core reads it back as SHITSUJI_API_PUBLISHED so the warning follows the real
+      # exposure. SHITSUJI_PUBLIC_URL supplies the links core sends (Telegram, /desktop).
       SHITSUJI_API_BIND: 0.0.0.0
+      SHITSUJI_API_PUBLISHED: ${SHITSUJI_API_PUBLISH:-127.0.0.1}
+      SHITSUJI_API_PUBLISHED_PORT: ${SHITSUJI_API_PORT:-3001}
+      SHITSUJI_PUBLIC_URL: ${SHITSUJI_PUBLIC_URL:-}
+      SHITSUJI_API_TLS_CERT: ${SHITSUJI_API_TLS_CERT:-}
+      SHITSUJI_API_TLS_KEY: ${SHITSUJI_API_TLS_KEY:-}
       SHITSUJI_WEBHOOK_HOST: 0.0.0.0
       # Telegram reaches out by long polling, so no port is published for it (F06, S32).
       SHITSUJI_TELEGRAM_ENABLED: ${SHITSUJI_TELEGRAM_ENABLED:-false}
@@ -46,8 +53,9 @@ services:
     ports:
       # The webhook, on this machine only. Remote access comes later (05-open-questions D2).
       - '127.0.0.1:${SHITSUJI_WEBHOOK_PORT:-3000}:3000'
-      # The HTTP API for the TUI (and later the web UI).
-      - '127.0.0.1:${SHITSUJI_API_PORT:-3001}:3001'
+      # The HTTP API for the TUI and the desktop viewer. Loopback by default; set
+      # SHITSUJI_API_PUBLISH=0.0.0.0 (with SHITSUJI_PUBLIC_URL and ideally TLS) for the LAN.
+      - '${SHITSUJI_API_PUBLISH:-127.0.0.1}:${SHITSUJI_API_PORT:-3001}:3001'
     volumes:
       - coredata:/data
       - sandbox-secret:/run/sandbox-secret

@@ -3,13 +3,15 @@ import path from 'node:path';
 import { ConfigError } from '../domain/errors.js';
 import { ApiClient } from '../interfaces/tui/ApiClient.js';
 import type { ShitsujiConfig } from './config/schema.js';
+import { publicUrlOf } from './config/publicUrl.js';
 
 /**
  * Finds core for the TUI: tui.apiUrl (SHITSUJI_API_URL) or this machine's API port, and the owner key
  * from tui.ownerKey (SHITSUJI_OWNER_KEY) or <dataDir>/owner.key. Fails with what to do next.
  */
 export async function connectTui(config: ShitsujiConfig): Promise<ApiClient> {
-  const url = config.tui.apiUrl ?? `http://127.0.0.1:${config.api.port}`;
+  const port = config.api.publishedPort ?? config.api.port;
+  const url = config.tui.apiUrl ?? `http://127.0.0.1:${port}`;
   const keyFile = path.join(config.paths.dataDir, 'owner.key');
   const key =
     config.tui.ownerKey?.reveal() ??
@@ -21,7 +23,7 @@ export async function connectTui(config: ShitsujiConfig): Promise<ApiClient> {
         'SHITSUJI_OWNER_KEY in .env.',
     );
   }
-  const client = new ApiClient(url, key);
+  const client = new ApiClient(url, key, fetch, publicUrlOf(config));
   if (!(await client.health())) {
     throw new ConfigError(
       `Shitsuji is not answering at ${url}. Start it first ("node packages/core/dist/cli.js" or ` +

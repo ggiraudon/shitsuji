@@ -14,6 +14,12 @@ export interface ApiServerOptions {
   /** The interface to bind; 127.0.0.1 by default (Y2). */
   listen: string;
   port: number;
+  /**
+   * The address Docker publishes, when it differs from the bind. The warning follows what the
+   * owner actually exposes; Compose binds 0.0.0.0 inside the container but publishes loopback by
+   * default (Y2).
+   */
+  published?: string;
   /** Both files, or neither; when set the API is served over HTTPS. */
   tls?: { cert: string; key: string };
 }
@@ -40,9 +46,14 @@ export async function startApiServer(
   const tls = options.tls
     ? { cert: readFileSync(options.tls.cert), key: readFileSync(options.tls.key) }
     : undefined;
-  // One warning, at the place that knows the effective bind (Y2).
-  if (!tls && !isLoopbackHost(options.listen)) {
-    deps.log.warn('API is bound beyond loopback without TLS', { listen: options.listen });
+  // One warning, at the place that knows what the owner actually exposes (Y2). Compose binds
+  // 0.0.0.0 inside the container but publishes 127.0.0.1 by default, which must stay quiet.
+  const exposed = options.published?.trim() || options.listen;
+  if (!tls && !isLoopbackHost(exposed)) {
+    deps.log.warn('API is bound beyond loopback without TLS', {
+      listen: options.listen,
+      published: exposed,
+    });
   }
   const app = createApi({
     ...deps,

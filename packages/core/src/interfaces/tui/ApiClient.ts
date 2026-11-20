@@ -29,6 +29,8 @@ export class ApiClient {
     baseUrl: string,
     private readonly key: string,
     private readonly fetchImpl: typeof fetch = fetch,
+    /** The address the owner reaches core at, when it differs from the client's own base (Y2). */
+    private readonly publicBaseUrl?: string,
   ) {
     this.base = baseUrl.replace(/\/+$/, '');
   }
@@ -43,7 +45,7 @@ export class ApiClient {
 
   /** The watch-only desktop viewer (S51); the owner signs in there with the same key. */
   get desktopUrl(): string {
-    return `${this.base}/desktop`;
+    return `${(this.publicBaseUrl ?? this.base).replace(/\/+$/, '')}/desktop`;
   }
 
   send(content: string, sessionId?: string): Promise<PostMessageResponse> {
