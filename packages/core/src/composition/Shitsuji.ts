@@ -122,7 +122,7 @@ export class Shitsuji {
   private offApprovals?: () => void;
   /** Optional pre-open step (e.g. the owner key); awaited after the agent starts. */
   private readonly prepare?: () => Promise<void>;
-  /** Optional API starter; awaited before the channels so adapters can see `apiUrl`. */
+  /** Optional API starter; awaited before the channels so the API is up before messages arrive. */
   private readonly startApi?: () => Promise<RunningApi>;
   /** The running API, if any; `apiUrl` reads it and `stop` closes it first. */
   private api?: RunningApi;
