@@ -285,6 +285,55 @@ jobs:
           # No setuid helper survived the desktop packages.
           test -z "$(docker exec desktop-ci sh -c 'find / -xdev -perm -4000 -print -quit 2>/dev/null')"
 
+          # The supervisor drops every desktop program to uid 1000 with no capabilities, and the
+          # stream servers to uid 1001 with none either. Only sandboxd keeps its four ambient caps.
+          caps_zero() {
+            min=$1
+            shift
+            pids="$(docker exec desktop-ci pgrep "$@")"
+            test "$(printf '%s\n' "$pids" | grep -c .)" -ge "$min"
+            for pid in $pids; do
+              docker exec desktop-ci grep -E '^Cap(Prm|Eff|Amb):' "/proc/$pid/status" \
+                > /tmp/desktop-caps.txt
+              cat /tmp/desktop-caps.txt
+              for set in Prm Eff Amb; do
+                grep -qE "^Cap${set}:[[:space:]]+0+$" /tmp/desktop-caps.txt
+              done
+            done
+          }
+          caps_zero 1 -x Xvfb
+          caps_zero 1 -x dbus-daemon
+          caps_zero 1 -f at-spi2-registryd
+          caps_zero 1 -x xfce4-session
+          caps_zero 2 -x x11vnc
+          caps_zero 2 -x websockify
+
+          daemon_pids="$(docker exec desktop-ci pgrep -x node)"
+          test "$(printf '%s\n' "$daemon_pids" | grep -c .)" -eq 1
+          docker exec desktop-ci grep -E '^Cap(Prm|Eff|Amb):' "/proc/$daemon_pids/status" \
+            > /tmp/desktop-daemon-caps.txt
+          cat /tmp/desktop-daemon-caps.txt
+          for set in Prm Eff Amb; do
+            grep -qE "^Cap${set}:[[:space:]]+00000000000001e0$" /tmp/desktop-daemon-caps.txt
+          done
+
+          # A command is uid 1000 with no capabilities, so it cannot signal the uid-1001 stream
+          # servers and bind their ports to serve a fake stream.
+          cannot_signal() {
+            min=$1
+            shift
+            pids="$(docker exec desktop-ci pgrep "$@")"
+            test "$(printf '%s\n' "$pids" | grep -c .)" -ge "$min"
+            for pid in $pids; do
+              test "$(docker exec desktop-ci ps -o uid= -p "$pid" | tr -d ' ')" = 1001
+              denied="$(docker exec -u 1000:1000 desktop-ci kill -0 "$pid" 2>&1 || true)"
+              echo "$denied"
+              echo "$denied" | grep -qi 'not permitted'
+            done
+          }
+          cannot_signal 2 -x x11vnc
+          cannot_signal 2 -x websockify
+
           # The VNC passwords are in a folder only uid 1001 can enter, and 5900/6080/6081 are not
           # reachable from the host (no port is published).
           denied="$(docker exec -u 1000:1000 desktop-ci \
@@ -299,9 +348,12 @@ jobs:
             fi
           done
 
-          # Inside the sandbox network, websockify serves the noVNC page.
-          docker exec desktop-gateway node -e \
-            "fetch('http://desktop-ci:6080/vnc.html').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+          # Inside the sandbox network, websockify answers on the raw WebSocket ports. core serves
+          # the viewer page and its noVNC client itself (S51), so there is no vnc.html here.
+          for port in 6080 6081; do
+            docker exec desktop-gateway node -e \
+              "const s=require('node:net').connect(${port},'desktop-ci');s.on('connect',()=>process.exit(0));s.on('error',()=>process.exit(1))"
+          done
 
           docker rm -f desktop-ci desktop-gateway
           docker network rm desktop-net
