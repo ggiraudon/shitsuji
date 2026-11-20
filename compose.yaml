@@ -158,18 +158,37 @@ services:
     security_opt: ['no-new-privileges:true']
     restart: 'no'
 
-  # The sandbox itself (F08, S48). No `user:`: the entrypoint starts as root, takes the token core
-  # generated and starts sandboxd as uid 1001; commands run as 1000. The only network is `sandbox`,
-  # whose only way out is egress-proxy.
-  sandbox:
+  # Builds the workspace-only base image the desktop layer starts FROM, and the gateway uses. It
+  # exits immediately; `sandbox` waits for it so a fresh `docker compose up --build` builds the base
+  # before the desktop image.
+  sandbox-base:
     image: shitsuji/sandbox
     build:
       context: .
       dockerfile: docker/sandbox/Dockerfile
+    init: false
+    entrypoint: ['/bin/true']
+    user: '1000:1000'
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    restart: 'no'
+
+  # The sandbox itself (F08, S48; F10 in S50). No `user:`: the entrypoint starts as root, takes the
+  # token core generated, repairs the workspace and starts the desktop supervisor; sandboxd is uid
+  # 1001 and the GUI programs are uid 1000. The only network is `sandbox`, whose only way out is
+  # egress-proxy; no desktop port is published.
+  sandbox:
+    image: shitsuji/sandbox-desktop
+    build:
+      context: .
+      dockerfile: docker/sandbox-desktop/Dockerfile
     init: true
-    pids_limit: 1024
-    mem_limit: 4g
+    pids_limit: 2048
+    mem_limit: 6g
     cpus: 2
+    shm_size: 1g
     cap_drop: [ALL]
     cap_add: [CHOWN, FOWNER, SETUID, SETGID, SETPCAP, KILL]
     security_opt: ['no-new-privileges:true']
@@ -194,9 +213,12 @@ services:
     environment:
       SANDBOX_TOKEN_SEED: /run/sandbox-seed/token
       SANDBOX_TOKEN_FILE: /run/sandbox/token
+      SCREEN: 1440x900x24
       # Commands get this as HTTP(S)_PROXY and the lowercase forms (S48).
       SANDBOX_EGRESS_PROXY: http://egress-proxy:3128
     depends_on:
+      sandbox-base:
+        condition: service_completed_successfully
       sandbox-files:
         condition: service_completed_successfully
       sandbox-secret:
@@ -231,6 +253,8 @@ services:
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
     depends_on:
+      sandbox-base:
+        condition: service_completed_successfully
       sandbox:
         condition: service_healthy
     healthcheck:

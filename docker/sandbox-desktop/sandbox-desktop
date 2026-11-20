@@ -1,0 +1,34 @@
+#!/bin/sh
+# The desktop layer's root entrypoint hook (F10, S50). The base sandbox entrypoint has already
+# installed the sandbox token (/run/sandbox, 0700 owned by 1001), created the venv and repaired the
+# workspace. This script adds the two VNC passwords and hands over to supervisord.
+set -eu
+
+# Root has CHOWN/FOWNER but no DAC_OVERRIDE, so open the daemon-only folder while writing into it.
+VNC_DIR="${SANDBOX_VNC_DIR:-/run/sandbox}"
+chown root:root "$VNC_DIR"
+chmod 0755 "$VNC_DIR"
+
+view_password="$(head -c 24 /dev/urandom | base64 | tr -d '\n')"
+full_password="$(head -c 24 /dev/urandom | base64 | tr -d '\n')"
+
+# sandboxd (1001) reads these for the viewer. Commands (1000) cannot traverse the folder after it is
+# closed again. x11vnc also reads the two VNC-format files; they are never in an argv or env.
+printf '{"viewOnly":"%s","full":"%s"}\n' "$view_password" "$full_password" \
+  > "$VNC_DIR/vnc-passwords.json"
+x11vnc -storepasswd "$view_password" "$VNC_DIR/vnc-view" > /dev/null
+x11vnc -storepasswd "$full_password" "$VNC_DIR/vnc-full" > /dev/null
+chown 1001:1000 "$VNC_DIR/vnc-passwords.json" "$VNC_DIR/vnc-view" "$VNC_DIR/vnc-full"
+chmod 0400 "$VNC_DIR/vnc-passwords.json" "$VNC_DIR/vnc-view" "$VNC_DIR/vnc-full"
+chown 1001:1000 "$VNC_DIR"
+chmod 0700 "$VNC_DIR"
+
+# XDG_RUNTIME_DIR for the session; /tmp is the tmpfs.
+mkdir -p /tmp/runtime-agent /tmp/.X11-unix /tmp/.ICE-unix
+chown 1000:1000 /tmp/runtime-agent
+chmod 0700 /tmp/runtime-agent
+# Xvfb and the XFCE session run as uid 1000 and cannot create these directories on a fresh tmpfs.
+chown root:root /tmp/.X11-unix /tmp/.ICE-unix
+chmod 1777 /tmp/.X11-unix /tmp/.ICE-unix
+
+exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf

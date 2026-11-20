@@ -1,0 +1,17 @@
+#!/bin/sh
+# Starts sandboxd (F10, S50) from the root supervisor. It keeps uid 1001 plus the four ambient
+# capabilities the daemon needs (SETUID/SETGID to start commands as 1000, SETPCAP to empty their
+# bounding set, KILL to stop them); commands themselves get none (see sandboxd exec.ts).
+set -eu
+
+export SANDBOX_TOKEN_FILE="${SANDBOX_TOKEN_FILE:-/run/sandbox/token}"
+export SANDBOX_COMMAND_UID="${SANDBOX_COMMAND_UID:-1000}"
+export SANDBOX_COMMAND_GID="${SANDBOX_COMMAND_GID:-1000}"
+export SANDBOX_COMMAND_HOME="${SANDBOX_COMMAND_HOME:-/home/agent}"
+export SANDBOX_COMMAND_USER="${SANDBOX_COMMAND_USER:-agent}"
+
+exec setpriv \
+  --reuid=1001 --regid=1000 --init-groups \
+  --inh-caps=+setuid,+setgid,+setpcap,+kill \
+  --ambient-caps=+setuid,+setgid,+setpcap,+kill \
+  node /app/dist/main.js

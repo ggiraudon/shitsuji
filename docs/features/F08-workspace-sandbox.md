@@ -212,17 +212,18 @@ against real containers.
 
 ```yaml
 sandbox:
-  image: shitsuji/sandbox            # shitsuji/sandbox-desktop once F10 lands
+  image: shitsuji/sandbox-desktop    # this feature's base plus the F10 desktop layer
   # No `user:`: the entrypoint starts as root, prepares the token file and workspace, then runs
-  # sandboxd as uid 1001; commands run as 1000 (S46).
+  # sandboxd as uid 1001; commands run as 1000 (S46), the desktop programs as 1000 (F10).
   init: true
   cap_drop: [ALL]
   cap_add: [CHOWN, FOWNER, SETUID, SETGID, SETPCAP, KILL]
   security_opt: [no-new-privileges:true]
   read_only: true
   tmpfs: ["/tmp:size=1g", "/run/sandbox:size=1m"]
-  pids_limit: 1024
-  mem_limit: 4g
+  pids_limit: 2048
+  mem_limit: 6g
+  shm_size: 1g                       # Chromium (F10)
   cpus: 2
   volumes:
     - type: volume                   # project files, per-session folders: the existing
@@ -238,11 +239,16 @@ sandbox:
       source: sandbox-secret
       target: /run/sandbox-seed
       read_only: true
-    - sandbox-home:/home/agent       # pip/npm installs, later browser profiles
+    - sandbox-home:/home/agent       # pip/npm installs, browser and desktop profiles
   networks: [sandbox]                # internet only through egress-proxy
   environment:
     SANDBOX_EGRESS_PROXY: http://egress-proxy:3128  # HTTP(S)_PROXY for commands (S48)
+    SCREEN: 1440x900x24              # the desktop display (F10)
 ```
+
+The base image is still built separately: the desktop Dockerfile is `FROM shitsuji/sandbox`, and Compose
+has a `sandbox-base` service that builds that tag before the `sandbox` service. The extra desktop
+processes, their uids and their ports belong to [F10](F10-desktop.md).
 
 Core is **not** on the `sandbox` network (S48): a small `sandboxd-gateway` relay, on `internal` and
 `sandbox` only, forwards core's control port to sandboxd. Without it the sandbox could dial core's

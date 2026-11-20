@@ -87,6 +87,10 @@ export SANDBOX_COMMAND_USER="${SANDBOX_COMMAND_USER:-agent}"
 
 # The daemon keeps SETUID/SETGID (to start commands as 1000), SETPCAP (to empty their bounding set)
 # and KILL (to stop them); every command drops all of them through setpriv (see exec.ts).
+# The desktop layer replaces this final step with its supervisor; the base image has no such file.
+if [ -x /usr/local/bin/sandbox-desktop ]; then
+  exec /usr/local/bin/sandbox-desktop
+fi
 exec setpriv \
   --reuid=1001 --regid=1000 --init-groups \
   --inh-caps=+setuid,+setgid,+setpcap,+kill \
