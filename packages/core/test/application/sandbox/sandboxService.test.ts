@@ -305,4 +305,27 @@ describe('SandboxService (F08, S40)', () => {
 
     await expect(sandbox.start()).rejects.toThrow(/still starting/);
   });
+
+  it('asks the driver for the view-only password, and refuses without a desktop (S51)', async () => {
+    const withViewer = {
+      ...driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: true, credentialSwap: false },
+      }),
+      viewerCredentials: async () => ({ viewOnlyPassword: 'view-only-pass' }),
+    };
+    const { sandbox } = build(withViewer);
+    await sandbox.start();
+    await expect(sandbox.viewerCredentials()).resolves.toEqual({
+      viewOnlyPassword: 'view-only-pass',
+    });
+
+    const { sandbox: plain } = build(
+      driver({
+        files: { roots: ['/workspace'] },
+        egress: { lanBlocked: true, credentialSwap: false },
+      }),
+    );
+    await expect(plain.viewerCredentials()).rejects.toThrow(/no desktop viewer/);
+  });
 });

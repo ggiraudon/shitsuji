@@ -1,4 +1,8 @@
-import { SANDBOX_ROUTES, capabilitiesReplySchema } from '@shitsuji/sandbox-protocol';
+import {
+  SANDBOX_ROUTES,
+  capabilitiesReplySchema,
+  viewerCredentialsReplySchema,
+} from '@shitsuji/sandbox-protocol';
 import type { Logger } from '../../../ports/Logger.js';
 import type {
   DriverHealth,
@@ -6,6 +10,7 @@ import type {
   Sandbox,
   SandboxCapabilities,
   SandboxDriver,
+  ViewerCredentials,
 } from '../../../ports/SandboxDriver.js';
 import { SandboxClient } from './ShitsujiSandbox.js';
 import { ShitsujiEgress, ShitsujiExec, ShitsujiFiles } from './ShitsujiSandbox.js';
@@ -54,6 +59,14 @@ export class ShitsujiSandboxDriver implements SandboxDriver {
       egress: new ShitsujiEgress(this.client),
       close: async () => undefined,
     };
+  }
+
+  async viewerCredentials(): Promise<ViewerCredentials> {
+    const reply = await this.client.call(
+      SANDBOX_ROUTES.viewerCredentials,
+      viewerCredentialsReplySchema,
+    );
+    return { viewOnlyPassword: reply.viewOnly };
   }
 
   async health(): Promise<DriverHealth> {

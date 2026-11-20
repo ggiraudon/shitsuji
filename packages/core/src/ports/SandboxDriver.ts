@@ -13,6 +13,11 @@ export interface SandboxDriver {
   /** One long-lived sandbox per owner now; one per task comes with F15. */
   open(lease: LeaseRequest): Promise<Sandbox>;
   health(): Promise<DriverHealth>;
+  /**
+   * F10/S51: the view-only VNC password for the owner's viewer. Optional: a driver without a
+   * desktop does not implement it.
+   */
+  viewerCredentials?(): Promise<ViewerCredentials>;
   /** Optional tools of the driver itself, always named `<id>.*`. They go through the same pipeline. */
   extraTools?(): Tool[];
 }
@@ -25,6 +30,11 @@ export interface DriverHealth {
   ok: boolean;
   /** Why it is not healthy, in words the owner can read. */
   detail?: string;
+}
+
+/** The view-only credential the viewer page needs (S51). The full-control one never leaves the sandbox. */
+export interface ViewerCredentials {
+  viewOnlyPassword: string;
 }
 
 /** What a driver's sandbox can do. A missing capability means its tools are not registered. */
