@@ -36,12 +36,15 @@ const setup = async (
   extra: {
     limits?: { chat: number };
     provider?: ModelProvider & { requests: ModelRequest[] };
+    sendTimeoutMs?: number;
+    beforeAgent?: (services: ReturnType<typeof testServices>) => void;
   } = {},
 ) => {
-  const { provider, ...agentOptions } = extra;
+  const { provider, beforeAgent, ...agentOptions } = extra;
   const services = testServices();
   const seen: string[] = [];
   services.events.subscribePattern('*', (_p, e) => void seen.push(e.type));
+  beforeAgent?.(services);
   const repos = new InMemoryRepositories();
   const tools = new ToolCatalog();
   const llm = provider ?? new ScriptedProvider(replies);
@@ -76,7 +79,6 @@ const calc = (expression: string, id = 'c1'): ScriptedReply => ({
   toolCalls: [{ id, name: 'math.evaluate', arguments: { expression } }],
 });
 
-/** A model call that blocks until the test releases it, so another worker can finish the turn. */
 class BlockingProvider implements ModelProvider {
   readonly id = 'blocking';
   readonly requests: ModelRequest[] = [];
@@ -293,6 +295,37 @@ describe('TurnRunner terminal races (#94)', () => {
     expect(owner!.withdrawn).toBe(false);
     expect(statuses).not.toContain('cancelled');
     expect(statuses).not.toContain('failed');
+  });
+});
+
+describe('Agent.send timeout (#96)', () => {
+  it('rejects after the bounded wait and removes its turn.status subscription', async () => {
+    const provider = new BlockingProvider();
+    let statusListeners = 0;
+    const { agent } = await setup([], {
+      provider,
+      sendTimeoutMs: 25,
+      beforeAgent: (services) => {
+        const subscribe = services.events.subscribe.bind(services.events);
+        services.events.subscribe = ((type, handler) => {
+          if (type !== 'turn.status') return subscribe(type, handler);
+          statusListeners += 1;
+          const off = subscribe(type, handler);
+          return () => {
+            statusListeners -= 1;
+            off();
+          };
+        }) as typeof services.events.subscribe;
+      },
+    });
+
+    await expect(agent.send('Hi')).rejects.toThrow(/did not finish within 25 ms/);
+    expect(statusListeners).toBe(0);
+
+    // Let the blocked model finish so the run and the test do not leak.
+    await provider.started;
+    provider.fail(new Error('late reply'));
+    await agent.idle();
   });
 });
 
