@@ -285,7 +285,7 @@ describe('ChannelGateway: attachments (S33, #100)', () => {
   it('tells the turn where the owner files are in the active driver’s terms', async () => {
     const { receive, submitted } = await setup({
       requiresPairing: false,
-      attachmentPath: async () => 'report.pdf',
+      attachmentPath: async () => '/handoff/report.pdf',
     });
 
     await receive('Please read this', 'chat-1', [
@@ -298,7 +298,7 @@ describe('ChannelGateway: attachments (S33, #100)', () => {
     ]);
 
     expect(submitted[0]!.text).toContain('Please read this');
-    expect(submitted[0]!.text).toContain('- report.pdf (application/pdf)');
+    expect(submitted[0]!.text).toContain('- /handoff/report.pdf (application/pdf)');
     expect(submitted[0]!.text).not.toContain('/data/handoff');
     expect(submitted[0]!.opts.replyChannel).toBe('test:chat-1');
   });
@@ -306,7 +306,7 @@ describe('ChannelGateway: attachments (S33, #100)', () => {
   it('starts a turn for a file sent without text', async () => {
     const { receive, submitted } = await setup({
       requiresPairing: false,
-      attachmentPath: async () => 'photo.jpg',
+      attachmentPath: async () => '/handoff/photo.jpg',
     });
 
     await receive('', 'chat-1', [
@@ -314,7 +314,7 @@ describe('ChannelGateway: attachments (S33, #100)', () => {
     ]);
 
     expect(submitted).toHaveLength(1);
-    expect(submitted[0]!.text).toContain('- photo.jpg (image/jpeg)');
+    expect(submitted[0]!.text).toContain('- /handoff/photo.jpg (image/jpeg)');
   });
 });
 

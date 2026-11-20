@@ -221,7 +221,9 @@ describe('SandboxService (F08, S40)', () => {
     );
     await sandbox.start();
 
-    await expect(sandbox.attachmentPath('/data/handoff/photo.jpg')).resolves.toBe('photo.jpg');
+    await expect(sandbox.attachmentPath('/data/handoff/photo.jpg')).resolves.toBe(
+      '/handoff/photo.jpg',
+    );
   });
 
   it('closes the sandbox and forgets its tools on close', async () => {
