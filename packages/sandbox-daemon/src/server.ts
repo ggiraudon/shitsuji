@@ -6,6 +6,19 @@ import {
   SANDBOX_ROUTES,
   SANDBOX_TOKEN_HEADER,
   capabilitiesReplySchema,
+  desktopClipboardReplySchema,
+  desktopClipboardRequestSchema,
+  desktopKeyboardRequestSchema,
+  desktopLaunchReplySchema,
+  desktopLaunchRequestSchema,
+  desktopMouseRequestSchema,
+  desktopOcrReplySchema,
+  desktopOcrRequestSchema,
+  desktopOkReplySchema,
+  desktopScreenshotQuerySchema,
+  desktopScreenshotReplySchema,
+  desktopStateReplySchema,
+  desktopWindowsReplySchema,
   errorReplySchema,
   execEventSchema,
   execRequestSchema,
@@ -35,6 +48,7 @@ import {
 } from '@shitsuji/sandbox-protocol';
 import { z, type ZodTypeAny } from 'zod';
 import { tokenMatches } from './auth.js';
+import type { DesktopService } from './desktop.js';
 import type { ExecSupervisor } from './exec.js';
 import { invalidRequest, notFound, SandboxHttpError, tooLarge } from './errors.js';
 import type { SandboxFilesService } from './files.js';
@@ -49,6 +63,8 @@ export interface SandboxServerDeps {
   version?: number;
   /** The JSON file the desktop launcher writes (S50); the viewer route reads it (S51). */
   vncPasswordsFile?: string;
+  /** The desktop tools (S53); absent on the base image, so capabilities omit desktop. */
+  desktop?: DesktopService;
 }
 
 /**
@@ -76,11 +92,39 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
             version,
             files: { roots: ['workspace', 'handoff'] },
             exec: { maxTimeoutMs: deps.exec.maxTimeoutMs },
+            ...(deps.desktop && {
+              desktop: { accessibility: false, screenshots: true, takeControl: false },
+            }),
           }),
         );
       }
       if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.viewerCredentials) {
         return send(res, 200, await readViewerCredentials(deps.vncPasswordsFile));
+      }
+      const desktop = (): DesktopService => {
+        if (!deps.desktop) throw notFound('The desktop is not available in this sandbox.');
+        return deps.desktop;
+      };
+      if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.desktopState) {
+        return send(res, 200, desktopStateReplySchema.parse(await desktop().state()));
+      }
+      if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.desktopScreenshot) {
+        const query = desktopScreenshotQuerySchema.safeParse(
+          Object.fromEntries(url.searchParams.entries()),
+        );
+        if (!query.success)
+          throw invalidRequest('The screenshot scale must be between 0.05 and 1.');
+        return send(
+          res,
+          200,
+          desktopScreenshotReplySchema.parse(await desktop().screenshot(query.data.scale)),
+        );
+      }
+      if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.desktopWindows) {
+        return send(res, 200, desktopWindowsReplySchema.parse(await desktop().windows()));
+      }
+      if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.desktopClipboard) {
+        return send(res, 200, desktopClipboardReplySchema.parse(await desktop().readClipboard()));
       }
       if (req.method !== 'POST') throw notFound(`No route for ${req.method} ${url.pathname}.`);
       const body = await readJson(req, maxBodyBytes);
@@ -132,6 +176,30 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
           const request = parse(moveFileRequestSchema, body);
           const reply = await deps.files.move(request.root, request);
           return send(res, 200, moveFileReplySchema.parse(reply));
+        }
+        case SANDBOX_ROUTES.desktopInputMouse: {
+          const request = parse(desktopMouseRequestSchema, body);
+          await desktop().mouse(request);
+          return send(res, 200, desktopOkReplySchema.parse({ ok: true }));
+        }
+        case SANDBOX_ROUTES.desktopInputKeyboard: {
+          const request = parse(desktopKeyboardRequestSchema, body);
+          await desktop().keyboard(request);
+          return send(res, 200, desktopOkReplySchema.parse({ ok: true }));
+        }
+        case SANDBOX_ROUTES.desktopLaunch: {
+          const request = parse(desktopLaunchRequestSchema, body);
+          await desktop().launch(request.app);
+          return send(res, 200, desktopLaunchReplySchema.parse({ launched: true }));
+        }
+        case SANDBOX_ROUTES.desktopClipboard: {
+          const request = parse(desktopClipboardRequestSchema, body);
+          await desktop().writeClipboard(request.text);
+          return send(res, 200, desktopOkReplySchema.parse({ ok: true }));
+        }
+        case SANDBOX_ROUTES.desktopOcr: {
+          const request = parse(desktopOcrRequestSchema, body);
+          return send(res, 200, desktopOcrReplySchema.parse(await desktop().ocr(request)));
         }
         default:
           throw notFound(`No route for POST ${url.pathname}.`);

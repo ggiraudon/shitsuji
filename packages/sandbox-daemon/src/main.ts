@@ -1,4 +1,5 @@
 import { configFromEnv } from './config.js';
+import { DesktopService, SetprivDesktopRunner } from './desktop.js';
 import { ExecSupervisor, setprivCommand } from './exec.js';
 import { SandboxFilesService } from './files.js';
 import { SandboxPaths } from './paths.js';
@@ -39,6 +40,27 @@ async function main(): Promise<void> {
     exec,
     maxBodyBytes: config.maxBodyBytes,
     vncPasswordsFile: config.vncPasswordsFile,
+    ...(config.desktopEnabled && {
+      desktop: new DesktopService({
+        display: config.display,
+        runner: new SetprivDesktopRunner({
+          uid: config.commandUid ?? 1000,
+          gid: config.commandGid ?? 1000,
+          setprivPath: config.setprivPath,
+          env: {
+            PATH: config.commandPath,
+            HOME: config.commandHome,
+            LANG: 'C.UTF-8',
+            USER: config.commandUser,
+            DISPLAY: config.display,
+            DBUS_SESSION_BUS_ADDRESS: 'unix:path=/tmp/dbus-session',
+            XDG_RUNTIME_DIR: '/tmp/runtime-agent',
+          },
+          timeoutMs: config.desktopTimeoutMs,
+          maxOutputBytes: config.desktopMaxOutputBytes,
+        }),
+      }),
+    }),
   });
   server.listen(config.port, '0.0.0.0', () => {
     // The token is never logged.

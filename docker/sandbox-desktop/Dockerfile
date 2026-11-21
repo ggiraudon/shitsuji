@@ -17,6 +17,7 @@
 FROM shitsuji/sandbox
 
 ENV DISPLAY=:0 \
+    SANDBOX_DESKTOP=1 \
     SCREEN=1440x900x24 \
     DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-session \
     XDG_RUNTIME_DIR=/tmp/runtime-agent \
@@ -50,6 +51,7 @@ RUN apt-get update \
     python3-gi \
     scrot \
     supervisor \
+    tesseract-ocr-eng \
     thunar \
     websockify \
     wmctrl \
