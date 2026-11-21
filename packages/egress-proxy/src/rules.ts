@@ -13,9 +13,26 @@ import {
 
 /** One entry of the allow or deny list: a domain (optionally `*.`) or a CIDR range. */
 export type RuleEntry =
-  | { kind: 'domain'; host: string; wildcard: boolean; source: string }
-  | { kind: 'cidr'; range: CidrRange; source: string };
+  | {
+      /** A host name. */
+      kind: 'domain';
+      /** The domain, lower-cased and without a trailing dot. */
+      host: string;
+      /** True when the entry was `*.example.com` and matches subdomains. */
+      wildcard: boolean;
+      /** The entry as configured, for an error that names it. */
+      source: string;
+    }
+  | {
+      /** An address range. */
+      kind: 'cidr';
+      /** The parsed range. */
+      range: CidrRange;
+      /** The entry as configured, for an error that names it. */
+      source: string;
+    };
 
+/** The configured lists: an empty `allow` means the open default. */
 export interface PolicyConfig {
   /** Empty or absent means the open default: any public host may leave. */
   allow?: readonly string[];
@@ -23,13 +40,32 @@ export interface PolicyConfig {
   deny?: readonly string[];
 }
 
+/** The proxy's answer for one host: allowed with the addresses it may use, or refused with a reason. */
 export type Decision =
-  | { allowed: true; address: IpAddress; addresses: readonly IpAddress[] }
-  | { allowed: false; reason: string; address?: IpAddress };
+  | {
+      /** The request may leave; connect to `address`. */
+      allowed: true;
+      /** The first resolved address, the one the proxy connects to. */
+      address: IpAddress;
+      /** Every address the name resolved to, all of which passed the rules. */
+      addresses: readonly IpAddress[];
+    }
+  | {
+      /** The request must be refused. */
+      allowed: false;
+      /** Why, in words the owner can read. */
+      reason: string;
+      /** The address that failed, when the refusal was about one. */
+      address?: IpAddress;
+    };
 
+/** The rules in force, and the decision function the proxy calls for every CONNECT. */
 export interface EgressPolicy {
+  /** The parsed allow list; empty means the open default. */
   readonly allow: readonly RuleEntry[];
+  /** The parsed deny list, which narrows both modes. */
   readonly deny: readonly RuleEntry[];
+  /** Decides one host from its resolved addresses, never from the name alone. */
   decide(host: string, addresses: readonly IpAddress[]): Decision;
 }
 

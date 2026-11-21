@@ -2,13 +2,19 @@ import net from 'node:net';
 
 /** A numeric address: 32 bits for IPv4, 128 for IPv6, so ranges compare as plain bigints. */
 export interface IpAddress {
+  /** 4 or 6; the two families never compare equal. */
   family: 4 | 6;
+  /** The address as an integer, big-endian. */
   value: bigint;
 }
 
+/** A CIDR range, as an inclusive interval so containment is two bigint comparisons. */
 export interface CidrRange {
+  /** 4 or 6; a range only contains addresses of its own family. */
   family: 4 | 6;
+  /** The first address in the range. */
   start: bigint;
+  /** The last address in the range, inclusive. */
   end: bigint;
   /** The text the range came from, for errors and logs. */
   source: string;
@@ -38,11 +44,13 @@ export function normalizeAddress(address: IpAddress): IpAddress {
   return address;
 }
 
+/** Formats an address the way a log or an error quotes it: dotted quad or RFC 5952 IPv6. */
 export function formatIp(address: IpAddress): string {
   if (address.family === 4) return numberToIpv4(address.value);
   return numberToIpv6(address.value);
 }
 
+/** Parses `a.b.c.d/n` or `::/n`; a bare address becomes a single-address range. Throws on bad text. */
 export function parseCidr(input: string): CidrRange {
   const text = input.trim();
   const [addressPart, prefixPart, ...rest] = text.split('/');
@@ -61,6 +69,7 @@ export function parseCidr(input: string): CidrRange {
   return { family: address.family, start, end: start + size - 1n, source: text };
 }
 
+/** True when the address (after IPv4-mapped normalisation) is inside the range. */
 export function rangeContains(range: CidrRange, address: IpAddress): boolean {
   const candidate = normalizeAddress(address);
   return (
@@ -70,6 +79,7 @@ export function rangeContains(range: CidrRange, address: IpAddress): boolean {
   );
 }
 
+/** True when the two ranges share at least one address; families never overlap. */
 export function rangesOverlap(a: CidrRange, b: CidrRange): boolean {
   return a.family === b.family && a.start <= b.end && b.start <= a.end;
 }
@@ -79,7 +89,12 @@ export function rangesOverlap(a: CidrRange, b: CidrRange): boolean {
  * CGNAT, the unspecified address, multicast and reserved space. The metadata range is also listed
  * on its own, so a regression in the range list cannot silently expose it.
  */
-export const ALWAYS_BLOCKED: readonly { label: string; range: CidrRange }[] = [
+export const ALWAYS_BLOCKED: readonly {
+  /** What the range is, for the error: `private`, `loopback`, `link-local`, … */
+  label: string;
+  /** The blocked range. */
+  range: CidrRange;
+}[] = [
   { label: 'unspecified', range: parseCidr('0.0.0.0/8') },
   { label: 'loopback', range: parseCidr('127.0.0.0/8') },
   { label: 'private', range: parseCidr('10.0.0.0/8') },
@@ -97,7 +112,12 @@ export const ALWAYS_BLOCKED: readonly { label: string; range: CidrRange }[] = [
 ];
 
 /** Cloud metadata, named explicitly so a test can fail loudly if it ever becomes reachable. */
-export const METADATA_ADDRESSES: readonly { label: string; address: IpAddress }[] = [
+export const METADATA_ADDRESSES: readonly {
+  /** What the address is, for the error: `cloud metadata`. */
+  label: string;
+  /** The metadata address itself. */
+  address: IpAddress;
+}[] = [
   { label: 'cloud metadata', address: parseIp('169.254.169.254')! },
   { label: 'cloud metadata', address: parseIp('fd00:ec2::254')! },
 ];

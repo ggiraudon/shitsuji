@@ -4,17 +4,23 @@ import net from 'node:net';
 import { formatIp, parseIp, type IpAddress } from './address.js';
 import type { EgressPolicy } from './rules.js';
 
+/** The proxy's own log surface: the container has no logger package, so it takes two methods. */
 export interface ProxyLogger {
+  /** A normal line: startup and accepted tunnels. */
   info(message: string, context?: Record<string, unknown>): void;
+  /** A refusal or a failed upstream; the context names the host and the reason. */
   warn(message: string, context?: Record<string, unknown>): void;
 }
 
+/** What the proxy needs: the policy, a logger, and the DNS and connect hops (injectable for tests). */
 export interface EgressProxyDeps {
+  /** Decides every host from its resolved addresses. */
   policy: EgressPolicy;
   /** Resolves a hostname (tests inject this; no DNS leaves the process). */
   resolve?: (host: string) => Promise<IpAddress[]>;
   /** Connects to the chosen address (tests inject this to assert the pin). */
   connect?: (address: IpAddress, port: number) => net.Socket;
+  /** The proxy's log. */
   log: ProxyLogger;
 }
 
@@ -156,7 +162,14 @@ async function defaultResolve(host: string): Promise<IpAddress[]> {
 }
 
 /** `host:port`, `[v6]:port`; the default tunnel port is 443. */
-export function parseAuthority(authority: string): { host: string; port: number } | undefined {
+export function parseAuthority(authority: string):
+  | {
+      /** The target host, with IPv6 brackets removed. */
+      host: string;
+      /** The target port; 443 when the authority omits it. */
+      port: number;
+    }
+  | undefined {
   const value = authority.trim();
   const match = /^\[([0-9a-fA-F:.]+)\](?::(\d{1,5}))?$/.exec(value);
   if (match) {
