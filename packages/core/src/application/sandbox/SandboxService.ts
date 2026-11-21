@@ -4,6 +4,7 @@ import type { OutboundFiles } from '../../ports/OutboundFiles.js';
 import type {
   DesktopA11yStatus,
   DriverHealth,
+  FullViewerCredentials,
   LeaseRequest,
   Sandbox,
   SandboxCapabilities,
@@ -158,6 +159,17 @@ export class SandboxService {
       });
     }
     return driver.viewerCredentials();
+  }
+
+  /** The full-control VNC password (S55); the caller must have checked the owner's control mode. */
+  async fullViewerCredentials(): Promise<FullViewerCredentials> {
+    const driver = this.deps.driver;
+    if (!driver.fullViewerCredentials) {
+      throw new SandboxUnavailable(`The ${driver.id} sandbox has no full-control viewer.`, {
+        driver: driver.id,
+      });
+    }
+    return driver.fullViewerCredentials();
   }
 
   /** Which allowed apps publish a tree (S54); undefined when the sandbox has no accessibility. */

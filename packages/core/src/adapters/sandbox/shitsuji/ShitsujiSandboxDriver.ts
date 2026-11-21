@@ -6,6 +6,7 @@ import {
 import type { Logger } from '../../../ports/Logger.js';
 import type {
   DriverHealth,
+  FullViewerCredentials,
   LeaseRequest,
   Sandbox,
   SandboxCapabilities,
@@ -75,6 +76,10 @@ export class ShitsujiSandboxDriver implements SandboxDriver {
       viewerCredentialsReplySchema,
     );
     return { viewOnlyPassword: reply.viewOnly };
+  }
+
+  async fullViewerCredentials(): Promise<FullViewerCredentials> {
+    return this.client.fullViewerCredentials();
   }
 
   async health(): Promise<DriverHealth> {
