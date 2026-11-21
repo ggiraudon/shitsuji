@@ -22,23 +22,36 @@ import type { PairingService } from './PairingService.js';
 
 /** What the gateway needs from the runtime; Agent satisfies it. */
 export interface ChannelRuntime {
+  /** Stores an owner message and returns the turn that answers it. */
   submit(
     content: string,
     opts: { sessionId?: SessionId; channel?: string; replyChannel?: string },
   ): Promise<Submitted>;
+  /** Starts a fresh session in the owner's thread, for `/new`. */
   startSession(kind?: SessionKind): Promise<SessionId>;
+  /** Stops the session's running or queued turn, for `/stop`. */
   stopSession(sessionId: SessionId): Promise<boolean>;
 }
 
+/** Everything the gateway is built with; `Shitsuji.start` assembles it after the API is up. */
 export interface ChannelGatewayDeps {
+  /** The runtime that stores messages and starts turns. */
   agent: ChannelRuntime;
+  /** Chat → owner/session bindings; pairing writes them, the gateway reads them. */
   bindings: ChannelBindingStore;
+  /** One-time pairing codes for `/start`. */
   pairing: PairingService;
+  /** The adapters this process started; the gateway delivers answers and cards through them. */
   channels: ChannelRegistry;
+  /** Turn and thread storage, for `/status` and the session lookup. */
   repos: Repositories;
+  /** The single owner this process serves. */
   ownerId: OwnerId;
+  /** Injected clock for binding timestamps and the unpaired-chat throttle. */
   clock: Clock;
+  /** Structured logger for pairing, delivery and ignored messages. */
   log: Logger;
+  /** The build version `/status` reports. */
   version: string;
   /** Cards waiting for the owner, answered by a button (S37). */
   approvals?: ApprovalService;
@@ -60,9 +73,20 @@ export interface ChannelGatewayDeps {
  */
 export class ChannelGateway {
   /** The unpaired-chat log throttle: channel:chat -> last warning and how many it covered (#39). */
-  private readonly unpairedWarnings = new Map<string, { at: number; suppressed: number }>();
+  private readonly unpairedWarnings = new Map<
+    string,
+    {
+      /** When the last warning was written, in epoch milliseconds. */
+      at: number;
+      /** How many messages were dropped since then without a line. */
+      suppressed: number;
+    }
+  >();
 
-  constructor(private readonly deps: ChannelGatewayDeps) {}
+  constructor(
+    /** The runtime, channels and stores; `Shitsuji.start` builds it once. */
+    private readonly deps: ChannelGatewayDeps,
+  ) {}
 
   /**
    * Whether a chat may start a turn. Adapters ask before storing an attachment, so an unpaired chat
@@ -75,6 +99,7 @@ export class ChannelGateway {
     return Boolean(binding?.verifiedAt);
   }
 
+  /** Handles one inbound message: pairing, commands, a typed approval answer, or a turn. */
   async receive(message: InboundMessage): Promise<InboundResult> {
     const binding = await this.deps.bindings.get(message.channel, message.chatId);
     const adapter = this.deps.channels.get(message.channel);
@@ -156,9 +181,12 @@ export class ChannelGateway {
    * The open cards for this chat's session. A typed answer is accepted only when exactly one is
    * waiting here; cards from another session are never in reach (#51).
    */
-  private async pendingFor(
-    binding: ChannelBinding | undefined,
-  ): Promise<{ card?: Approval; count: number }> {
+  private async pendingFor(binding: ChannelBinding | undefined): Promise<{
+    /** The single open card, when exactly one is waiting. */
+    card?: Approval;
+    /** How many cards are open for the session; more than one refuses a typed answer. */
+    count: number;
+  }> {
     if (!this.deps.approvals) return { count: 0 };
     const sessionId = await this.sessionFor(binding);
     if (!sessionId) return { count: 0 };
@@ -271,6 +299,7 @@ export class ChannelGateway {
     return { kind: 'replied', reason: 'paired' };
   }
 
+  /** Delivers a short answer through the adapter that received the message. */
   private answer(message: InboundMessage, text: string, intent: OutboundIntent): Promise<void> {
     return this.deps.reply(message.channel, message.chatId, text, intent);
   }

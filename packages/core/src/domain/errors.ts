@@ -7,16 +7,15 @@
  * reports the same fields.
  */
 export class ShitsujiError extends Error {
+  /** The class name, kept in `toJSON` so a log line shows both the class and the code. */
   override readonly name: string = 'ShitsujiError';
 
-  /**
-   * `code` is a stable snake_case identifier (`tool_input_invalid`): never reword it, logs and clients
-   * branch on it. `details` carries context for the log and the owner and must be safe to show, so no
-   * secrets. `options.cause` keeps the thrown value this wraps; `serializeError` recurses into it.
-   */
+  /** `options.cause` keeps the thrown value this wraps; `serializeError` recurses into it. */
   constructor(
+    /** Stable identifier of the failure kind, e.g. `provider_failed`; part of every log line. */
     readonly code: string,
     message: string,
+    /** Context for the log and the owner (ids, limits, counts); never a secret. */
     readonly details: Record<string, unknown> = {},
     options?: { cause?: unknown },
   ) {
@@ -31,6 +30,7 @@ export class ShitsujiError extends Error {
 
 /** Configuration is missing or invalid. Thrown while reading config, before anything starts. */
 export class ConfigError extends ShitsujiError {
+  /** The subclass name, as `Error.name` and `toJSON` report it. */
   override readonly name = 'ConfigError';
   constructor(message: string, details?: Record<string, unknown>, options?: { cause?: unknown }) {
     super('config_invalid', message, details, options);
@@ -42,10 +42,13 @@ export class ConfigError extends ShitsujiError {
  * a 400 is not. The runner still never retries after a tool call has been emitted, whatever this says.
  */
 export class ProviderError extends ShitsujiError {
+  /** The subclass name, as `Error.name` and `toJSON` report it. */
   override readonly name = 'ProviderError';
   constructor(
+    /** The provider id from the model ref, e.g. `deepseek`; useful to tell two keys apart. */
     readonly provider: string,
     message: string,
+    /** Whether sending the same request again could succeed; a policy refusal is not retryable. */
     readonly retryable: boolean,
     details?: Record<string, unknown>,
     options?: { cause?: unknown },
@@ -59,8 +62,10 @@ export class ProviderError extends ShitsujiError {
  * as a `ToolOutcome` of kind `error` with reason `invalid_input`, so nothing throws this yet.
  */
 export class ToolInputError extends ShitsujiError {
+  /** The subclass name, as `Error.name` and `toJSON` report it. */
   override readonly name = 'ToolInputError';
   constructor(
+    /** The tool's dotted name, so the message and details say which call failed. */
     readonly tool: string,
     message: string,
     details?: Record<string, unknown>,
@@ -74,6 +79,7 @@ export class ToolInputError extends ShitsujiError {
  * the pipeline reports it as a tool error, so nothing throws this yet.
  */
 export class PolicyDenied extends ShitsujiError {
+  /** The subclass name, as `Error.name` and `toJSON` report it. */
   override readonly name = 'PolicyDenied';
   constructor(message: string, details?: Record<string, unknown>) {
     super('policy_denied', message, details);
@@ -85,6 +91,7 @@ export class PolicyDenied extends ShitsujiError {
  * by `BudgetService.reserve`, so the turn fails with a reason the owner can act on.
  */
 export class BudgetExceeded extends ShitsujiError {
+  /** The subclass name, as `Error.name` and `toJSON` report it. */
   override readonly name = 'BudgetExceeded';
   constructor(message: string, details?: Record<string, unknown>) {
     super('budget_exceeded', message, details);
@@ -97,6 +104,7 @@ export class BudgetExceeded extends ShitsujiError {
  * this message rather than pretending the action happened.
  */
 export class SandboxUnavailable extends ShitsujiError {
+  /** The subclass name, as `Error.name` and `toJSON` report it. */
   override readonly name = 'SandboxUnavailable';
   constructor(message: string, details?: Record<string, unknown>, options?: { cause?: unknown }) {
     super('sandbox_unavailable', message, details, options);
@@ -105,6 +113,7 @@ export class SandboxUnavailable extends ShitsujiError {
 
 /** Something that should exist does not. The message is built from `what` and `id`; both are details. */
 export class NotFound extends ShitsujiError {
+  /** The subclass name, as `Error.name` and `toJSON` report it. */
   override readonly name = 'NotFound';
   constructor(what: string, id: string) {
     super('not_found', `${what} ${id} not found`, { what, id });
@@ -117,6 +126,7 @@ export class NotFound extends ShitsujiError {
  * later.
  */
 export class InvalidTransition extends ShitsujiError {
+  /** The subclass name, as `Error.name` and `toJSON` report it. */
   override readonly name = 'InvalidTransition';
   constructor(entity: string, from: string, to: string) {
     super('invalid_transition', `${entity} cannot go from ${from} to ${to}`, { entity, from, to });

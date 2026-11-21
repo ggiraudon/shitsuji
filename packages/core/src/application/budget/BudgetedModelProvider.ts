@@ -5,8 +5,11 @@ import type { ModelCatalog } from '../models/ModelCatalog.js';
 import type { BudgetService } from './BudgetService.js';
 import { estimateRequestCost } from './estimate.js';
 
+/** What the decorator needs: the budget and the catalogue that prices the request. */
 export interface BudgetedProviderOptions {
+  /** Takes the hold and settles or releases it around the call. */
   budget: BudgetService;
+  /** Prices the request for the estimate and the usage event. */
   catalog: ModelCatalog;
 }
 
@@ -20,18 +23,23 @@ export interface BudgetedProviderOptions {
  */
 export class BudgetedModelProvider implements ModelProvider {
   constructor(
+    /** The provider whose call the hold covers. */
     private readonly inner: ModelProvider,
+    /** The budget and the catalogue used to price the call. */
     private readonly options: BudgetedProviderOptions,
   ) {}
 
+  /** The inner provider's id, so model refs and logs are unchanged. */
   get id(): string {
     return this.inner.id;
   }
 
+  /** Passes the listing through: it costs nothing and needs no hold. */
   listModels(signal?: AbortSignal): Promise<string[]> {
     return this.inner.listModels(signal);
   }
 
+  /** Holds before the call and settles with the usage event; releases the hold on any other ending. */
   async *stream(request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent> {
     const ref = `${this.id}/${request.model}`;
     const meta = request.metadata ?? {};

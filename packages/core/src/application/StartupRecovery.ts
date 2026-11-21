@@ -6,6 +6,7 @@ import type { Clock } from '../ports/Clock.js';
 import type { Logger } from '../ports/Logger.js';
 import type { Repositories } from '../ports/Repositories.js';
 
+/** The reason stored on turns a crash left `running`; the next turn reads it as a system note. */
 export const INTERRUPTED = 'interrupted';
 
 /**
@@ -16,11 +17,18 @@ export const INTERRUPTED = 'interrupted';
  */
 export class StartupRecovery {
   constructor(
+    /** Storage for turns, sessions, messages and approvals; recovery writes through it. */
     private readonly repos: Repositories,
+    /** Injected clock for the failed and expired timestamps. */
     private readonly clock: Clock,
+    /** Structured logger; every recovered turn and approval is reported here. */
     private readonly log: Logger,
   ) {}
 
+  /**
+   * Marks the previous process's `running` turns failed and settles the approvals it left open. Returns
+   * the turns it recovered; a failure on one row is logged and does not stop the others.
+   */
   async run(): Promise<Turn[]> {
     // A hold from the previous run belongs to a request whose process died with it.
     try {

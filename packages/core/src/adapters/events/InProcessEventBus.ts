@@ -18,14 +18,19 @@ import type { Logger } from '../../ports/Logger.js';
  * logged, so a failing error handler cannot loop.
  */
 export class InProcessEventBus implements EventBus {
+  /** Handlers by exact event name. */
   private readonly exact = new Map<string, Set<Handler<unknown>>>();
+  /** Handlers by pattern (`tool.*`, `*`); checked in insertion order for every event. */
   private readonly patterns = new Map<EventPattern, Set<Handler<unknown>>>();
 
   constructor(
+    /** Logger for a failed handler; the error is also republished as `system.error`. */
     private readonly log: Logger,
+    /** Supplies each event's `at`. */
     private readonly clock: Clock,
   ) {}
 
+  /** Delivers synchronously to every matching handler; an async handler's rejection is logged later. */
   publish<K extends EventName>(type: K, payload: ShitsujiEvents[K], meta: EventMeta = {}): void {
     const event: PublishedEvent<K> = { type, payload, meta, at: this.clock.now() };
     for (const handler of this.handlersFor(type)) {
@@ -33,14 +38,17 @@ export class InProcessEventBus implements EventBus {
     }
   }
 
+  /** Subscribes to one event name; returns the unsubscribe function. */
   subscribe<K extends EventName>(type: K, handler: Handler<ShitsujiEvents[K]>): Unsubscribe {
     return add(this.exact, type, handler as Handler<unknown>);
   }
 
+  /** Subscribes to every event matching a prefix pattern, e.g. `tool.*`. */
   subscribePattern(pattern: EventPattern, handler: Handler<unknown>): Unsubscribe {
     return add(this.patterns, pattern, handler);
   }
 
+  /** The exact-name and pattern handlers for one event, in subscription order. */
   private handlersFor(type: string): Handler<unknown>[] {
     const out = [...(this.exact.get(type) ?? [])];
     for (const [pattern, handlers] of this.patterns) {
@@ -49,6 +57,7 @@ export class InProcessEventBus implements EventBus {
     return out;
   }
 
+  /** Calls one handler; a sync throw or an async rejection goes to `failed`. */
   private deliver(handler: Handler<unknown>, event: PublishedEvent): void {
     try {
       const result = handler(event.payload, event);
@@ -58,6 +67,7 @@ export class InProcessEventBus implements EventBus {
     }
   }
 
+  /** Logs a handler failure and republishes it as `system.error`, unless the failing event is that one. */
   private failed(error: unknown, event: PublishedEvent): void {
     this.log.error('Event handler failed', { event: event.type, error: serializeError(error) });
     if (event.type !== 'system.error') {

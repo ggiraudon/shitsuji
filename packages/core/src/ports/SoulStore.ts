@@ -21,5 +21,6 @@ export interface SoulStore {
   currentRevision(ownerId: OwnerId, tx?: Transaction): Promise<SoulRevision | undefined>;
   /** Every revision, oldest first (for diff and undo). */
   revisions(ownerId: OwnerId, tx?: Transaction): Promise<SoulRevision[]>;
+  /** Appends the next revision after `replaceFragments`; both belong in one transaction. */
   appendRevision(ownerId: OwnerId, revision: SoulRevision, tx?: Transaction): Promise<void>;
 }

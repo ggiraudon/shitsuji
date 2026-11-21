@@ -7,10 +7,13 @@ import type { ToolEffect, ToolTarget } from '../../ports/Tool.js';
  * different call, even with the same tool name (decision order, F11).
  */
 export interface ActionRequest {
+  /** The tool's dotted name. */
   tool: string;
   /** Validated arguments, as the tool's `run()` receives them. */
   arguments: Record<string, unknown>;
+  /** What the call does, after any argument-dependent effect was resolved. */
   effect: ToolEffect;
+  /** Where it runs: `core`, `workspace`, `desktop` or `mcp`. */
   target: ToolTarget;
   /** SHA-256 over the tool and its canonical arguments; stable across key order. */
   hash: string;

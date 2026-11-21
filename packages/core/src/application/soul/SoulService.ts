@@ -18,30 +18,51 @@ import type { TextFile } from '../../ports/TextFile.js';
 
 /** What a turn needs to know about the SOUL: the revision and the text for its session kind. */
 export interface SoulSource {
-  current(sessionKind?: SessionKind): Promise<{ revision: number; body: string }>;
+  /**
+   * The revision a turn fixes at its start, assembled for the session kind; the turn does not re-read
+   * it later, so a revision confirmed mid-turn waits for the next one.
+   */
+  current(sessionKind?: SessionKind): Promise<{
+    /** The revision number the turn records on its row. */
+    revision: number;
+    /** The assembled text, including that kind's session fragments. */
+    body: string;
+  }>;
 }
 
+/** Everything the service needs: storage, one unit of work, and the optional SOUL.md export. */
 export interface SoulServiceDeps {
+  /** Fragments and revisions; the service owns every write. */
   store: SoulStore;
+  /** One transaction for "replace the fragments and append the revision". */
   uow: UnitOfWork;
+  /** The owner whose SOUL it is; one per install today. */
   ownerId: OwnerId;
+  /** Injected clock for a revision's timestamp. */
   clock: Clock;
+  /** Structured logger; confirming an edit is reported here. */
   log: Logger;
   /** The SOUL.md export; no file when unset. */
   file?: TextFile;
-  /** The starting text, before the owner writes one. */
+  /** The text `ensureRevision` seeds when storage is empty. */
   defaultBody?: string;
 }
 
+/** An edit of the export that has not been confirmed yet, as the API and the TUI show it. */
 export interface PendingSoulEdit {
+  /** The export's path, for the message that asks the owner to confirm. */
   path: string;
+  /** The current revision's text, for a diff. */
   current: string;
+  /** The text found in the file, line endings normalised. */
   proposed: string;
   /** SHA-256 of `proposed`: confirming with it applies exactly the text that was reviewed. */
   hash: string;
 }
 
+/** The current revision and, when the export differs from it, the edit waiting for a confirmation. */
 export interface SoulView {
+  /** The revision a new turn would run with. */
   revision: SoulRevision;
   /** An unconfirmed edit of SOUL.md, if the file differs from the current revision. */
   pending?: PendingSoulEdit;
@@ -53,8 +74,12 @@ export interface SoulView {
  * real copy; a revision takes effect at the next turn, never in the middle of one.
  */
 export class SoulService implements SoulSource {
-  constructor(private readonly deps: SoulServiceDeps) {}
+  constructor(
+    /** Storage, the unit of work and the optional export; `createShitsuji` builds it once. */
+    private readonly deps: SoulServiceDeps,
+  ) {}
 
+  /** The export's path, for messages that name it; undefined when there is no export. */
   get filePath(): string | undefined {
     return this.deps.file?.path;
   }
@@ -67,15 +92,22 @@ export class SoulService implements SoulSource {
   }
 
   /** The revision a turn runs with, assembled for its session kind. */
-  async current(sessionKind?: SessionKind): Promise<{ revision: number; body: string }> {
+  async current(sessionKind?: SessionKind): Promise<{
+    /** The revision number the turn records on its row. */
+    revision: number;
+    /** The assembled text, including that kind's session fragments. */
+    body: string;
+  }> {
     const revision = await this.ensureRevision();
     return { revision: revision.revision, body: assembleSoul(revision.fragments, sessionKind) };
   }
 
+  /** Every fragment, in position order; the editable copy the owner sees. */
   async fragments(): Promise<readonly SoulFragment[]> {
     return this.deps.store.fragments(this.deps.ownerId);
   }
 
+  /** Every published revision, oldest first, for a diff or an undo. */
   async revisions(): Promise<readonly SoulRevision[]> {
     return this.deps.store.revisions(this.deps.ownerId);
   }
@@ -164,6 +196,10 @@ export class SoulService implements SoulSource {
     return revision;
   }
 
+  /**
+   * The current revision, seeding the default one on first use. Two processes starting together are
+   * safe: the loser of the insert reads the winner's revision instead of failing.
+   */
   private async ensureRevision(): Promise<SoulRevision> {
     const existing = await this.deps.store.currentRevision(this.deps.ownerId);
     if (existing) return existing;

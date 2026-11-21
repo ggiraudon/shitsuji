@@ -16,10 +16,13 @@ export interface Authority {
   instruction?: string;
 }
 
+/** What the resolver starts from: a transcript, the rules in force, and an optional instruction. */
 export interface AuthoritySources {
   /** The session's transcript, oldest first; only owner messages are used. */
   messages: readonly Message[];
+  /** The standing rules in force, when a rule store exists (F16). */
   rules?: readonly StandingRule[];
+  /** A routine's instruction, when the work did not start from an owner message (F16). */
   instruction?: string;
 }
 
@@ -27,10 +30,16 @@ export interface AuthoritySources {
  * How much of the owner's words the judge sees: the recent request chain, not the whole history. The
  * caps are generous enough for a long request and keep the judge's prompt small (F03 cost).
  */
-export const AUTHORITY_LIMITS = { messages: 20, chars: 8_000 } as const;
+export const AUTHORITY_LIMITS = {
+  /** At most this many owner messages, newest first, before the caps stop the walk. */
+  messages: 20,
+  /** At most this many characters of owner text in total. */
+  chars: 8_000,
+} as const;
 
 /** Collects the authority for one turn (F11, S35). No I/O: the caller brings the transcript. */
 export class AuthorityResolver {
+  /** Keeps the newest owner messages within the caps, oldest first, and copies the rules across. */
   resolve(sources: AuthoritySources): Authority {
     const words: string[] = [];
     let used = 0;

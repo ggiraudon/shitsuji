@@ -18,35 +18,45 @@ export type InjectionConditionType =
 
 /** Always rendered. */
 export interface InjectionConditionAlways {
+  /** The discriminator for `always`. */
   type: 'always';
 }
 
 /** Rendered when the latest assistant message called one of these tools; an empty list means any tool. */
 export interface InjectionConditionToolUsed {
+  /** The discriminator for `tool_used`. */
   type: 'tool_used';
+  /** Tool names to look for; an empty list means "any tool was used". */
   toolNames: string[];
 }
 
 /** Rendered when one of the patterns matches the owner's latest message. */
 export interface InjectionConditionPatternDetected {
+  /** The discriminator for `pattern_detected`. */
   type: 'pattern_detected';
+  /** Patterns tested against the last owner message; the first match is enough. */
   patterns: RegExp[];
 }
 
 /** Rendered when `check` returns true. It runs on every build, so keep it cheap and side-effect free. */
 export interface InjectionConditionCustom {
+  /** The discriminator for `custom`. */
   type: 'custom';
+  /** The predicate; it sees the same snapshot `render` gets. */
   check: (context: AgentRenderContext) => boolean;
 }
 
 /** Rendered at most once per session (tracked by the ContextBuilder). */
 export interface InjectionConditionOnce {
+  /** The discriminator for `once`. */
   type: 'once';
 }
 
 /** Rendered only for these session kinds. */
 export interface InjectionConditionSessionKind {
+  /** The discriminator for `session_kind`. */
   type: 'session_kind';
+  /** The kinds that see it; every other kind skips the injectable. */
   kinds: readonly SessionKind[];
 }
 
@@ -65,6 +75,7 @@ export type InjectionCondition =
  * injectable must not write anything or call a model.
  */
 export interface AgentRenderContext {
+  /** The session whose request is being assembled; its kind drives `session_kind`. */
   session: Session;
   /** The recent messages being sent to the model, oldest first. */
   messages: Message[];
@@ -74,12 +85,20 @@ export interface AgentRenderContext {
   lastUserMessage?: string;
   /** Your profile, for the owner injectable. */
   owner?: {
+    /** The name the owner chose; the identity injectable uses it. */
     displayName: string;
+    /** IANA zone, for "today" and time-of-day text. */
     timezone: string;
+    /** BCP 47 tag, for the language the assistant answers in. */
     locale: string;
   };
   /** The SOUL revision this turn runs with, fixed at the turn's start. */
-  soul?: { revision: number; body: string };
+  soul?: {
+    /** The revision number, for a note that quotes it. */
+    revision: number;
+    /** The assembled text for this session kind. */
+    body: string;
+  };
   /** The compaction summary of older messages, when there is one. */
   summary?: string;
   /** How many of the session's oldest messages that summary covers. */
@@ -95,11 +114,15 @@ export interface AgentRenderContext {
 export interface ContextInjectable {
   /** Stable id, also used by `once` tracking and by the stability check. */
   readonly id: string;
+  /** A short name for the log and the model-facing description of what this adds. */
   readonly name: string;
+  /** What it adds, in a sentence; used in the tool/context index. */
   readonly description: string;
+  /** Where the text goes; see {@link InjectionPlacement}. */
   readonly placement: InjectionPlacement;
   /** Ascending within a placement: -1 comes before 0. */
   readonly order: number;
+  /** When it applies; see {@link InjectionCondition}. */
   readonly condition: InjectionCondition;
 
   /** The text to add, or null for nothing. Keep it stable for the same context so prompt caching holds. */
@@ -112,10 +135,14 @@ export interface ContextInjectable {
  */
 export abstract class BaseContextInjectable implements ContextInjectable {
   abstract readonly id: string;
+  /** A short name for logs and the context index; subclasses supply it. */
   abstract readonly name: string;
+  /** What it adds, in a sentence; subclasses supply it. */
   abstract readonly description: string;
+  /** Header by default; subclasses move it when the text is not stable enough for the prompt cache. */
   placement: InjectionPlacement = 'header';
   order = 0;
+  /** Always by default; subclasses narrow it when the text only matters in some situations. */
   condition: InjectionCondition = { type: 'always' };
 
   abstract render(context: AgentRenderContext): string | null;

@@ -68,7 +68,12 @@ export class Money {
   }
 
   /** Micro-units and currency, so a stored or API value keeps its exact amount. */
-  toJSON(): { micros: number; currency: string } {
+  toJSON(): {
+    /** The amount in micro-units, exact. */
+    micros: number;
+    /** The ISO code the amount is in. */
+    currency: string;
+  } {
     return { micros: this.micros, currency: this.currency };
   }
 

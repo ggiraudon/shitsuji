@@ -16,18 +16,22 @@ const none: TrustBasis = { kind: 'none' };
 
 /** Where the owner's words come from. The server reads the session's transcript. */
 export interface AuthoritySource {
+  /** The owner's quoted words and standing rules that apply to this call. */
   forTurn(check: TrustCheck): Promise<Authority>;
 }
 
 /** Reads one session's transcript and keeps the owner's own words (F11, S35). */
 export class SessionAuthority implements AuthoritySource {
   constructor(
+    /** The transcript to read; only the last 200 messages are considered. */
     private readonly messages: MessageRepository,
+    /** Turns messages into quotes and rule references; stateless by default. */
     private readonly resolver: AuthorityResolver = new AuthorityResolver(),
     /** Standing rules, when F16 stores them; none yet. */
     private readonly rules: () => Promise<readonly StandingRule[]> = async () => [],
   ) {}
 
+  /** Resolves the quotes for one call from the session's recent owner messages and the rules. */
   async forTurn(check: TrustCheck): Promise<Authority> {
     const messages = await this.messages.listBySession(asId<SessionId>(check.sessionId), {
       limit: 200,
@@ -36,13 +40,19 @@ export class SessionAuthority implements AuthoritySource {
   }
 }
 
+/** What the service needs: the policy engine, a source of the owner's words, and the ask paths. */
 export interface TrustServiceDeps {
+  /** The deterministic rules; its `judge` verdict is the only one the service escalates. */
   engine: PolicyEngine;
+  /** Reads the owner's words for the turn. */
   authority: AuthoritySource;
+  /** The model judge; without one a `judge` verdict becomes `ask`. */
   judge?: TrustJudge;
   /** Asks the owner when the policy or the judge says ask (F11, S36). */
   approvals?: ApprovalService;
+  /** The owner who answers cards; one per install today. */
   ownerId: OwnerId;
+  /** Structured logger; every decision and every failed path is reported here. */
   log: Logger;
   /** How long background work may wait for the owner before the card expires (default 30 s, #51). */
   backgroundApprovalWaitMs?: number;
@@ -55,14 +65,23 @@ export interface TrustServiceDeps {
  * becomes ask, never allow.
  */
 export class TrustService implements TrustPolicy {
+  /** Checks that a judge's quote is verbatim from the owner's words in this turn. */
   private readonly verifier = new QuoteVerifier();
 
-  constructor(private readonly deps: TrustServiceDeps) {}
+  constructor(
+    /** The engine, authority source, judge and approval service; `createShitsuji` wires them. */
+    private readonly deps: TrustServiceDeps,
+  ) {}
 
+  /** How long a background call waits for an approval before its card expires. */
   private get backgroundWaitMs(): number {
     return this.deps.backgroundApprovalWaitMs ?? 30_000;
   }
 
+  /**
+   * Decides one call: engine first, then the judge if the engine asked for it, then the owner if the
+   * verdict still says ask. Any failure on the way yields `ask`, never `allow`.
+   */
   async decide(request: ActionRequest, check: TrustCheck): Promise<TrustDecision> {
     let authority: Authority;
     try {
@@ -162,6 +181,10 @@ export class TrustService implements TrustPolicy {
     }
   }
 
+  /**
+   * The judge path: asks the model judge, accepts an allow only with a verified quote (or, for a
+   * profile that does not require one, on the judge's word), and asks the owner otherwise.
+   */
   private async judge(
     request: ActionRequest,
     authority: Authority,

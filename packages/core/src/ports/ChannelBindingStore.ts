@@ -7,10 +7,15 @@ import type { Transaction } from './Repositories.js';
  * `/new`, so the main chat session is not forced on every channel (F06, S31).
  */
 export interface ChannelBinding {
+  /** The adapter the chat lives on, e.g. `telegram`. */
   channel: string;
+  /** The channel's own conversation id. */
   externalChatId: string;
+  /** The owner the chat was paired with. */
   ownerId: OwnerId;
+  /** When pairing succeeded; absent for a binding that has not proven the owner's code. */
   verifiedAt?: Date;
+  /** The session this chat talks to, after `/new`; the main chat session when unset. */
   sessionId?: SessionId;
 }
 

@@ -9,8 +9,10 @@ import type { EventBus } from '../../ports/EventBus.js';
 import type { JobQueue } from '../../ports/JobQueue.js';
 import type { Repositories, Transaction } from '../../ports/Repositories.js';
 
+/** The queue name of the wake-up job: one queued drain per session, keyed by its id. */
 export const DRAIN_JOB = 'session.drain';
 
+/** What a caller may set when it stores a message; every field has a sensible default. */
 export interface SubmitOptions {
   /** Defaults to the owner's main chat session. */
   sessionId?: SessionId;
@@ -18,11 +20,15 @@ export interface SubmitOptions {
   replyChannel?: string;
   /** The channel it came in on, stored with the message. */
   channel?: string;
+  /** What starts the turn, when it starts one; defaults to `user`, or `resume` after a question. */
   source?: TurnSource;
 }
 
+/** What `submit` returns: the session and turn that now answer the message. */
 export interface Submitted {
+  /** The session the message was stored in. */
   sessionId: SessionId;
+  /** The turn that will answer it, new or already running. */
   turnId: TurnId;
   /** True when the message joined a turn that was already running (steering). */
   steered: boolean;
@@ -34,19 +40,28 @@ export interface Submitted {
  */
 export class MessageIntake {
   constructor(
+    /** The runtime's dependencies; a test builds it with the in-memory repositories. */
     private readonly deps: {
+      /** The owner whose thread and sessions the messages go to. */
       ownerId: OwnerId;
+      /** Storage for the message, the turn and the wake-up job, in one transaction. */
       repos: Repositories;
+      /** The durable queue that wakes the session's drain worker. */
       jobs: JobQueue;
+      /** Injected clock for the message and turn timestamps. */
       clock: Clock;
+      /** The bus for `message.received`, `turn.steered` and `session.created`. */
       events: EventBus;
+      /** The agent's name, used in `session.created` and in its log lines. */
       agentName: string;
+      /** Optional structured logger; without one, a failed supersede is silent. */
       log?: Logger;
       /** Expires the session's pending approval cards; a new message supersedes them (#51). */
       supersedeApprovals?: (sessionId: SessionId, reason: string) => Promise<number>;
     },
   ) {}
 
+  /** Stores the message and returns the turn that answers it; see the class comment. */
   async submit(content: string, opts: SubmitOptions = {}): Promise<Submitted> {
     const { repos, clock, events } = this.deps;
     const result = await repos.uow.run(async (tx) => {
@@ -173,6 +188,7 @@ export class MessageIntake {
     });
   }
 
+  /** The named session if it belongs to the thread, else the thread's main chat, creating it if needed. */
   private async resolveSession(thread: Thread, id: SessionId | undefined, tx: Transaction) {
     const { repos } = this.deps;
     if (id) {
@@ -185,6 +201,7 @@ export class MessageIntake {
     );
   }
 
+  /** Inserts a session in the caller's transaction and announces it; `/new` and the first message use it. */
   private async createSession(
     thread: Thread,
     kind: SessionKind,

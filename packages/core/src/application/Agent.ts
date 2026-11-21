@@ -136,7 +136,10 @@ export class Agent {
    * scheduler. No I/O happens here; the only external read is the chat model's context window,
    * which is looked up through the router and may be absent.
    */
-  constructor(private readonly options: AgentOptions) {
+  constructor(
+    /** The options `createShitsuji` filled in; the runtime reads them once and builds its parts. */
+    private readonly options: AgentOptions,
+  ) {
     this.name = options.name;
     this.tools = options.tools;
     this.injectables = [

@@ -11,12 +11,17 @@ export type ThreadStatus = 'active' | 'archived';
  */
 export class Thread {
   constructor(
+    /** The thread's id; messages and sessions refer to it. */
     readonly id: ThreadId,
+    /** The owner whose conversation this is; one active thread per owner. */
     readonly ownerId: OwnerId,
+    /** When it was created, from the injected clock. */
     readonly createdAt: Date,
+    /** The current status; changed only through {@link Thread.archive}. */
     private _status: ThreadStatus = 'active',
   ) {}
 
+  /** `active` while sessions may start in the thread, `archived` afterwards. */
   get status(): ThreadStatus {
     return this._status;
   }

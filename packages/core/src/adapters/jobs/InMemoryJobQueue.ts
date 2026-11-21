@@ -4,10 +4,15 @@ import type { Clock } from '../../ports/Clock.js';
 import type { EnqueueOptions, Job, JobHandler, JobQueue } from '../../ports/JobQueue.js';
 import type { Logger } from '../../ports/Logger.js';
 
+/** One queued job, with the time it becomes runnable and how many attempts it has left. */
 interface Pending {
+  /** The job the handler receives. */
   job: Job<unknown>;
+  /** Epoch milliseconds before which the job must not run. */
   runAt: number;
+  /** Remaining runs, including the current one; zero means it is dropped. */
   attemptsLeft: number;
+  /** The key that keeps a duplicate from being queued, when one was given. */
   singletonKey?: string;
 }
 
@@ -16,28 +21,39 @@ interface Pending {
  * not join transactions: a job enqueued inside a unit of work runs even if the work rolls back.
  */
 export class InMemoryJobQueue implements JobQueue {
+  /** One handler per queue name; `work` refuses a second. */
   private readonly handlers = new Map<string, JobHandler<unknown>>();
+  /** Queued jobs, scanned in order for the first runnable one. */
   private readonly pending: Pending[] = [];
+  /** False before `start` and after `stop`; no tick is scheduled while false. */
   private running = false;
+  /** Jobs currently being awaited, so `drain` knows when the queue is quiet. */
   private active = 0;
+  /** The pending tick, when one is scheduled. */
   private timer: NodeJS.Timeout | undefined;
+  /** Resolvers waiting for the queue to become idle (`drain`). */
   private idle: (() => void)[] = [];
 
   constructor(
+    /** Logger for a failed job and its remaining attempts. */
     private readonly log: Logger,
+    /** Injected clock: `startAfter` is compared against it. */
     private readonly clock: Clock,
   ) {}
 
+  /** Marks the queue running and schedules a tick. */
   async start(): Promise<void> {
     this.running = true;
     this.schedule();
   }
 
+  /** Stops scheduling ticks; a job already running finishes. */
   async stop(): Promise<void> {
     this.running = false;
     if (this.timer) clearTimeout(this.timer);
   }
 
+  /** Queues a job, or returns null when its `singletonKey` is already pending. */
   async enqueue<T extends object>(
     name: string,
     data: T,
@@ -57,6 +73,7 @@ export class InMemoryJobQueue implements JobQueue {
     return job.id;
   }
 
+  /** Registers the handler for a queue; a second handler for the same name is an error. */
   async work<T>(name: string, handler: JobHandler<T>): Promise<void> {
     if (this.handlers.has(name)) throw new Error(`A worker for "${name}" is already registered`);
     this.handlers.set(name, handler as JobHandler<unknown>);
@@ -69,17 +86,20 @@ export class InMemoryJobQueue implements JobQueue {
     await new Promise<void>((resolve) => this.idle.push(resolve));
   }
 
+  /** True when a pending job is due now and has a handler. */
   private hasRunnable(): boolean {
     const now = this.clock.now().getTime();
     return this.pending.some((p) => p.runAt <= now && this.handlers.has(p.job.name));
   }
 
+  /** Schedules one tick on the next macrotask, replacing any pending one. */
   private schedule(): void {
     if (!this.running) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.tick(), 0);
   }
 
+  /** Runs the first due job, retries it on failure, and reschedules; releases `drain` when quiet. */
   private async tick(): Promise<void> {
     const now = this.clock.now().getTime();
     const index = this.pending.findIndex((p) => p.runAt <= now && this.handlers.has(p.job.name));

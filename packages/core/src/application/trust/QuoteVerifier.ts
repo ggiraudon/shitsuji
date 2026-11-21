@@ -7,8 +7,12 @@ import type { Authority } from './Authority.js';
  */
 export class QuoteVerifier {
   /** `minChars` rejects an empty or trivially short quote that would authorise anything. */
-  constructor(private readonly minChars = 3) {}
+  constructor(
+    /** The shortest quote accepted, in characters; three by default. */
+    private readonly minChars = 3,
+  ) {}
 
+  /** True when the trimmed quote is long enough and appears verbatim in one owner message or instruction. */
   verify(quote: string | undefined, authority: Authority): boolean {
     const candidate = quote?.trim();
     if (!candidate || candidate.length < this.minChars) return false;

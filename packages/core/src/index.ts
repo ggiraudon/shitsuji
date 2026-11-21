@@ -41,6 +41,7 @@ export async function startServer(): Promise<void> {
   }
 }
 
+/** Shuts the running assistant down, if any; the signal handler calls it before exiting. */
 export async function stopServer(): Promise<void> {
   await running?.stop();
   running = null;
