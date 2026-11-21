@@ -1,16 +1,22 @@
 import { z } from 'zod/v4';
 import { BaseTool, type ToolContext, type ToolOutput } from '../../ports/Tool.js';
 
+/** What `test.mail` posts to: the local mock mailbox, with test seams for fetch and timeout. */
 export interface TestMailToolOptions {
   /** Where the mock mailbox listens (the evaluation harness). */
   url: string;
+  /** The fetch implementation, injectable for tests. */
   fetch?: typeof fetch;
+  /** The POST's timeout; five seconds by default. */
   timeoutMs?: number;
 }
 
 const input = z.object({
+  /** The recipient address as the model wrote it; the mock mailbox does not validate it. */
   to: z.string().min(1).max(320).describe('The recipient address'),
+  /** The subject line. */
   subject: z.string().min(1).max(200).describe('The subject line'),
+  /** The message body, up to 4k characters. */
   body: z.string().min(1).max(4_000).describe('The message body'),
 });
 
@@ -20,21 +26,31 @@ const input = z.object({
  * the owner's words or an approval.
  */
 export class TestMailTool extends BaseTool<typeof input> {
+  /** The tool's name, `test.mail`. */
   readonly name = 'test.mail';
+  /** What the model reads: an outside action, so trust may ask first. */
   readonly description =
     'Send an email through the local test mailbox. It acts outside the workspace, so trust checks it ' +
     'and may ask the owner first.';
+  /** The message schema. */
   readonly input = input;
+  /** Acting outside the workspace, so the trust policy decides. */
   readonly effect = 'external' as const;
+  /** The fetch implementation, shared by every post. */
   private readonly fetchImpl: typeof fetch;
+  /** The POST's timeout in milliseconds. */
   private readonly timeoutMs: number;
 
-  constructor(private readonly options: TestMailToolOptions) {
+  constructor(
+    /** The mailbox URL and the test seams. */
+    private readonly options: TestMailToolOptions,
+  ) {
     super();
     this.fetchImpl = options.fetch ?? fetch;
     this.timeoutMs = options.timeoutMs ?? 5_000;
   }
 
+  /** Posts the message; any failure is an ordinary tool error, not a throw. */
   async run({ to, subject, body }: z.infer<typeof input>, _ctx: ToolContext): Promise<ToolOutput> {
     try {
       const response = await this.fetchImpl(this.options.url, {

@@ -11,7 +11,9 @@
  *   primary    := number | name | name "(" arguments ")" | "(" expression ")"
  */
 
+/** Thrown for an expression the evaluator refuses or cannot parse; the message says where. */
 export class ExpressionError extends Error {
+  /** The class name, for logs. */
   override readonly name = 'ExpressionError';
 }
 
@@ -88,9 +90,19 @@ const OPERATORS = ['**', '+', '-', '*', '/', '%', '^', '(', ')', ','] as const;
 const NUMBER = /^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
 
+/** Evaluates arithmetic without `eval`; the limits keep a hostile expression from costing much. */
 export class ExpressionEvaluator {
-  constructor(private readonly limits = { maxLength: 1000, maxDepth: 100 }) {}
+  constructor(
+    /** Length and nesting caps, so a hostile expression cannot blow the stack or the CPU. */
+    private readonly limits = {
+      /** The most characters accepted. */
+      maxLength: 1000,
+      /** The deepest nesting the parser allows. */
+      maxDepth: 100,
+    },
+  ) {}
 
+  /** The expression's value; throws `ExpressionError` for too long, malformed or non-finite input. */
   evaluate(expression: string): number {
     if (expression.length > this.limits.maxLength) {
       throw new ExpressionError(
