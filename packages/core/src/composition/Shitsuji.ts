@@ -20,6 +20,7 @@ import type { Approval } from '../domain/model/Approval.js';
 import { asId, type OwnerId, type TurnId } from '../domain/model/ids.js';
 import type { Repositories } from '../ports/Repositories.js';
 import type { SandboxService } from '../application/sandbox/SandboxService.js';
+import type { DesktopControlService } from '../application/desktop/DesktopControlService.js';
 
 /**
  * Everything a running assistant is made of. `createShitsuji()` assembles it; `Shitsuji` owns the
@@ -55,6 +56,8 @@ export interface ShitsujiParts {
   clock: Clock;
   /** The sandbox core's tools run in (F08, S40); closed on stop. */
   sandbox?: SandboxService;
+  /** Take control / Give back, owned by the composition (S55). */
+  control?: DesktopControlService;
   /** Cards waiting for the owner; Telegram sends them with buttons (S37). */
   approvals?: ApprovalService;
   /** Reads a typed answer to an open card; only an unconditional yes approves (S37). */
@@ -149,6 +152,8 @@ export class Shitsuji {
   private readonly readTypedApproval?: (text: string, approval: Approval) => Promise<TypedAnswer>;
   /** The open sandbox; closed on stop after the queue, so no turn writes during the close. */
   private readonly sandbox?: SandboxService;
+  /** The takeover lifetime and paused turns (S55). */
+  private readonly control?: DesktopControlService;
   /** Built in `start` after the API, because adapters receive its `receive` sink. */
   private gateway?: ChannelGateway;
 
@@ -177,6 +182,7 @@ export class Shitsuji {
     this.approvalsService = parts.approvals;
     this.readTypedApproval = parts.readTypedApproval;
     this.sandbox = parts.sandbox;
+    this.control = parts.control;
   }
 
   /**
@@ -219,6 +225,7 @@ export class Shitsuji {
       void this.deliver(e.replyChannel, text, intent, e.files, asId<TurnId>(e.turnId));
     });
     await this.agent.start();
+    await this.control?.start();
     await this.prepare?.();
     if (this.startApi) {
       this.api = await this.startApi();
@@ -290,6 +297,7 @@ export class Shitsuji {
     this.offApprovals?.();
     await this.api?.close();
     this.api = undefined;
+    this.control?.stop();
     for (const channel of [...this.started].reverse()) {
       try {
         await channel.stop();

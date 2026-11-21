@@ -34,6 +34,7 @@ import { ToolCallGateway } from '../application/tools/ToolCallGateway.js';
 import { ToolSearchTool } from '../application/tools/ToolSearchTool.js';
 import { EgressProbe, type EgressTarget } from '../application/sandbox/EgressProbe.js';
 import { SandboxService } from '../application/sandbox/SandboxService.js';
+import { DesktopControlService } from '../application/desktop/DesktopControlService.js';
 import { HostSandboxDriver } from '../adapters/sandbox/host/HostSandboxDriver.js';
 import { EgressRulesFile } from '../adapters/sandbox/EgressRulesFile.js';
 import { SandboxTokenFile } from '../adapters/sandbox/shitsuji/SandboxTokenFile.js';
@@ -128,14 +129,22 @@ export function workspaceDirOf(config: ShitsujiConfig): string {
 }
 
 /**
- * Where core reaches the gateway's view-only stream (S51): the same host as the sandboxd relay,
- * on websockify's 6081. Only the `shitsuji` driver has a desktop.
+ * Where core reaches the gateway's two streams (S51, S55): the same host as the sandboxd relay,
+ * on websockify's 6081 (watch-only) and 6080 (full control). Only the `shitsuji` driver has a
+ * desktop.
  */
-export function viewerStreamOf(config: ShitsujiConfig): { host: string; port: number } | undefined {
+export function viewerStreamOf(
+  config: ShitsujiConfig,
+): { viewOnly: { host: string; port: number }; full: { host: string; port: number } } | undefined {
   if (config.sandbox.driver !== 'shitsuji') return undefined;
   try {
     const url = new URL(config.sandbox.url);
-    return url.hostname ? { host: url.hostname, port: 6081 } : undefined;
+    return url.hostname
+      ? {
+          viewOnly: { host: url.hostname, port: 6081 },
+          full: { host: url.hostname, port: 6080 },
+        }
+      : undefined;
   } catch {
     return undefined;
   }
@@ -336,6 +345,9 @@ export async function createShitsuji(
   const typedApproval = new TypedApprovalReader({ models, log });
   // One sandbox per owner (F08, S40). The `host` driver is the core process itself until another
   // driver lands; it opens here so the standard tools can be registered by capability.
+  const vision = models.anySupports('vision', 'vision');
+  const viewerStream = viewerStreamOf(config);
+  const viewerUrl = viewerStream ? `${publicUrlOf(config)}/desktop` : undefined;
   const sandbox = new SandboxService({
     driver: sandboxDriverOf(config, log),
     lease: { ownerId: OWNER_ID },
@@ -347,10 +359,21 @@ export async function createShitsuji(
       timeoutMs: config.sandbox.probes.timeoutMs,
       log,
     }),
-    vision: models.anySupports('vision', 'vision'),
+    vision,
     log,
     ...(options.sandboxRetry && { retry: options.sandboxRetry }),
   });
+  const control = new DesktopControlService({
+    sandbox,
+    repos,
+    jobs,
+    events,
+    clock: services.clock,
+    log,
+    vision,
+    ...(viewerUrl && { viewerUrl }),
+  });
+  sandbox.setTakeControl(control);
   await sandbox.start();
   const tools = new ToolCatalog(plugins.tools());
   for (const tool of sandbox.tools()) tools.add(tool);
@@ -396,8 +419,6 @@ export async function createShitsuji(
   for (const channel of plugins.channels()) channels.add(channel);
   const pairing = new PairingService(services.clock);
   const startsApi = options.api ?? config.api.enabled;
-  const viewerStream = viewerStreamOf(config);
-  const viewerUrl = viewerStream ? `${publicUrlOf(config)}/desktop` : undefined;
 
   return new Shitsuji({
     agent,
@@ -408,6 +429,7 @@ export async function createShitsuji(
     version: VERSION,
     jobs,
     sandbox,
+    control,
     recovery: new StartupRecovery(repos, services.clock, log),
     bindings: repos.bindings,
     pairing,
@@ -445,6 +467,7 @@ export async function createShitsuji(
                 viewer: {
                   credentials: () => sandbox.viewerCredentials(),
                   stream: viewerStream,
+                  control,
                   cookieSecure: Boolean(config.api.tls),
                 },
               }),

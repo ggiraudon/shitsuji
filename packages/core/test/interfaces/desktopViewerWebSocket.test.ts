@@ -17,6 +17,27 @@ let upstream: WebSocketServer;
 let upstreamPort: number;
 let connections = 0;
 let api: RunningApi;
+let controlMode: 'agent' | 'owner' = 'agent';
+const controlListeners = new Set<(mode: 'agent' | 'owner') => void>();
+
+const control = {
+  status: () => ({ mode: controlMode }),
+  take: async () => {
+    controlMode = 'owner';
+    for (const listener of controlListeners) listener(controlMode);
+    return { mode: controlMode };
+  },
+  giveBack: async () => {
+    controlMode = 'agent';
+    for (const listener of controlListeners) listener(controlMode);
+    return { mode: controlMode };
+  },
+  fullCredentials: async () => ({ fullControlPassword: 'full-pass' }),
+  onModeChange: (listener: (mode: 'agent' | 'owner') => void) => {
+    controlListeners.add(listener);
+    return () => controlListeners.delete(listener);
+  },
+};
 
 const setupApi = (cookieTtlMs = 60_000): Promise<RunningApi> => {
   return startApiServer(
@@ -33,7 +54,11 @@ const setupApi = (cookieTtlMs = 60_000): Promise<RunningApi> => {
       verifyKey: (key: string | undefined) => key === KEY,
       viewer: {
         credentials: async () => ({ viewOnlyPassword: 'view-only-pass' }),
-        stream: { host: '127.0.0.1', port: upstreamPort },
+        stream: {
+          viewOnly: { host: '127.0.0.1', port: upstreamPort },
+          full: { host: '127.0.0.1', port: upstreamPort },
+        },
+        control,
         cookieSecure: false,
         cookieTtlMs,
       },
@@ -53,9 +78,16 @@ const signIn = async (): Promise<string> => {
   return response.headers.getSetCookie()[0]!.split(';')[0]!;
 };
 
-const upgradeStatus = (options: { cookie?: string; origin?: string } = {}): Promise<number> =>
+const upgradeStatus = (
+  options: {
+    cookie?: string;
+    origin?: string;
+    control?: 'full';
+  } = {},
+): Promise<number> =>
   new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream`, {
+    const query = options.control ? `?control=${options.control}` : '';
+    const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream${query}`, {
       headers: {
         ...(options.cookie && { cookie: options.cookie }),
         ...(options.origin && { origin: options.origin }),
@@ -73,9 +105,14 @@ const upgradeStatus = (options: { cookie?: string; origin?: string } = {}): Prom
     ws.on('error', () => undefined);
   });
 
-const echo = (cookie: string, origin?: string): Promise<{ banner: string; echoed: string }> =>
+const echo = (
+  cookie: string,
+  origin?: string,
+  control?: 'full',
+): Promise<{ banner: string; echoed: string }> =>
   new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream`, {
+    const query = control ? `?control=${control}` : '';
+    const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream${query}`, {
       headers: { cookie, ...(origin && { origin }) },
     });
     const messages: string[] = [];
@@ -90,8 +127,22 @@ const echo = (cookie: string, origin?: string): Promise<{ banner: string; echoed
     ws.on('error', reject);
   });
 
+const openFull = (cookie: string): Promise<WebSocket> =>
+  new Promise((resolve, reject) => {
+    const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream?control=full`, {
+      headers: { cookie },
+    });
+    ws.once('open', () => resolve(ws));
+    ws.once('error', reject);
+  });
+
+const closed = (ws: WebSocket): Promise<number> =>
+  new Promise((resolve) => ws.once('close', (code) => resolve(code)));
+
 beforeEach(async () => {
   connections = 0;
+  controlMode = 'agent';
+  controlListeners.clear();
   upstream = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   upstream.on('connection', (socket) => {
     connections += 1;
@@ -140,6 +191,23 @@ describe('desktop viewer WebSocket relay (S51)', () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     await expect(upgradeStatus({ cookie })).resolves.toBe(401);
     expect(connections).toBe(0);
+  });
+
+  it('opens full control only in owner mode and closes every full stream on Give back (S55)', async () => {
+    const cookie = await signIn();
+    await expect(upgradeStatus({ cookie, control: 'full' })).resolves.toBe(403);
+    expect(connections).toBe(0);
+
+    await control.take();
+    const { banner, echoed } = await echo(cookie, undefined, 'full');
+    expect(banner).toBe('banner\n');
+    expect(echoed).toBe('echo:ping');
+
+    const full = await openFull(cookie);
+    const closedCode = closed(full);
+    await control.giveBack();
+    expect(await closedCode).toBe(1000);
+    await expect(upgradeStatus({ cookie, control: 'full' })).resolves.toBe(403);
   });
 
   it('warns once when bound beyond loopback without TLS (Y2)', async () => {

@@ -7,12 +7,44 @@ import { VIEWER_COOKIE } from '../../src/interfaces/http/desktopViewer.js';
 const OWNER = asId<OwnerId>('owner');
 const KEY = 'owner-key';
 const PASSWORD = 'view-only-pass';
+const FULL_PASSWORD = 'full-pass';
+
+function viewerControl() {
+  let mode: 'agent' | 'owner' = 'agent';
+  const listeners = new Set<(mode: 'agent' | 'owner') => void>();
+  const status = () => ({
+    mode,
+    ...(mode === 'owner' && { requestedBy: 'owner' as const }),
+  });
+  return {
+    control: {
+      status,
+      take: async () => {
+        mode = 'owner';
+        for (const listener of listeners) listener(mode);
+        return status();
+      },
+      giveBack: async () => {
+        mode = 'agent';
+        for (const listener of listeners) listener(mode);
+        return status();
+      },
+      fullCredentials: async () => ({ fullControlPassword: FULL_PASSWORD }),
+      onModeChange: (listener: (mode: 'agent' | 'owner') => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
+    mode: () => mode,
+  };
+}
 
 function setup(options: { ttlMs?: number; clientAddress?: () => string } = {}) {
   let now = Date.parse('2026-01-01T00:00:00.000Z');
   const clock = { now: () => new Date(now) };
   const credentials = vi.fn(async () => ({ viewOnlyPassword: PASSWORD }));
   const log = new MemoryLogger();
+  const viewerControlState = viewerControl();
   const app = createApi({
     agent: {},
     repos: {},
@@ -26,7 +58,11 @@ function setup(options: { ttlMs?: number; clientAddress?: () => string } = {}) {
     verifyKey: (key: string | undefined) => key === KEY,
     viewer: {
       credentials,
-      stream: { host: '127.0.0.1', port: 1 },
+      stream: {
+        viewOnly: { host: '127.0.0.1', port: 1 },
+        full: { host: '127.0.0.1', port: 2 },
+      },
+      control: viewerControlState.control,
       cookieSecure: false,
       ...(options.ttlMs !== undefined && { cookieTtlMs: options.ttlMs }),
       ...(options.clientAddress && { clientAddress: options.clientAddress }),
@@ -35,6 +71,7 @@ function setup(options: { ttlMs?: number; clientAddress?: () => string } = {}) {
   return {
     app,
     credentials,
+    control: viewerControlState.control,
     log,
     advance: (ms: number) => {
       now += ms;
@@ -108,8 +145,69 @@ describe('desktop viewer page and cookie (S51)', () => {
       headers: { cookie },
     });
     expect(allowed.status).toBe(200);
-    expect(await allowed.json()).toEqual({ viewOnlyPassword: PASSWORD });
+    expect(await allowed.json()).toEqual({ viewOnlyPassword: PASSWORD, mode: 'agent' });
     expect(credentials).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves the full-control password only after Take control (S55)', async () => {
+    const { app, control } = setup();
+    const cookie = await signIn(app);
+
+    const watching = await app.request('/desktop/credentials', { headers: { cookie } });
+    expect(await watching.json()).toEqual({ viewOnlyPassword: PASSWORD, mode: 'agent' });
+
+    const taken = await app.request('/desktop/take', {
+      method: 'POST',
+      headers: { cookie, origin: 'http://localhost' },
+    });
+    expect(taken.status).toBe(200);
+    expect(control.status().mode).toBe('owner');
+
+    const controlling = await app.request('/desktop/credentials', { headers: { cookie } });
+    expect(await controlling.json()).toEqual({
+      viewOnlyPassword: PASSWORD,
+      fullControlPassword: FULL_PASSWORD,
+      mode: 'owner',
+    });
+
+    const given = await app.request('/desktop/give-back', {
+      method: 'POST',
+      headers: { cookie, origin: 'http://localhost' },
+    });
+    expect(given.status).toBe(200);
+    expect(control.status().mode).toBe('agent');
+    const back = await app.request('/desktop/credentials', { headers: { cookie } });
+    expect(await back.json()).toEqual({ viewOnlyPassword: PASSWORD, mode: 'agent' });
+  });
+
+  it('refuses take/give back for a missing cookie or a cross-origin request (S55)', async () => {
+    const { app, control } = setup();
+    expect((await app.request('/desktop/take', { method: 'POST' })).status).toBe(401);
+
+    const cookie = await signIn(app);
+    const cross = await app.request('/desktop/take', {
+      method: 'POST',
+      headers: { cookie, origin: 'http://evil.example' },
+    });
+    expect(cross.status).toBe(403);
+    expect(control.status().mode).toBe('agent');
+
+    const crossGive = await app.request('/desktop/give-back', {
+      method: 'POST',
+      headers: { cookie, origin: 'http://evil.example' },
+    });
+    expect(crossGive.status).toBe(403);
+  });
+
+  it('reports the control mode on the cookie-gated status route (S55)', async () => {
+    const { app, control } = setup();
+    expect((await app.request('/desktop/status')).status).toBe(401);
+    const cookie = await signIn(app);
+    const watching = await app.request('/desktop/status', { headers: { cookie } });
+    expect(await watching.json()).toMatchObject({ mode: 'agent' });
+    await control.take();
+    const controlling = await app.request('/desktop/status', { headers: { cookie } });
+    expect(await controlling.json()).toMatchObject({ mode: 'owner' });
   });
 
   it('refuses an expired cookie and clears it on logout', async () => {
