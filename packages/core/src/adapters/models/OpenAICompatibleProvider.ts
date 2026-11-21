@@ -180,7 +180,24 @@ export class OpenAICompatibleProvider implements ModelProvider {
         .filter(Boolean)
         .join('\n\n');
 
-    const messages = request.messages.flatMap((m) => this.toWire(m, textMode));
+    const messages: WireMessage[] = [];
+    for (let i = 0; i < request.messages.length; i++) {
+      const message = request.messages[i]!;
+      if (message.role !== 'tool') {
+        messages.push(...this.toWire(message, textMode));
+        continue;
+      }
+      // Tool messages must stay contiguous for the API. Collect the whole run, then put one user
+      // message with the images (if any) after it, clearly marked as tool output (S52).
+      const parts: ContentPart[] = [];
+      let j = i;
+      while (j < request.messages.length && request.messages[j]!.role === 'tool') {
+        parts.push(...request.messages[j]!.parts);
+        j += 1;
+      }
+      messages.push(...this.toolWire(parts, textMode));
+      i = j - 1;
+    }
     if (system) {
       if (this.quirks.systemRole === 'user-prefix') {
         const first = messages.find((m) => m.role === 'user');
@@ -252,14 +269,44 @@ export class OpenAICompatibleProvider implements ModelProvider {
         return [wire];
       }
       case 'tool':
-        return m.parts.flatMap((p) =>
-          p.type !== 'tool_result'
-            ? []
-            : textMode
-              ? [{ role: 'user', content: `[Tool result for ${p.toolCallId}]\n${p.content}` }]
-              : [{ role: 'tool', tool_call_id: p.toolCallId, content: p.content }],
-        );
+        return [];
     }
+  }
+
+  /** One run of consecutive tool results: tool messages, then one user message with their images. */
+  private toolWire(parts: ContentPart[], textMode: boolean): WireMessage[] {
+    const results = parts.filter(
+      (p): p is Extract<ContentPart, { type: 'tool_result' }> => p.type === 'tool_result',
+    );
+    const messages: WireMessage[] = textMode
+      ? results.map((p) => ({
+          role: 'user',
+          content: `[Tool result for ${p.toolCallId}]\n${p.content}`,
+        }))
+      : results.map((p) => ({
+          role: 'tool',
+          tool_call_id: p.toolCallId,
+          content: p.content,
+        }));
+    const images = results.flatMap((p) => p.images ?? []);
+    if (images.length) {
+      messages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: '[Images returned by the tool call, not sent by the owner]',
+          },
+          ...images.map((image) => ({
+            type: 'image_url',
+            image_url: {
+              url: image.url ?? `data:${image.mediaType};base64,${image.data}`,
+            },
+          })),
+        ],
+      });
+    }
+    return messages;
   }
 
   /**
