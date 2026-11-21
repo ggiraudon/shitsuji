@@ -22,6 +22,8 @@ export class WorkspaceReadTool extends BaseTool<typeof readInput> {
   readonly input = readInput;
   readonly effect = 'read' as const;
   override readonly target = 'workspace' as const;
+  /** File content can come from outside (a download, a cloned repo), so the pipeline wraps it. */
+  override readonly untrustedOutput = true;
   constructor(private readonly files: SandboxFiles) {
     super();
   }
@@ -56,6 +58,10 @@ const writeInput = z.object({
   append: z.boolean().default(false),
 });
 
+/**
+ * workspace.write stores text in a workspace file. The result is a byte count, not file content, so
+ * it is not marked untrusted (#141).
+ */
 export class WorkspaceWriteTool extends BaseTool<typeof writeInput> {
   readonly name = 'workspace.write';
   readonly description =
@@ -88,7 +94,7 @@ const editInput = z.object({
 /**
  * workspace.edit changes a file by exact string replacement, like a coding agent: a missing or
  * ambiguous match is refused rather than guessed at, so a wrong edit cannot silently hit the wrong
- * place.
+ * place. The result is a count, not file content, so it is not marked untrusted (#141).
  */
 export class WorkspaceEditTool extends BaseTool<typeof editInput> {
   readonly name = 'workspace.edit';
@@ -159,6 +165,8 @@ export class WorkspaceListTool extends BaseTool<typeof listInput> {
   readonly input = listInput;
   readonly effect = 'read' as const;
   override readonly target = 'workspace' as const;
+  /** Names can be chosen by whoever produced the folder, so the pipeline wraps them as data. */
+  override readonly untrustedOutput = true;
   constructor(private readonly files: SandboxFiles) {
     super();
   }
@@ -202,6 +210,8 @@ export class WorkspaceFindTool extends BaseTool<typeof findInput> {
   readonly input = findInput;
   readonly effect = 'read' as const;
   override readonly target = 'workspace' as const;
+  /** Paths can carry names chosen outside, so the pipeline wraps the list as data. */
+  override readonly untrustedOutput = true;
   constructor(private readonly files: SandboxFiles) {
     super();
   }
@@ -291,7 +301,8 @@ const MAX_SEND_BYTES = 48 * 1024 * 1024;
 /**
  * workspace.send attaches a file to the reply (F06, S33). The sandbox may be a container `core`
  * cannot read, so the bytes come through the files port and are staged on core's disk for the
- * channel; a binary file arrives byte for byte.
+ * channel; a binary file arrives byte for byte. The result is a status, and the file goes to the
+ * owner rather than into the model's context, so it is not marked untrusted (#141).
  */
 export class WorkspaceSendTool extends BaseTool<typeof sendInput> {
   readonly name = 'workspace.send';
@@ -392,6 +403,8 @@ export class WorkspaceExecTool extends BaseTool<typeof execInput> {
   readonly input = execInput;
   readonly effect = 'write_local' as const;
   override readonly target = 'workspace' as const;
+  /** Whatever the program printed, including a fetched page or a downloaded file, is data (#141). */
+  override readonly untrustedOutput = true;
 
   /** How many exec logs this tool has written; part of the log name so none overwrites another. */
   private logs = 0;
