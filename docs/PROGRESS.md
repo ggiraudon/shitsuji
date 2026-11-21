@@ -149,7 +149,15 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       login, logout and the stream upgrade reject a cross-origin `Origin`. `/desktop` answers in
       Telegram and the TUI. Integration tests cover the 401s, cookie expiry, the relay and view-only
       pointer input; the temporary VNC relay services are removed.)*
-- [ ] **S52** Images the model can see in tool results
+- [x] **S52** Images the model can see in tool results
+      *(`ModelRouter.supports()` reads `models.catalog`; an undeclared model counts as no vision and
+      gets one startup warning. A `tool_result` can carry image references (`mediaType`, `ref`, `name`),
+      never bytes: ContextBuilder loads them through the active sandbox's files port and base64-encodes
+      them at build time. Anthropic sends image blocks inside the tool result; OpenAI-compatible
+      providers keep tool messages contiguous and add one marked user image message. The newest three
+      images stay pixels (`context.imageHistoryLimit`), older ones become deterministic placeholders,
+      and two builds of the same transcript are byte-identical. Tests cover the lookup, both provider
+      mappings, pruning and a stored reference through Postgres jsonb.)*
 - [ ] **S53** The desktop endpoints and `computer.act`
 - [ ] **S54** The accessibility tree: `desktop.inspect` and `desktop.act`
 - [ ] **S55** Take control and Give back
