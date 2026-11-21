@@ -15,18 +15,27 @@ import type { ActionRequest } from './ActionRequest.js';
 
 /** What an approval card is about (F11, S36). */
 export interface ApprovalInput {
+  /** The owner who must answer. */
   ownerId: OwnerId;
+  /** The turn that is blocked; its reply channel gets the card. */
   turnId: TurnId;
+  /** The session whose new message supersedes the card. */
   sessionId: SessionId;
+  /** The exact action, already hashed and with its arguments previewed. */
   action: ActionRequest;
   /** Why the policy or the judge asked. */
   reason?: string;
 }
 
+/** What the service needs: storage, the bus, and a clock for the decision times. */
 export interface ApprovalServiceDeps {
+  /** Approval storage; the service owns every write and uses compare-and-set. */
   approvals: ApprovalRepository;
+  /** Publishes `approval.requested` and `approval.resolved`. */
   events: EventBus;
+  /** Injected clock for the card's timestamps. */
   clock: Clock;
+  /** Structured logger; expiry and resolution are reported here. */
   log: Logger;
 }
 
@@ -40,7 +49,10 @@ export class ApprovalService {
   /** One resolver per approval waiting in this process. */
   private readonly waiting = new Map<string, (approval: Approval) => void>();
 
-  constructor(private readonly deps: ApprovalServiceDeps) {}
+  constructor(
+    /** Storage, the bus and the clock; `createShitsuji` builds it once. */
+    private readonly deps: ApprovalServiceDeps,
+  ) {}
 
   /**
    * Asks the owner and waits. The card is durable before it is published, so a restart can show it as
@@ -185,12 +197,14 @@ export class ApprovalService {
     return inTurn.find((a) => a.actionHash === actionHash && a.status === 'declined');
   }
 
+  /** Loads an approval or throws `NotFound`; used by `resolve` and `expire`. */
   private async load(id: ApprovalId): Promise<Approval> {
     const approval = await this.deps.approvals.get(id);
     if (!approval) throw new NotFound('Approval', id);
     return approval;
   }
 
+  /** Publishes `approval.resolved` with the status that won; called after a successful compare-and-set. */
   private publish(approval: Approval): void {
     this.deps.events.publish('approval.resolved', {
       approvalId: approval.id,
@@ -200,6 +214,7 @@ export class ApprovalService {
     });
   }
 
+  /** Wakes the `request()` call waiting in this process, when there is one. */
   private wake(approval: Approval): void {
     const resolve = this.waiting.get(approval.id);
     if (!resolve) return;

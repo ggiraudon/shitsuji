@@ -10,6 +10,7 @@ export type RuleAction = 'allow' | 'ask' | 'deny';
 export interface StandingRule {
   /** The owner's words, for the receipt and the approval card. */
   detail?: string;
+  /** What to do with a matching call: run it, ask first, or refuse it. */
   action: RuleAction;
   /** Tool name or glob: `*` is any run of characters, `?` exactly one. Case-sensitive. */
   tool: string;
@@ -17,8 +18,11 @@ export interface StandingRule {
   target?: ToolTarget;
 }
 
+/** The action a rule is tested against: a tool name and where it runs. */
 export interface RuleSubject {
+  /** The tool's dotted name; the rule's glob is matched against it. */
   tool: string;
+  /** Where the call runs; a rule with a target only matches this one. */
   target: ToolTarget;
 }
 

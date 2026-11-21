@@ -7,9 +7,13 @@ import type { ModelRouter } from '../models/ModelRouter.js';
 /** What the owner's typed reply means for a card (S37). */
 export type TypedAnswer = 'approve' | 'decline' | 'unclear';
 
+/** What the reader needs: the model router, a logger and the model call's timeout. */
 export interface TypedApprovalReaderDeps {
+  /** The router; calls go to the `trust` purpose with temperature 0. */
   models: ModelRouter;
+  /** Structured logger; an unreadable answer is reported here. */
   log: Logger;
+  /** The model call's timeout; eight seconds by default. */
   timeoutMs?: number;
 }
 
@@ -24,8 +28,12 @@ const replySchema = z.object({ answer: z.enum(['approve', 'decline', 'unclear'])
  * action. Any failure is unclear too.
  */
 export class TypedApprovalReader {
-  constructor(private readonly deps: TypedApprovalReaderDeps) {}
+  constructor(
+    /** The router, logger and timeout; `createShitsuji` builds it once. */
+    private readonly deps: TypedApprovalReaderDeps,
+  ) {}
 
+  /** Classifies the owner's reply for one card; any failure or ambiguity is `unclear`. */
   async read(text: string, approval: Approval): Promise<TypedAnswer> {
     try {
       const { response } = await this.deps.models.complete(

@@ -7,24 +7,33 @@ import type { Authority } from './Authority.js';
 
 /** What the judge may answer (F11, S35). */
 export interface JudgeDecision {
+  /** The judge's verdict; anything but `allow` sends the call to the owner. */
   verdict: 'allow' | 'ask' | 'deny';
   /** The owner's words the judge allowed with; QuoteVerifier checks it. */
   quote?: string;
+  /** A short reason, shown on the card and in the receipt. */
   reason?: string;
 }
 
+/** What the judge needs: the model router and a logger. */
 export interface TrustJudgeDeps {
+  /** The router; the judge calls the `trust` purpose, never a hard-coded model. */
   models: ModelRouter;
+  /** Structured logger; a failed or timed-out judgement is reported here. */
   log: Logger;
   /** Any timeout or error means ask (F11's fail-safe). */
   timeoutMs?: number;
 }
 
+/** Per-call options: the turn's abort signal, its ids for metering, and the quote rule. */
 export interface JudgeOptions {
   /** When true, an allow without a quote becomes an ask. */
   quoteRequired?: boolean;
+  /** The turn's signal: a Stop or the judge's own timeout aborts the call. */
   signal?: AbortSignal;
+  /** The turn making the call, for the usage row. */
   turnId?: string;
+  /** The session making the call, for the usage row. */
   sessionId?: string;
 }
 
@@ -44,8 +53,15 @@ const replySchema = z.object({
  * the owner is never bypassed.
  */
 export class TrustJudge {
-  constructor(private readonly deps: TrustJudgeDeps) {}
+  constructor(
+    /** The model router and logger; `createShitsuji` builds it once. */
+    private readonly deps: TrustJudgeDeps,
+  ) {}
 
+  /**
+   * Judges one action: sees the owner's words and the action, answers allow/ask/deny, and fails safe
+   * to ask on any error, timeout or malformed reply.
+   */
   async judge(
     request: ActionRequest,
     authority: Authority,

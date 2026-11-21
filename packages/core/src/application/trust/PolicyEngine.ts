@@ -13,7 +13,9 @@ export const DEFAULT_APPROVAL_LEVEL: ApprovalLevel = 'auto-edits';
 
 const none: TrustBasis = { kind: 'none' };
 
+/** How the engine is configured: the owner's approval level and the standing rules from config. */
 export interface PolicyOptions {
+  /** How far outside-work actions are pre-approved; P6's default when unset. */
   level?: ApprovalLevel;
   /** Standing rules from the config (`trust.rules`); call-time rules are added to them. */
   rules?: readonly StandingRule[];
@@ -30,7 +32,9 @@ export interface PolicyOptions {
  * (S35). Money always asks.
  */
 export class PolicyEngine {
+  /** The owner's approval level; decides workspace changes and whether outside actions go to a judge. */
   private readonly level: ApprovalLevel;
+  /** The config's standing rules, checked before the call-time ones. */
   private readonly rules: readonly StandingRule[];
 
   constructor(options: PolicyOptions = {}) {
