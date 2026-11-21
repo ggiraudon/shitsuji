@@ -1,4 +1,10 @@
 import {
+  desktopA11yActReplySchema,
+  desktopA11yActRequestSchema,
+  desktopA11yFindQuerySchema,
+  desktopA11yStatusReplySchema,
+  desktopA11yTreeQuerySchema,
+  desktopA11yTreeReplySchema,
   desktopClipboardReplySchema,
   desktopClipboardRequestSchema,
   desktopKeyboardRequestSchema,
@@ -29,6 +35,12 @@ import {
 import type { z } from 'zod';
 import { SandboxUnavailable } from '../../../domain/errors.js';
 import type {
+  DesktopA11yActRequest,
+  DesktopA11yActResult,
+  DesktopA11yFindQuery,
+  DesktopA11yStatus,
+  DesktopA11yTree,
+  DesktopA11yTreeQuery,
   DesktopAction,
   DesktopCapability,
   DesktopImage,
@@ -177,6 +189,16 @@ export class SandboxClient {
 
 const WORKSPACE = '/workspace';
 const HANDOFF = '/handoff';
+
+/** A route with only the query fields that are set, so an omitted option sends no placeholder. */
+function withQuery(route: string, query: Record<string, unknown>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  const text = params.toString();
+  return text ? `${route}?${text}` : route;
+}
 
 /** The model's path inside one root, exactly as the daemon wants it. */
 function normalise(relative: string): string {
@@ -401,10 +423,12 @@ export class ShitsujiEgress implements SandboxEgress {
 
 /** Desktop endpoints from S53; the client validates every reply with the protocol schemas. */
 export class ShitsujiDesktop implements DesktopCapability {
-  readonly accessibility = false;
   readonly screenshots = true;
 
-  constructor(private readonly client: SandboxClient) {}
+  constructor(
+    private readonly client: SandboxClient,
+    readonly accessibility: boolean,
+  ) {}
 
   async state(): Promise<DesktopState> {
     const reply = await this.client.call(SANDBOX_ROUTES.desktopState, desktopStateReplySchema);
@@ -518,6 +542,36 @@ export class ShitsujiDesktop implements DesktopCapability {
       desktopOkReplySchema,
       desktopClipboardRequestSchema.parse({ text }),
     );
+  }
+
+  async inspect(request: DesktopA11yTreeQuery): Promise<DesktopA11yTree> {
+    const query = desktopA11yTreeQuerySchema.parse(request);
+    const reply = await this.client.call(
+      withQuery(SANDBOX_ROUTES.desktopA11yTree, query),
+      desktopA11yTreeReplySchema,
+    );
+    return reply;
+  }
+
+  async find(request: DesktopA11yFindQuery): Promise<DesktopA11yTree> {
+    const query = desktopA11yFindQuerySchema.parse(request);
+    const reply = await this.client.call(
+      withQuery(SANDBOX_ROUTES.desktopA11yFind, query),
+      desktopA11yTreeReplySchema,
+    );
+    return reply;
+  }
+
+  async actOnElement(request: DesktopA11yActRequest): Promise<DesktopA11yActResult> {
+    return this.client.call(
+      SANDBOX_ROUTES.desktopA11yAct,
+      desktopA11yActReplySchema,
+      desktopA11yActRequestSchema.parse(request),
+    );
+  }
+
+  async accessibilityStatus(): Promise<DesktopA11yStatus> {
+    return this.client.call(SANDBOX_ROUTES.desktopA11yStatus, desktopA11yStatusReplySchema);
   }
 
   private async mouse(request: z.infer<typeof desktopMouseRequestSchema>): Promise<void> {

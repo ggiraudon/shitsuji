@@ -328,6 +328,24 @@ describe('SandboxService (F08, S40)', () => {
       ocr: async () => ({ text: '' }),
       readClipboard: async () => '',
       writeClipboard: async () => undefined,
+      inspect: async () => ({
+        app: 'thunar',
+        window: '',
+        snapshot: 's1',
+        nodes: [],
+        total: 0,
+        truncated: false,
+      }),
+      find: async () => ({
+        app: 'thunar',
+        window: '',
+        snapshot: 's1',
+        nodes: [],
+        total: 0,
+        truncated: false,
+      }),
+      actOnElement: async () => ({ action: 'click', role: 'button', window: '', app: 'thunar' }),
+      accessibilityStatus: async () => ({ helper: true, apps: [], missing: [] }),
     } satisfies DesktopCapability;
     const withDesktop = driver(
       {

@@ -329,7 +329,7 @@ describe('shitsuji desktop (S53)', () => {
       '/desktop/input/keyboard': () => ({ ok: true }),
       '/desktop/ocr': () => ({ text: 'S53-MARKER' }),
     });
-    const desktop = new ShitsujiDesktop(client);
+    const desktop = new ShitsujiDesktop(client, false);
 
     await expect(desktop.state()).resolves.toEqual({ display: ':0', width: 1440, height: 900 });
     const shot = await desktop.screenshot();
@@ -346,5 +346,54 @@ describe('shitsuji desktop (S53)', () => {
       { route: '/desktop/input/keyboard', body: { action: 'type', text: 'hello' } },
       { route: '/desktop/ocr', body: {} },
     ]);
+  });
+
+  it('maps the accessibility routes and keeps the refs and snapshot intact (S54)', async () => {
+    const tree = {
+      app: 'thunar',
+      window: 's54-folder - File Manager',
+      snapshot: 's3',
+      nodes: [
+        { ref: 'e1', depth: 0, role: 'frame', name: 's54-folder', states: [], actions: [] },
+        { ref: 'e2', depth: 1, role: 'push button', name: 'Open', states: [], actions: ['click'] },
+      ],
+      total: 2,
+      truncated: false,
+    };
+    const { client, calls } = fakeClient({
+      '/desktop/a11y/tree?window=Thunar&depth=3': () => tree,
+      '/desktop/a11y/find?name=Open': () => tree,
+      '/desktop/a11y/act': () => ({
+        ok: true,
+        action: 'click',
+        role: 'push button',
+        name: 'Open',
+        window: 's54-folder - File Manager',
+        app: 'thunar',
+      }),
+      '/desktop/a11y/status': () => ({
+        helper: true,
+        apps: [{ app: 'thunar', tree: true, nodes: 4 }],
+        missing: [],
+      }),
+    });
+    const desktop = new ShitsujiDesktop(client, true);
+
+    await expect(desktop.inspect({ window: 'Thunar', depth: 3 })).resolves.toEqual(tree);
+    await expect(desktop.find({ name: 'Open' })).resolves.toEqual(tree);
+    await expect(
+      desktop.actOnElement({ snapshot: 's3', ref: 'e2', action: 'click' }),
+    ).resolves.toMatchObject({ role: 'push button', window: 's54-folder - File Manager' });
+    await expect(desktop.accessibilityStatus()).resolves.toMatchObject({
+      helper: true,
+      missing: [],
+    });
+    expect(calls.map((entry) => entry.route)).toEqual([
+      '/desktop/a11y/tree?window=Thunar&depth=3',
+      '/desktop/a11y/find?name=Open',
+      '/desktop/a11y/act',
+      '/desktop/a11y/status',
+    ]);
+    expect(calls[2]!.body).toEqual({ snapshot: 's3', ref: 'e2', action: 'click' });
   });
 });

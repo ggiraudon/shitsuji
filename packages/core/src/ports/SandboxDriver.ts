@@ -218,6 +218,14 @@ export interface DesktopCapability {
   ocr(opts?: { region?: DesktopRect }, signal?: AbortSignal): Promise<DesktopOcrResult>;
   readClipboard(signal?: AbortSignal): Promise<string>;
   writeClipboard(text: string, signal?: AbortSignal): Promise<void>;
+  /** The AT-SPI tree with snapshot-scoped refs (S54); only when `accessibility` is true. */
+  inspect(request: DesktopA11yTreeQuery, signal?: AbortSignal): Promise<DesktopA11yTree>;
+  /** Elements matching a name or role, with refs (S54). */
+  find(request: DesktopA11yFindQuery, signal?: AbortSignal): Promise<DesktopA11yTree>;
+  /** Runs an action on a ref; a stale ref throws with "stale, take a new snapshot" (S54). */
+  actOnElement(request: DesktopA11yActRequest, signal?: AbortSignal): Promise<DesktopA11yActResult>;
+  /** Which allowed apps publish a tree, for the startup check and `/status` (S54). */
+  accessibilityStatus(signal?: AbortSignal): Promise<DesktopA11yStatus>;
 }
 
 export interface DesktopState {
@@ -281,6 +289,73 @@ export type DesktopAction =
 
 export interface DesktopOcrResult {
   text: string;
+}
+
+/** One node of an AT-SPI tree; `ref` is snapshot-scoped and never an AT-SPI object path. */
+export interface DesktopA11yTreeNode {
+  ref: string;
+  depth: number;
+  role: string;
+  name?: string;
+  value?: string;
+  states: readonly string[];
+  actions: readonly string[];
+  /** True when a filter matched this node itself. */
+  matched?: boolean;
+}
+
+/** A window's tree and the snapshot its refs belong to (S54). */
+export interface DesktopA11yTree {
+  app: string;
+  window: string;
+  snapshot: string;
+  nodes: readonly DesktopA11yTreeNode[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface DesktopA11yTreeQuery {
+  /** A window title substring or the application's name; omitted means the active window. */
+  window?: string;
+  /** Start at this element of the current snapshot (a sub-tree). */
+  ref?: string;
+  depth?: number;
+  filter?: string;
+}
+
+export interface DesktopA11yFindQuery {
+  window?: string;
+  name?: string;
+  role?: string;
+}
+
+export interface DesktopA11yActRequest {
+  snapshot: string;
+  ref: string;
+  action: 'click' | 'set_text';
+  /** The replacement text for `set_text`, as one value; never a shell string. */
+  text?: string;
+}
+
+export interface DesktopA11yActResult {
+  action: 'click' | 'set_text';
+  role: string;
+  name?: string;
+  /** The window and app, so the tool can take a fresh snapshot of the same window. */
+  window: string;
+  app: string;
+}
+
+export interface DesktopA11yAppStatus {
+  app: string;
+  tree: boolean;
+  nodes: number;
+}
+
+export interface DesktopA11yStatus {
+  helper: boolean;
+  apps: readonly DesktopA11yAppStatus[];
+  missing: readonly string[];
 }
 
 /** F09; named now for the same reason. */
