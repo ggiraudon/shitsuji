@@ -48,14 +48,42 @@ export class ModelRouter {
     return first;
   }
 
+  /**
+   * Whether the model bound to a purpose declares a capability. An unbound purpose follows
+   * `purposes.chat`, exactly as `candidates()` does. Missing capabilities count as no vision:
+   * images are only sent to a model that explicitly says it can see them (S52).
+   */
+  supports(purpose: ModelPurpose, capability: Capability): boolean {
+    const ref = this.config.purposes[purpose] ?? this.config.purposes.chat;
+    if (!ref) return false;
+    return this.catalog.get(ref)?.capabilities?.has(capability) ?? false;
+  }
+
+  /**
+   * Whether any candidate for a purpose (the primary or one of its fallbacks) declares a capability.
+   * This is the check for "can the chat purpose ever see an image", without the unknown-capability
+   * warning `candidates()` emits while routing.
+   */
+  anySupports(purpose: ModelPurpose, capability: Capability): boolean {
+    return this.refsFor(purpose).some(
+      (ref) => this.catalog.get(ref)?.capabilities?.has(capability) ?? false,
+    );
+  }
+
   /** Every suitable model for a purpose, primary first, then its fallbacks. */
   candidates(purpose: ModelPurpose, needs: readonly Capability[] = []): ModelBinding[] {
+    return this.refsFor(purpose)
+      .map((ref) => this.bind(purpose, ref))
+      .filter((b) => this.has(b, needs));
+  }
+
+  /** The primary ref for a purpose then its fallbacks; an unbound purpose follows chat. */
+  private refsFor(purpose: ModelPurpose): string[] {
     const primary = this.config.purposes[purpose] ?? this.config.purposes.chat;
     const fallbacks = this.config.purposes[purpose]
       ? (this.config.fallbacks[purpose] ?? [])
       : (this.config.fallbacks.chat ?? []);
-    const refs = [...new Set([primary, ...fallbacks].filter((r): r is string => !!r))];
-    return refs.map((ref) => this.bind(purpose, ref)).filter((b) => this.has(b, needs));
+    return [...new Set([primary, ...fallbacks].filter((r): r is string => !!r))];
   }
 
   /**
@@ -126,7 +154,9 @@ export class ModelRouter {
           model: binding.ref,
         });
       }
-      return true;
+      // Absence is not permission for vision: an image sent to a model that cannot see it is a
+      // failed call, so only the other needs keep the old permissive default (S52).
+      return !needs.includes('vision');
     }
     return needs.every((n) => caps.has(n));
   }

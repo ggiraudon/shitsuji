@@ -281,9 +281,20 @@ export class ExecuteMiddleware implements ToolMiddleware {
     try {
       const output = await inv.tool.run(inv.args, inv.ctx);
       if (output.isError) {
-        return { kind: 'error', reason: 'tool_error', content: output.content, data: output.data };
+        return {
+          kind: 'error',
+          reason: 'tool_error',
+          content: output.content,
+          data: output.data,
+          ...(output.images?.length && { images: output.images }),
+        };
       }
-      return { kind: 'ok', content: output.content, data: output.data };
+      return {
+        kind: 'ok',
+        content: output.content,
+        data: output.data,
+        ...(output.images?.length && { images: output.images }),
+      };
     } catch (error) {
       inv.ctx.log.warn('Tool threw', { tool: inv.tool.name, error: serializeError(error) });
       return {

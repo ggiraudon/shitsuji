@@ -142,6 +142,47 @@ describe('AnthropicProvider', () => {
     ]);
   });
 
+  it('puts a tool result’s images inside its tool_result block (S52)', async () => {
+    const { p, requests } = provider({ fixture: 'anthropic-text.sse' });
+    await complete(
+      p,
+      request([
+        user('Show me the chart'),
+        {
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool_call',
+              call: { id: asId<ToolCallId>('t1'), name: 'chart', arguments: {} },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          parts: [
+            {
+              type: 'tool_result',
+              toolCallId: asId<ToolCallId>('t1'),
+              content: 'Chart saved.',
+              isError: false,
+              images: [{ mediaType: 'image/png', data: 'AAAA', name: 'chart.png' }],
+            },
+          ],
+        },
+      ]),
+    );
+    expect((requests[0]!.body!.messages as { content: unknown[] }[])[2]!.content).toEqual([
+      {
+        type: 'tool_result',
+        tool_use_id: 't1',
+        content: [
+          { type: 'text', text: 'Chart saved.' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+        ],
+      },
+    ]);
+  });
+
   it("keeps a context tail apart from the owner's words (#66)", async () => {
     const { p, requests } = provider({ fixture: 'anthropic-text.sse' });
     const tail =

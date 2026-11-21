@@ -1,5 +1,5 @@
-import type { Message } from '../../domain/model/Message.js';
-import { textOf, toolCallsOf, type ContentPart } from '../../domain/model/Message.js';
+import type { ContentPart, ImageAttachment, Message } from '../../domain/model/Message.js';
+import { textOf, toolCallsOf } from '../../domain/model/Message.js';
 import type { OwnerId, SessionId } from '../../domain/model/ids.js';
 import type { Session } from '../../domain/model/Session.js';
 import type { Turn } from '../../domain/model/Turn.js';
@@ -39,6 +39,14 @@ export interface ContextBuilderDeps {
   log: Logger;
   /** The most recent messages sent to the model; the open request is always kept. */
   historyLimit?: number;
+  /** How many of the newest images stay pixels; older ones become placeholders (default 3, S52). */
+  imageHistoryLimit?: number;
+  /** Raw bytes allowed per image; bigger files become a placeholder (default 5 MiB, S52). */
+  imageMaxBytes?: number;
+  /** Whether the active chat purpose has any model with vision; false means placeholders, no reads. */
+  visionAvailable?: boolean;
+  /** Loads a stored image reference (workspace-relative) at build time. */
+  images?: ImageSource;
   /**
    * Warn when a header injectable changes on every call (development and tests; off elsewhere).
    * A clock or a mood that slipped into the header would break the provider's prompt cache.
@@ -50,6 +58,13 @@ export interface ContextBuilderDeps {
   contextWindow?: number;
 }
 
+/** Reads the bytes behind a stored image reference; the sandbox driver supplies it in core. */
+export interface ImageSource {
+  read(ref: string): Promise<Uint8Array>;
+}
+
+type ResolvedImage = { image: ImageAttachment } | { placeholder: string };
+
 const PLACEMENT_RANK: Record<InjectionPlacement, number> = { header: 0, context: 1, tail: 2 };
 
 /**
@@ -57,6 +72,9 @@ const PLACEMENT_RANK: Record<InjectionPlacement, number> = { header: 0, context:
  * the clock as something the owner typed, or repeat it back (#66).
  */
 export const TAIL_MARKER = "[Context from Shitsuji, not the owner's words]";
+
+/** 5 MiB of raw bytes; base64 adds a third on top, so this bounds the request too. */
+const DEFAULT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
  * Turns a session's transcript plus every `ContextInjectable` into one model call's context (F04).
@@ -74,6 +92,8 @@ export class ContextBuilder {
     SessionId,
     { turnId: Turn['id']; text: string | undefined }
   >();
+  /** Image references already reported as too large, so one bad file logs once. */
+  private readonly warnedOversize = new Set<string>();
 
   constructor(private readonly deps: ContextBuilderDeps) {}
 
@@ -144,7 +164,13 @@ export class ContextBuilder {
 
     const visible = trimToWholeExchanges(sources).filter((message) => !message.withdrawn);
     const ordered = normaliseToolOrder(visible);
-    const messages: ModelMessage[] = ordered.map((m) => ({ role: m.role, parts: m.parts }));
+    const vision = this.deps.visionAvailable === true;
+    const pruned = pruneImages(
+      ordered.map((m) => ({ role: m.role, parts: m.parts })),
+      vision ? (this.deps.imageHistoryLimit ?? 3) : 0,
+      vision ? imagePlaceholder : cannotViewPlaceholder,
+    );
+    const messages = vision ? await this.loadImages(pruned) : pruned;
     const notes: ModelMessage[] = rendered.context.map((note) => ({
       role: 'system',
       parts: [{ type: 'text', text: note.text }],
@@ -172,6 +198,78 @@ export class ContextBuilder {
       context: rendered.context,
       ...(tail && { tail }),
     };
+  }
+
+  /**
+   * Turns stored image references into request images. Bytes never live in the transcript: the
+   * reader (the sandbox's files port) supplies them now. A missing file leaves a deterministic
+   * placeholder so the model is not shown an empty image.
+   */
+  private async loadImages(messages: ModelMessage[]): Promise<ModelMessage[]> {
+    const out: ModelMessage[] = [];
+    for (const message of messages) {
+      const parts: ContentPart[] = [];
+      for (const part of message.parts) {
+        if (part.type === 'image') {
+          const resolved = await this.resolveImage(part);
+          if (resolved && 'image' in resolved) {
+            parts.push({ type: 'image', ...resolved.image });
+          } else {
+            parts.push({
+              type: 'text',
+              text: resolved?.placeholder ?? unavailablePlaceholder(part),
+            });
+          }
+          continue;
+        }
+        if (part.type === 'tool_result' && part.images?.length) {
+          const kept: ImageAttachment[] = [];
+          const placeholders: string[] = [];
+          for (const image of part.images) {
+            const resolved = await this.resolveImage(image);
+            if (resolved && 'image' in resolved) kept.push(resolved.image);
+            else placeholders.push(resolved?.placeholder ?? unavailablePlaceholder(image));
+          }
+          parts.push({
+            ...part,
+            content: [part.content, ...placeholders].filter(Boolean).join('\n'),
+            ...(kept.length && { images: kept }),
+          });
+          continue;
+        }
+        parts.push(part);
+      }
+      out.push({ ...message, parts });
+    }
+    return out;
+  }
+
+  private async resolveImage(image: ImageAttachment): Promise<ResolvedImage | undefined> {
+    if (image.data || image.url) return { image };
+    if (!image.ref || !this.deps.images) return undefined;
+    try {
+      const bytes = await this.deps.images.read(image.ref);
+      const maxBytes = this.deps.imageMaxBytes ?? DEFAULT_IMAGE_MAX_BYTES;
+      if (bytes.length > maxBytes) {
+        const key = `${image.ref}:${bytes.length}`;
+        if (!this.warnedOversize.has(key)) {
+          this.warnedOversize.add(key);
+          this.deps.log.warn('Image is too large for the context', {
+            ref: image.ref,
+            bytes: bytes.length,
+            maxBytes,
+          });
+        }
+        return { placeholder: tooLargePlaceholder(image, bytes.length) };
+      }
+      return { image: { ...image, data: Buffer.from(bytes).toString('base64') } };
+    } catch (error) {
+      this.deps.log.warn('Could not load an image for the context', {
+        ref: image.ref,
+        error: { message: error instanceof Error ? error.message : 'unknown' },
+      });
+      return undefined;
+    }
   }
 
   /** Evaluates an injectable's condition. `once` is tracked per session, by this instance. */
@@ -241,6 +339,74 @@ export class ContextBuilder {
 
 /** Most sessions whose per-session state is kept in memory; the least recently used are dropped. */
 const MAX_TRACKED_SESSIONS = 256;
+
+/**
+ * Keeps the newest `keep` images as pixels; every older image becomes a one-line placeholder. Counting
+ * from the end makes the result deterministic per message, so a re-build keeps the cached prefix
+ * byte-identical (Q7). A tool result's images become text appended to its content.
+ */
+function pruneImages(
+  messages: ModelMessage[],
+  keep: number,
+  placeholder: (image: ImageAttachment) => string = imagePlaceholder,
+): ModelMessage[] {
+  let remaining = Math.max(0, keep);
+  return messages
+    .slice()
+    .reverse()
+    .map((message) => {
+      const parts = message.parts
+        .slice()
+        .reverse()
+        .map((part): ContentPart => {
+          if (part.type === 'image') {
+            if (remaining > 0) {
+              remaining -= 1;
+              return part;
+            }
+            return { type: 'text', text: placeholder(part) };
+          }
+          if (part.type === 'tool_result' && part.images?.length) {
+            const kept: ImageAttachment[] = [];
+            const dropped: ImageAttachment[] = [];
+            for (const image of part.images.slice().reverse()) {
+              if (remaining > 0) {
+                remaining -= 1;
+                kept.unshift(image);
+              } else {
+                dropped.unshift(image);
+              }
+            }
+            if (!dropped.length) return part;
+            const { images: _images, ...rest } = part;
+            return {
+              ...rest,
+              content: [part.content, ...dropped.map(placeholder)].filter(Boolean).join('\n'),
+              ...(kept.length ? { images: kept } : {}),
+            };
+          }
+          return part;
+        })
+        .reverse();
+      return { ...message, parts };
+    })
+    .reverse();
+}
+
+const imageLabel = (image: ImageAttachment): string =>
+  image.name ?? image.ref?.split(/[\\/]/).pop() ?? image.mediaType;
+
+const imagePlaceholder = (image: ImageAttachment): string =>
+  `[image: ${imageLabel(image)}, sent earlier]`;
+
+const cannotViewPlaceholder = (image: ImageAttachment): string =>
+  `[image: ${imageLabel(image)}, cannot be viewed with the current model]`;
+
+const tooLargePlaceholder = (image: ImageAttachment, bytes: number): string =>
+  `[image: ${imageLabel(image)}, too large to show (${(bytes / 1024 / 1024).toFixed(1)} MB)]`;
+
+const unavailablePlaceholder = (image: ImageAttachment): string =>
+  `[image: ${imageLabel(image)}, unavailable]`;
 
 /**
  * Sets a session's entry as the most recent and drops the oldest beyond the cap. This state is a

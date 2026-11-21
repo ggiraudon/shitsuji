@@ -1,5 +1,5 @@
 import { ProviderError } from '../../domain/errors.js';
-import type { ContentPart } from '../../domain/model/Message.js';
+import type { ContentPart, ImageAttachment } from '../../domain/model/Message.js';
 import type { Logger } from '../../ports/Logger.js';
 import type {
   FinishReason,
@@ -26,14 +26,21 @@ export interface AnthropicOptions {
   fetch?: typeof fetch;
 }
 
+type ImageBlock = {
+  type: 'image';
+  source: { type: 'base64'; media_type: string; data: string } | { type: 'url'; url: string };
+};
+
 type Block =
   | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
-  | {
-      type: 'image';
-      source: { type: 'base64'; media_type: string; data: string } | { type: 'url'; url: string };
-    }
+  | ImageBlock
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+  | {
+      type: 'tool_result';
+      tool_use_id: string;
+      content: string | Array<{ type: 'text'; text: string } | ImageBlock>;
+      is_error?: boolean;
+    };
 
 interface WireMessage {
   role: 'user' | 'assistant';
@@ -281,26 +288,32 @@ function toUserBlock(p: ContentPart): Block[] {
     case 'text':
       return p.text ? [{ type: 'text', text: p.text }] : [];
     case 'image':
-      return [
-        {
-          type: 'image',
-          source: p.url
-            ? { type: 'url', url: p.url }
-            : { type: 'base64', media_type: p.mediaType, data: p.data ?? '' },
-        },
-      ];
-    case 'tool_result':
+      return [imageBlock(p)];
+    case 'tool_result': {
+      const images = p.images?.map(imageBlock) ?? [];
       return [
         {
           type: 'tool_result',
           tool_use_id: p.toolCallId,
-          content: p.content,
+          content: images.length
+            ? [...(p.content ? [{ type: 'text' as const, text: p.content }] : []), ...images]
+            : p.content,
           ...(p.isError && { is_error: true }),
         },
       ];
+    }
     default:
       return [];
   }
+}
+
+function imageBlock(image: ImageAttachment): ImageBlock {
+  return {
+    type: 'image',
+    source: image.url
+      ? { type: 'url', url: image.url }
+      : { type: 'base64', media_type: image.mediaType, data: image.data ?? '' },
+  };
 }
 
 function addUsage(total: TokenUsage, u?: AnthropicUsage): void {

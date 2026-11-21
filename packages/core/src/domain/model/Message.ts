@@ -12,15 +12,39 @@ export interface ToolCall {
 }
 
 /**
+ * An image attached to a message or a tool result. Requests carry `data` (base64) or `url`;
+ * stored messages keep only `ref`, a workspace-relative file the ContextBuilder loads at build time,
+ * so jsonb never holds the bytes.
+ */
+export interface ImageAttachment {
+  mediaType: string;
+  /** Base64 bytes, built per request by the ContextBuilder; never stored. */
+  data?: string;
+  /** A remote image URL, used as-is by the provider. */
+  url?: string;
+  /** A workspace-relative path such as `sessions/<id>/images/chart.png`; what storage keeps. */
+  ref?: string;
+  /** A name for the deterministic placeholder when the image is pruned. */
+  name?: string;
+}
+
+/**
  * One piece of a message. A message can mix text, images, tool calls and tool results. Order carries
  * meaning: the tool results of a step follow the assistant message that asked for them. The array is
  * stored as `jsonb`, so every part must stay JSON-safe (see {@link sanitizeMessage}).
  */
 export type ContentPart =
   | { type: 'text'; text: string }
-  | { type: 'image'; mediaType: string; data?: string; url?: string }
+  | ({ type: 'image' } & ImageAttachment)
   | { type: 'tool_call'; call: ToolCall }
-  | { type: 'tool_result'; toolCallId: ToolCallId; content: string; isError: boolean }
+  | {
+      type: 'tool_result';
+      toolCallId: ToolCallId;
+      content: string;
+      isError: boolean;
+      /** Images the tool returned, by workspace reference; loaded when the context is built. */
+      images?: ImageAttachment[];
+    }
   /** Model reasoning (e.g. DeepSeek): kept in the transcript, never shown as the reply. */
   | { type: 'reasoning'; text: string };
 

@@ -106,6 +106,19 @@ describe('ToolPipeline', () => {
     expect(await call('test.tool', { n: 3 })).toEqual({ kind: 'ok', content: 'got 3' });
   });
 
+  it('carries a tool image reference through the pipeline (S52)', async () => {
+    const images = [
+      { mediaType: 'image/png', ref: 'sessions/s1/images/chart.png', name: 'chart.png' },
+    ];
+    const tool = new FakeTool('test.chart', 'read', async () => ({ content: 'saved', images }));
+    const { call } = setup([tool]);
+    expect(await call('test.chart', { n: 1 })).toEqual({
+      kind: 'ok',
+      content: 'saved',
+      images,
+    });
+  });
+
   it('answers not_found for an unknown tool, pointing at tool_search', async () => {
     const { call } = setup([]);
     const outcome = await call('nope', {});

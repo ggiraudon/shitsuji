@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { InvalidTransition } from '../../src/domain/errors.js';
-import { asId, newId, type SessionId, type TurnId } from '../../src/domain/model/ids.js';
-import { textOf, toolCallsOf, type ContentPart } from '../../src/domain/model/Message.js';
+import {
+  asId,
+  newId,
+  type SessionId,
+  type ToolCallId,
+  type TurnId,
+} from '../../src/domain/model/ids.js';
+import { textOf, toolCallsOf, stripNul, type ContentPart } from '../../src/domain/model/Message.js';
 import { Money } from '../../src/domain/model/Money.js';
 import { Thread } from '../../src/domain/model/Thread.js';
 import { Turn, type TurnStatus } from '../../src/domain/model/Turn.js';
@@ -154,5 +160,30 @@ describe('Money', () => {
   it('refuses to mix currencies or accept bad codes', () => {
     expect(() => Money.of(1, 'USD').plus(Money.of(1, 'EUR'))).toThrow(/Cannot combine USD and EUR/);
     expect(() => Money.of(1, 'usd')).toThrow(/Invalid currency/);
+  });
+});
+
+describe('stored image references (S52)', () => {
+  it('survives stripNul and JSON as a reference, never bytes', () => {
+    const part: ContentPart = {
+      type: 'tool_result',
+      toolCallId: asId<ToolCallId>('t1'),
+      content: 'a\u0000b',
+      isError: false,
+      images: [
+        {
+          mediaType: 'image/png',
+          ref: 'sessions/s1/images/a\u0000.png',
+          name: 'a\u0000.png',
+        },
+      ],
+    };
+    const clean = stripNul(part) as Extract<ContentPart, { type: 'tool_result' }>;
+    expect(clean.content).toBe('ab');
+    expect(clean.images).toEqual([
+      { mediaType: 'image/png', ref: 'sessions/s1/images/a.png', name: 'a.png' },
+    ]);
+    expect(JSON.stringify(clean)).not.toContain('base64');
+    expect(JSON.parse(JSON.stringify(clean))).toEqual(clean);
   });
 });

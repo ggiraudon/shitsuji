@@ -12,7 +12,7 @@ import type { Turn } from '../../domain/model/Turn.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { EventBus } from '../../ports/EventBus.js';
 import type { Logger } from '../../ports/Logger.js';
-import type { ModelRequest } from '../../ports/ModelProvider.js';
+import type { ModelMessage, ModelRequest } from '../../ports/ModelProvider.js';
 import type { Repositories, Transaction } from '../../ports/Repositories.js';
 import type { BuiltContext, ContextBuilder } from '../context/ContextBuilder.js';
 import type { ModelResponse } from '../modelCalls.js';
@@ -21,7 +21,7 @@ import type { BudgetService } from '../budget/BudgetService.js';
 import type { SoulSource } from '../soul/SoulService.js';
 import type { ToolCatalog } from '../tools/ToolCatalog.js';
 import { outcomeText, type ToolPipeline } from '../tools/ToolPipeline.js';
-import type { OutboundFile } from '../../ports/Tool.js';
+import type { OutboundFile, ToolImage } from '../../ports/Tool.js';
 import { outboundFiles } from '../../ports/Tool.js';
 import { TurnLock } from '../TurnLock.js';
 import { DEFAULT_STEP_LIMITS, StallDetector, type StepLimits } from './limits.js';
@@ -278,6 +278,7 @@ export class TurnRunner {
             toolCallId: call.id,
             content: result.content,
             isError: result.isError,
+            ...(result.images?.length && { images: result.images }),
           },
         ]);
       }
@@ -386,13 +387,15 @@ export class TurnRunner {
       metadata: { turnId: turn.id, sessionId: session.id, background: turn.isBackground },
     };
     if (!request.tools?.length) delete request.tools;
+    const needs = containsImages(context.messages) ? (['vision'] as const) : [];
     events.publish('llm.request', {
       agentId: agentName,
       sessionId: session.id,
-      model: models.select('chat').ref,
+      model: models.select('chat', needs).ref,
     });
     try {
       const { response, binding } = await models.complete('chat', request, {
+        needs,
         signal,
         onEvent: (e) => {
           if (e.type === 'text_delta') {
@@ -448,7 +451,7 @@ export class TurnRunner {
     turn: Turn,
     call: ToolCall,
     signal: AbortSignal,
-  ): Promise<{ content: string; isError: boolean; files: OutboundFile[] }> {
+  ): Promise<{ content: string; isError: boolean; files: OutboundFile[]; images?: ToolImage[] }> {
     const { events, log } = this.deps;
     const meta = {
       turnId: turn.id,
@@ -475,7 +478,12 @@ export class TurnRunner {
     if (outcome.kind === 'error' && outcome.reason === 'repeated_failure') {
       throw new TurnEnded(outcome.content); // ends the turn instead of looping (F05)
     }
-    return { content: outcomeText(outcome), isError: !ok, files: outboundFiles(outcome) };
+    return {
+      content: outcomeText(outcome),
+      isError: !ok,
+      files: outboundFiles(outcome),
+      ...(outcome.images?.length && { images: outcome.images }),
+    };
   }
 
   /**
@@ -533,4 +541,13 @@ function lastOwnerAt(messages: readonly Message[], fallback: Date): Date {
     if (message.author === 'owner' && !message.withdrawn) return message.createdAt;
   }
   return fallback;
+}
+
+/** True when a request carries pixels, so the model call must ask for the vision capability. */
+function containsImages(messages: readonly ModelMessage[]): boolean {
+  return messages.some((message) =>
+    message.parts.some(
+      (part) => part.type === 'image' || (part.type === 'tool_result' && !!part.images?.length),
+    ),
+  );
 }

@@ -1,11 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod/v4';
 import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
+import { NullLogger } from '../../src/adapters/logging/loggers.js';
 import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
 import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { Agent } from '../../src/application/Agent.js';
+import { ModelCatalog } from '../../src/application/models/ModelCatalog.js';
+import { ModelRouter } from '../../src/application/models/ModelRouter.js';
 import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
 import { Approval } from '../../src/domain/model/Approval.js';
 import {
@@ -22,6 +26,7 @@ import type {
   ModelRequest,
   ModelStreamEvent,
 } from '../../src/ports/ModelProvider.js';
+import type { Tool } from '../../src/ports/Tool.js';
 import {
   routerFor,
   ScriptedProvider,
@@ -39,6 +44,11 @@ const setup = async (
     provider?: ModelProvider & { requests: ModelRequest[] };
     sendTimeoutMs?: number;
     beforeAgent?: (services: ReturnType<typeof testServices>) => void;
+    images?: { read(ref: string): Promise<Uint8Array> };
+    imageHistoryLimit?: number;
+    imageMaxBytes?: number;
+    visionAvailable?: boolean;
+    models?: ModelRouter;
   } = {},
 ) => {
   const { provider, beforeAgent, ...agentOptions } = extra;
@@ -195,6 +205,85 @@ describe('Agent', () => {
       ['assistant', 'assistant', 'text'],
     ]);
     expect(seen).toEqual(expect.arrayContaining(['tool.called', 'tool.result']));
+  });
+
+  it('stores a tool image as a reference and loads it only in the next request (S52)', async () => {
+    const chart: Tool = {
+      name: 'test.chart',
+      description: 'Draw a chart',
+      input: z.object({}),
+      effect: 'read',
+      target: 'core',
+      deferred: false,
+      untrustedOutput: false,
+      run: async (_args, ctx) => ({
+        content: 'Chart saved.',
+        images: [
+          {
+            mediaType: 'image/png',
+            ref: `sessions/${ctx.sessionId}/images/chart.png`,
+            name: 'chart.png',
+          },
+        ],
+      }),
+    };
+    const reads: string[] = [];
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ id: 'c1', name: 'test.chart', arguments: {} }] },
+      { content: 'Here it is.' },
+    ]);
+    const models = new ModelRouter(
+      new Map([['test', provider]]),
+      { purposes: { chat: 'test/vision' }, fallbacks: {} },
+      new ModelCatalog([{ ref: 'test/vision', capabilities: new Set(['vision', 'tools']) }]),
+      new NullLogger(),
+    );
+    const complete = vi.spyOn(models, 'complete');
+    const { agent, llm, repos } = await setup(
+      [
+        { toolCalls: [{ id: 'c1', name: 'test.chart', arguments: {} }] },
+        { content: 'Here it is.' },
+      ],
+      {
+        provider,
+        models,
+        images: {
+          read: async (ref) => {
+            reads.push(ref);
+            return new TextEncoder().encode('PNG');
+          },
+        },
+        visionAvailable: true,
+      },
+    );
+    agent.registerTool(chart);
+
+    const { sessionId } = await agent.send('Draw a chart');
+
+    const stored = await repos.messages.listBySession(sessionId);
+    const tool = stored.find((m) => m.role === 'tool')!;
+    const part = tool.parts[0] as Extract<(typeof tool.parts)[number], { type: 'tool_result' }>;
+    expect(part.images).toEqual([
+      {
+        mediaType: 'image/png',
+        ref: `sessions/${sessionId}/images/chart.png`,
+        name: 'chart.png',
+      },
+    ]);
+    expect(JSON.stringify(tool)).not.toContain('base64');
+
+    const request = llm.requests[1]!.messages.find((m) => m.role === 'tool')!;
+    const requestPart = request.parts[0] as Extract<
+      (typeof request.parts)[number],
+      { type: 'tool_result' }
+    >;
+    expect(requestPart.images?.[0]).toMatchObject({
+      mediaType: 'image/png',
+      data: Buffer.from('PNG').toString('base64'),
+    });
+    expect(reads).toEqual([`sessions/${sessionId}/images/chart.png`]);
+    expect(complete.mock.calls[0]![2]?.needs ?? []).not.toContain('vision');
+    expect(complete.mock.calls[1]![2]).toMatchObject({ needs: ['vision'] });
   });
 
   it('records the turn as succeeded, with model and tool events', async () => {

@@ -215,6 +215,78 @@ describe('OpenAICompatibleProvider: DeepSeek', () => {
     ]);
   });
 
+  it('follows the tool messages with one marked user message for their images (S52)', async () => {
+    const { p, requests } = provider([{ fixture: 'deepseek-text.sse' }]);
+    await complete(
+      p,
+      request({
+        messages: [
+          { role: 'user', parts: [{ type: 'text', text: 'Draw two charts' }] },
+          {
+            role: 'assistant',
+            parts: [
+              {
+                type: 'tool_call',
+                call: { id: asId('c1'), name: 'chart', arguments: { n: 1 } },
+              },
+              {
+                type: 'tool_call',
+                call: { id: asId('c2'), name: 'chart', arguments: { n: 2 } },
+              },
+            ],
+          },
+          {
+            role: 'tool',
+            parts: [
+              {
+                type: 'tool_result',
+                toolCallId: asId('c1'),
+                content: 'first',
+                isError: false,
+                images: [{ mediaType: 'image/png', data: 'AAAA', name: 'one.png' }],
+              },
+            ],
+          },
+          {
+            role: 'tool',
+            parts: [
+              { type: 'tool_result', toolCallId: asId('c2'), content: 'second', isError: false },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(requests[0]!.body!.messages).toEqual([
+      { role: 'system', content: 'You are Shitsuji.' },
+      { role: 'user', content: 'Draw two charts' },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'c1',
+            type: 'function',
+            function: { name: 'chart', arguments: '{"n":1}' },
+          },
+          {
+            id: 'c2',
+            type: 'function',
+            function: { name: 'chart', arguments: '{"n":2}' },
+          },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'c1', content: 'first' },
+      { role: 'tool', tool_call_id: 'c2', content: 'second' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '[Images returned by the tool call, not sent by the owner]' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+        ],
+      },
+    ]);
+  });
+
   it('names the provider and the real cause in HTTP errors, and marks what is retryable', async () => {
     const { p: unauthorized } = provider([
       {
