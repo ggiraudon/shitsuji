@@ -382,12 +382,19 @@ export interface DesktopOcrResult {
 
 /** One node of an AT-SPI tree; `ref` is snapshot-scoped and never an AT-SPI object path. */
 export interface DesktopA11yTreeNode {
+  /** The node's id inside this snapshot; what `actOnElement` names. */
   ref: string;
+  /** How deep in the tree it is, from the window root (0). */
   depth: number;
+  /** The AT-SPI role, e.g. `push button`. */
   role: string;
+  /** The accessible name, when the app publishes one. */
   name?: string;
+  /** The node's text value, for entries and labels. */
   value?: string;
+  /** The AT-SPI states it is in, e.g. `enabled`, `focused`. */
   states: readonly string[];
+  /** The actions it offers, e.g. `click`, `set text`. */
   actions: readonly string[];
   /** True when a filter matched this node itself. */
   matched?: boolean;
@@ -395,55 +402,85 @@ export interface DesktopA11yTreeNode {
 
 /** A window's tree and the snapshot its refs belong to (S54). */
 export interface DesktopA11yTree {
+  /** The application the window belongs to. */
   app: string;
+  /** The window title. */
   window: string;
+  /** The snapshot token, stable for this read and required by `actOnElement`. */
   snapshot: string;
+  /** The nodes in tree order, limited by the query. */
   nodes: readonly DesktopA11yTreeNode[];
+  /** How many nodes the window has in total, before the limit. */
   total: number;
+  /** True when the tree was cut short by the node or depth limit. */
   truncated: boolean;
 }
 
+/** What to read from a window's tree: the window, where to start, how deep and how to filter. */
 export interface DesktopA11yTreeQuery {
   /** A window title substring or the application's name; omitted means the active window. */
   window?: string;
   /** Start at this element of the current snapshot (a sub-tree). */
   ref?: string;
+  /** How many levels to include below the start. */
   depth?: number;
+  /** Only nodes whose role, name or value contains this text. */
   filter?: string;
 }
 
+/** Find nodes by name and role, for a model that knows what it is looking for. */
 export interface DesktopA11yFindQuery {
+  /** The window to search; omitted means the active window. */
   window?: string;
+  /** A substring of the accessible name. */
   name?: string;
+  /** A substring of the AT-SPI role. */
   role?: string;
 }
 
+/** Act on one node: its ref is only valid for the snapshot it came from. */
 export interface DesktopA11yActRequest {
+  /** The snapshot the ref was read from; a stale one is refused rather than guessed. */
   snapshot: string;
+  /** The node to act on. */
   ref: string;
+  /** The action to perform. */
   action: 'click' | 'set_text';
   /** The replacement text for `set_text`, as one value; never a shell string. */
   text?: string;
 }
 
+/** What acting on a node did, and which window to re-read afterwards. */
 export interface DesktopA11yActResult {
+  /** The action that ran. */
   action: 'click' | 'set_text';
+  /** The role of the node it ran on. */
   role: string;
+  /** The node's accessible name, when it had one. */
   name?: string;
   /** The window and app, so the tool can take a fresh snapshot of the same window. */
   window: string;
+  /** The application the window belongs to. */
   app: string;
 }
 
+/** One allowed app and whether its accessibility tree is available. */
 export interface DesktopA11yAppStatus {
+  /** The application name. */
   app: string;
+  /** True when a tree was read from it. */
   tree: boolean;
+  /** How many nodes that tree had, for `/status`. */
   nodes: number;
 }
 
+/** The accessibility helper's state, as `/status` reports it. */
 export interface DesktopA11yStatus {
+  /** True when the helper process answers. */
   helper: boolean;
+  /** Per-app availability. */
   apps: readonly DesktopA11yAppStatus[];
+  /** Allowed apps that published no tree. */
   missing: readonly string[];
 }
 
