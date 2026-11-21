@@ -160,7 +160,8 @@ scaled to fit 1280 px on the long side (the reply carries the scale and the orig
 S52 image references under `sessions/<sessionId>/images/`; `computer.act` input coordinates are in the
 latest scaled screenshot, and the tool maps them back to display pixels.
 
-Implemented with `xdotool`, `scrot`, `ffmpeg` for scaling, `wmctrl`, `xclip` and Tesseract.
+Implemented with `xdotool`, `ffmpeg` (`x11grab`) for captures, `wmctrl`, `xclip` and Tesseract. Screenshots
+and OCR frames travel over pipes; the daemon never writes them to a shared `/tmp` file.
 
 ### Reading the screen: structure first, pixels last
 
@@ -337,6 +338,10 @@ in Chromium can be processed by a script and opened in LibreOffice without movin
 - **The X display has no access control.** `Xvfb -ac` accepts every local client, so any process in the
   sandbox can read the screen and the keystrokes. During Take control that includes what you type; see the
   warning there and use the [F12](F12-secrets-vault.md) credential path, never the desktop, for secrets.
+- **Chromium input is `write_local` for now.** Until the browser rules land in [F09](F09-browser.md), a
+  `computer.act` click or key committed in Chromium is judged as a local desktop write, not as an outside
+  action; a click on a submit control is not classified yet. The owner accepted this gap for S53; it is
+  tracked as [#136](https://github.com/ggiraudon/shitsuji/issues/136).
 - **Pixel-based control is slow and error-prone** with today's models; treat it as the fallback, not the main
   path.
 - **Tree quality varies by app.** GTK and Qt apps are usually good; XFCE panel applets, some Electron apps

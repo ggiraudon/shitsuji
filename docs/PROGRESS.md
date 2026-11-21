@@ -173,7 +173,9 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       vision-capable `vision` purpose, with `screenshot`/`move`/`ocr` read and the rest write_local.
       The driver advertises `desktop: { accessibility: false, screenshots: true, takeControl: false }`;
       the conformance suite runs desktop tests only when claimed. The integration test launches Thunar,
-      clicks, types a path and sees it in OCR. The desktop image adds `tesseract-ocr-eng`.)*
+      clicks, types a path and sees it in OCR. The desktop image adds `tesseract-ocr-eng`.
+      **Known risk:** Chromium input is `write_local` until the browser rules land in F09
+      ([#136](https://github.com/ggiraudon/shitsuji/issues/136)); the owner accepted this for S53.)*
 - [ ] **S54** The accessibility tree: `desktop.inspect` and `desktop.act`
 - [ ] **S55** Take control and Give back
 - [ ] **S56** The desktop end to end
