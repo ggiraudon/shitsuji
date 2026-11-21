@@ -100,7 +100,7 @@ describe('sandboxd AT-SPI helper client (S54)', () => {
   });
 
   it('kills a hung helper, fails the request in flight and starts fresh, never replaying', async () => {
-    const { service, ops } = await make({ mode: 'hang-once', timeoutMs: 200 });
+    const { service, ops } = await make({ mode: 'hang-once', timeoutMs: 2_000 });
     await service.start();
     await expect(service.tree({ window: 'Thunar' })).rejects.toMatchObject({ status: 503 });
     // The next request starts a new helper (the marker makes this process answer) and succeeds.

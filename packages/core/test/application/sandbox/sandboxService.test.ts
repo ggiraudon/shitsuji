@@ -89,6 +89,46 @@ const service = (d: SandboxDriver) => build(d).sandbox;
 
 const names = (s: SandboxService) => s.tools().map((tool) => tool.name);
 
+/** A desktop that reports the accessibility flag the test asks for; no call here reaches it. */
+const fakeDesktop = (accessibility: boolean): DesktopCapability =>
+  ({
+    accessibility,
+    screenshots: true,
+    state: async () => ({ display: ':0', width: 1440, height: 900 }),
+    screenshot: async () => ({
+      mediaType: 'image/png' as const,
+      data: new Uint8Array(),
+      width: 1280,
+      height: 800,
+      originalWidth: 1440,
+      originalHeight: 900,
+      scale: 0.5,
+    }),
+    windows: async () => [],
+    act: async () => undefined,
+    ocr: async () => ({ text: '' }),
+    readClipboard: async () => '',
+    writeClipboard: async () => undefined,
+    inspect: async () => ({
+      app: 'thunar',
+      window: '',
+      snapshot: 's1',
+      nodes: [],
+      total: 0,
+      truncated: false,
+    }),
+    find: async () => ({
+      app: 'thunar',
+      window: '',
+      snapshot: 's1',
+      nodes: [],
+      total: 0,
+      truncated: false,
+    }),
+    actOnElement: async () => ({ action: 'click', role: 'button', window: '', app: 'thunar' }),
+    accessibilityStatus: async () => ({ helper: true, apps: [], missing: [] }),
+  }) satisfies DesktopCapability;
+
 describe('SandboxService (F08, S40)', () => {
   it('registers the file tools, and no exec, for a driver without exec', async () => {
     const sandbox = service(
@@ -310,43 +350,7 @@ describe('SandboxService (F08, S40)', () => {
   });
 
   it('registers computer.act only with a desktop and vision (S53)', async () => {
-    const desktop = {
-      accessibility: false,
-      screenshots: true,
-      state: async () => ({ display: ':0', width: 1440, height: 900 }),
-      screenshot: async () => ({
-        mediaType: 'image/png' as const,
-        data: new Uint8Array(),
-        width: 1280,
-        height: 800,
-        originalWidth: 1440,
-        originalHeight: 900,
-        scale: 0.5,
-      }),
-      windows: async () => [],
-      act: async () => undefined,
-      ocr: async () => ({ text: '' }),
-      readClipboard: async () => '',
-      writeClipboard: async () => undefined,
-      inspect: async () => ({
-        app: 'thunar',
-        window: '',
-        snapshot: 's1',
-        nodes: [],
-        total: 0,
-        truncated: false,
-      }),
-      find: async () => ({
-        app: 'thunar',
-        window: '',
-        snapshot: 's1',
-        nodes: [],
-        total: 0,
-        truncated: false,
-      }),
-      actOnElement: async () => ({ action: 'click', role: 'button', window: '', app: 'thunar' }),
-      accessibilityStatus: async () => ({ helper: true, apps: [], missing: [] }),
-    } satisfies DesktopCapability;
+    const desktop = fakeDesktop(false);
     const withDesktop = driver(
       {
         files: { roots: ['/workspace'] },
@@ -363,6 +367,37 @@ describe('SandboxService (F08, S40)', () => {
     const noVision = build(withDesktop, { attempts: 1, delayMs: 0 }, false);
     await noVision.sandbox.start();
     expect(names(noVision.sandbox)).not.toContain('computer.act');
+  });
+
+  it('registers desktop.inspect and desktop.act when the driver has a tree (S54)', async () => {
+    const withTree = driver(
+      {
+        files: { roots: ['/workspace'] },
+        desktop: { accessibility: true, screenshots: true, takeControl: false },
+        egress: { lanBlocked: true, credentialSwap: false },
+      },
+      { files: fakeFiles(), desktop: fakeDesktop(true) },
+    );
+    const { sandbox: withA11y } = build(withTree, { attempts: 1, delayMs: 0 }, false);
+    await withA11y.start();
+    expect(names(withA11y)).toContain('desktop.inspect');
+    expect(names(withA11y)).toContain('desktop.act');
+    // Structure does not need a vision model.
+    expect(names(withA11y)).not.toContain('computer.act');
+
+    const withoutTree = driver(
+      {
+        files: { roots: ['/workspace'] },
+        desktop: { accessibility: false, screenshots: true, takeControl: false },
+        egress: { lanBlocked: true, credentialSwap: false },
+      },
+      { files: fakeFiles(), desktop: fakeDesktop(false) },
+    );
+    const { sandbox: noA11y } = build(withoutTree, { attempts: 1, delayMs: 0 }, true);
+    await noA11y.start();
+    expect(names(noA11y)).not.toContain('desktop.inspect');
+    expect(names(noA11y)).not.toContain('desktop.act');
+    expect(names(noA11y)).toContain('computer.act');
   });
 
   it('asks the driver for the view-only password, and refuses without a desktop (S51)', async () => {

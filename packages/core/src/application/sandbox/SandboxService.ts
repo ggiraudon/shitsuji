@@ -13,6 +13,7 @@ import type { Tool } from '../../ports/Tool.js';
 import type { EgressProbe } from './EgressProbe.js';
 import { workspaceTools, type ExecOptions } from './tools/index.js';
 import { computerActTools } from '../desktop/ComputerActTool.js';
+import { desktopA11yTools } from '../desktop/DesktopA11yTools.js';
 
 export interface SandboxServiceDeps {
   driver: SandboxDriver;
@@ -90,6 +91,9 @@ export class SandboxService {
     const tools = [
       ...(sandbox.files
         ? workspaceTools(sandbox.files, sandbox.exec, this.deps.exec, this.deps.outbound)
+        : []),
+      ...(sandbox.desktop && sandbox.desktop.accessibility
+        ? desktopA11yTools(sandbox.desktop)
         : []),
       ...(sandbox.files && sandbox.desktop && this.deps.vision
         ? computerActTools(sandbox.files, sandbox.desktop)
