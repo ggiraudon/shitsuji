@@ -11,15 +11,20 @@ import type {
 } from '../ports/Plugin.js';
 import type { Tool } from '../ports/Tool.js';
 
+/** A plugin could not be loaded or broke a registration rule; `pluginId` is in the details. */
 export class PluginError extends ShitsujiError {
+  /** The subclass name, as `Error.name` and `toJSON` report it. */
   override readonly name = 'PluginError';
   constructor(pluginId: string, message: string, options?: { cause?: unknown }) {
     super('plugin_failed', `Plugin ${pluginId}: ${message}`, { pluginId }, options);
   }
 }
 
+/** What the manager needs: a logger, the bus and the plugins' configuration sections. */
 export interface PluginManagerOptions {
+  /** The process logger; the manager adds the plugin id to each line. */
   log: Logger;
+  /** The bus handed to each plugin's registration context. */
   events: EventBus;
   /** plugins.settings from the configuration, keyed by plugin id. */
   settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
@@ -30,35 +35,50 @@ export interface PluginManagerOptions {
  * channels, tools and context injectables. Names must be unique across all plugins.
  */
 export class PluginManager {
+  /** The plugins that loaded, in load order; `disposeAll` walks it backwards. */
   private readonly loaded: ShitsujiPlugin[] = [];
+  /** Providers by id, which model refs use; a later plugin cannot replace one. */
   private readonly modelProviders = new Map<string, ModelProvider>();
+  /** Channels to start, in registration order. */
   private readonly channelList: ChannelAdapter[] = [];
+  /** Tools added to the agent's catalog at startup. */
   private readonly toolList: Tool[] = [];
+  /** Context injectables appended to the agent's list. */
   private readonly injectableList: ContextInjectable[] = [];
-  private readonly owners = new Map<string, string>(); // "kind:name" -> plugin id
+  /** Who claimed each name: "kind:name" → plugin id, so a duplicate is refused. */
+  private readonly owners = new Map<string, string>();
 
-  constructor(private readonly options: PluginManagerOptions) {}
+  constructor(
+    /** The logger, bus and per-plugin settings; `createShitsuji` builds it once. */
+    private readonly options: PluginManagerOptions,
+  ) {}
 
+  /** Loads each plugin in order; the first failure stops the load and leaves the rest unloaded. */
   async load(plugins: readonly ShitsujiPlugin[]): Promise<void> {
     for (const plugin of plugins) await this.loadOne(plugin);
   }
 
+  /** The registered providers, by the id model refs use. */
   providers(): ReadonlyMap<string, ModelProvider> {
     return this.modelProviders;
   }
 
+  /** The registered channels, in registration order; `Shitsuji.start` starts them. */
   channels(): readonly ChannelAdapter[] {
     return this.channelList;
   }
 
+  /** The registered tools, for the agent's catalog. */
   tools(): readonly Tool[] {
     return this.toolList;
   }
 
+  /** The registered context injectables, appended to the agent's list. */
   injectables(): readonly ContextInjectable[] {
     return this.injectableList;
   }
 
+  /** The plugins that loaded, in load order. */
   plugins(): readonly ShitsujiPlugin[] {
     return this.loaded;
   }
@@ -78,6 +98,10 @@ export class PluginManager {
     this.loaded.length = 0;
   }
 
+  /**
+   * Loads one plugin: checks its id and capabilities, stages what it registers, and commits only if
+   * `register` resolves. Every failure becomes a `PluginError` naming the plugin.
+   */
   private async loadOne(plugin: ShitsujiPlugin): Promise<void> {
     const { id } = plugin.manifest;
     if (this.loaded.some((p) => p.manifest.id === id)) {
