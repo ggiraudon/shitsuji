@@ -5,11 +5,17 @@ import type { BudgetLimits, BudgetReservation, BudgetStore } from '../../ports/B
 import type { Clock } from '../../ports/Clock.js';
 import type { Logger } from '../../ports/Logger.js';
 
+/** What the budget service needs: the store, the period's limits and the check-in amount. */
 export interface BudgetServiceDeps {
+  /** Holds and aggregates; the service makes every budget decision. */
   store: BudgetStore;
+  /** The owner whose month is charged. */
   ownerId: OwnerId;
+  /** Injected clock: the month boundary and every hold's timestamp come from here. */
   clock: Clock;
+  /** Structured logger; an overspent reservation and a failed settle are reported here. */
   log: Logger;
+  /** The configured ceilings, in one currency. */
   limits: BudgetLimits;
   /** A session pauses to ask when it spends more than this since the owner's last message (S28). */
   checkIn: Money;
@@ -17,8 +23,11 @@ export interface BudgetServiceDeps {
 
 /** What one session has spent since the owner's last message, and whether to ask. */
 export interface CheckIn {
+  /** Settled spend plus open holds for the session, in the limit's currency. */
   spent: Money;
+  /** The configured check-in amount, for the question's text. */
   limit: Money;
+  /** True when `spent` is above the limit, so the turn should ask before continuing. */
   over: boolean;
 }
 
@@ -26,7 +35,9 @@ export interface CheckIn {
 export interface BudgetScope {
   /** True when no owner message started this request (tasks, schedules, events). */
   background: boolean;
+  /** The session that made the request, for the check-in and the per-session total. */
   sessionId?: SessionId;
+  /** The turn that made the request, for the hold's row. */
   turnId?: TurnId;
 }
 
@@ -47,9 +58,13 @@ export function monthStart(now: Date): Date {
  *   hold only counts towards the totals.
  */
 export class BudgetService {
+  /** Set after the first unknown-price warning, so a long run logs it once. */
   private warnedUnknownPrice = false;
 
-  constructor(private readonly deps: BudgetServiceDeps) {}
+  constructor(
+    /** The store, limits and check-in amount; `createShitsuji` builds it once. */
+    private readonly deps: BudgetServiceDeps,
+  ) {}
 
   /** Holds a conservative maximum for this request, or throws BudgetExceeded before it is sent. */
   async reserve(
@@ -171,6 +186,7 @@ export class BudgetService {
     return estimate;
   }
 
+  /** Logs the unknown-price warning once per process, naming the currencies involved. */
   private warnUnknownPrice(estimate?: Money): void {
     if (this.warnedUnknownPrice) return;
     this.warnedUnknownPrice = true;
