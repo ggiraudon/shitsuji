@@ -14,7 +14,10 @@
 # VNC servers run as uid 1001 so they can read the 0400 password files; commands run as uid 1000
 # and cannot read them.
 
-FROM shitsuji/sandbox
+# The base image is the untagged local build by default, which is what Compose's `sandbox-base`
+# service tags. Integration builds pass the base tag explicitly so they never depend on `latest`.
+ARG SANDBOX_BASE=shitsuji/sandbox
+FROM ${SANDBOX_BASE}
 
 ENV DISPLAY=:0 \
     SANDBOX_DESKTOP=1 \
@@ -49,6 +52,7 @@ RUN apt-get update \
     libreoffice-gtk3 \
     libreoffice-writer \
     python3-gi \
+    python3-pyatspi \
     scrot \
     supervisor \
     tesseract-ocr-eng \

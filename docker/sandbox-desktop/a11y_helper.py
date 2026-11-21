@@ -129,7 +129,6 @@ def text_value(accessible, role):
 
 def states_of(accessible):
     wanted = (
-        ("disabled", pyatspi.STATE_DISABLED),
         ("checked", pyatspi.STATE_CHECKED),
         ("focused", pyatspi.STATE_FOCUSED),
         ("selected", pyatspi.STATE_SELECTED),
@@ -141,6 +140,11 @@ def states_of(accessible):
         state = accessible.getState()
     except Exception:
         return found
+    try:
+        if not state.contains(pyatspi.STATE_ENABLED):
+            found.append("disabled")
+    except Exception:
+        pass
     for label, flag in wanted:
         try:
             if state.contains(flag):
@@ -283,7 +287,12 @@ def assign_refs(out):
     for index, node in enumerate(out, start=1):
         ref = f"e{index}"
         node["ref"] = ref
-        refs[ref] = {"path": node["path"], "role": node["role"], "name": node["name"]}
+        refs[ref] = {
+            "path": node["path"],
+            "role": node["role"],
+            "name": node["name"],
+            "value": node["value"],
+        }
     return refs
 
 
@@ -384,7 +393,7 @@ def snapshot_for_ref(ref, frame_path=None):
 
 
 def frame_path_key(path):
-    return "/".join(str(part) for part in path)
+    return path if isinstance(path, str) else "/".join(str(part) for part in path)
 
 
 def snapshot_is_stale(snapshot):
@@ -394,8 +403,9 @@ def snapshot_is_stale(snapshot):
 
 def resolve_path(path):
     try:
+        parts = path.split("/") if isinstance(path, str) else path
         current = pyatspi.Registry.getDesktop(0)
-        for index in path:
+        for index in parts:
             index = int(index)
             if index < 0 or index >= current.getChildCount():
                 return None
@@ -445,7 +455,7 @@ def make_reply(request, start, start_path, app, frame, frame_path, find):
         "generation": generation,
         "epoch": epoch,
         "window": name_of(frame),
-        "frame_path": frame_path,
+        "frame_path": frame_path_key(frame_path),
         "refs": refs,
     }
     snapshot_id = remember(snapshot)
@@ -532,7 +542,12 @@ def act_request(request):
         raise HelperError("stale", "stale, take a new snapshot")
     entry = snapshot["refs"][ref]
     element = resolve_path(entry["path"])
-    if element is None or role_of(element) != entry["role"]:
+    frame = resolve_path(snapshot["frame_path"])
+    if element is None or frame is None or name_of(frame) != snapshot["window"]:
+        raise HelperError("stale", "stale, take a new snapshot")
+    if role_of(element) != entry["role"] or truncate(name_of(element), MAX_NAME) != entry["name"]:
+        raise HelperError("stale", "stale, take a new snapshot")
+    if truncate(text_value(element, entry["role"]), MAX_VALUE) != entry["value"]:
         raise HelperError("stale", "stale, take a new snapshot")
     action = request.get("action")
     if action == "set_text":
@@ -582,25 +597,27 @@ def act_request(request):
             raise HelperError("invalid", "The element has no click action.")
     else:
         raise HelperError("invalid", "Unknown action.")
-    return {
+    result = {
+        "ok": True,
+        "action": action,
         "role": entry["role"],
-        "name": entry["name"] or None,
         "window": snapshot["window"],
         "app": snapshot["app"],
     }
+    if entry["name"]:
+        result["name"] = entry["name"]
+    return result
 
 
-class Listener(pyatspi.EventListener):
+def on_event(event):
     """Bumps an application's generation when the structure it publishes changes."""
-
-    def on_event(self, event):
-        global EPOCH
-        app = app_name_of(event.source)
-        if app is None:
-            EPOCH += 1
-        else:
-            GENERATIONS[app] = GENERATIONS.get(app, 0) + 1
-        return True
+    global EPOCH
+    app = app_name_of(event.source)
+    if app is None:
+        EPOCH += 1
+    else:
+        GENERATIONS[app] = GENERATIONS.get(app, 0) + 1
+    return True
 
 
 def handle(line):
@@ -627,7 +644,11 @@ def handle(line):
     except HelperError as error:
         return {"id": request_id, "error": {"code": error.code, "message": error.message}}
     except Exception:
-        # Never leak a traceback or a path: the daemon treats every line as untrusted.
+        # The message stays generic because the daemon treats every line as untrusted. The
+        # traceback goes to stderr, which sandboxd caps and only logs when the helper exits.
+        import traceback
+
+        traceback.print_exc(file=sys.stderr)
         return {
             "id": request_id,
             "error": {"code": "failed", "message": "The accessibility helper failed."},
@@ -645,10 +666,11 @@ def on_stdin(_fd, _condition):
     return True
 
 
-listener = Listener()
+listener = on_event
+# Only window identity changes invalidate a snapshot. Content churn (a thumbnail, a status bar)
+# must not make every ref stale; the act path re-checks the element's role, name and value at its
+# index path, so a target that disappeared or changed is refused then.
 for event_name in (
-    "object:children-changed",
-    "object:property-change:accessible-name",
     "window:create",
     "window:destroy",
     "window:property-change:accessible-name",
@@ -661,5 +683,10 @@ for event_name in (
         pass
 
 loop = GLib.MainLoop()
-GLib.unix_fd_add(sys.stdin.fileno(), GLib.IO_IN | GLib.IO_HUP, on_stdin)
+GLib.unix_fd_add_full(
+    GLib.PRIORITY_DEFAULT,
+    sys.stdin.fileno(),
+    GLib.IO_IN | GLib.IO_HUP,
+    on_stdin,
+)
 loop.run()
