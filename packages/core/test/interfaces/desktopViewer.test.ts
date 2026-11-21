@@ -128,6 +128,24 @@ describe('desktop viewer page and cookie (S51)', () => {
     expect((await app.request('/desktop', { headers: { cookie: fresh } })).status).toBe(401);
   });
 
+  it('keeps the Origin header real on its own form posts', async () => {
+    // With `no-referrer`, browsers send `Origin: null` on a form POST, and the Origin check then
+    // refused the owner's own sign-in. `same-origin` still sends no referrer to other sites.
+    const { app } = setup();
+    const page = await app.request('/desktop/login');
+    expect(page.headers.get('referrer-policy')).toBe('same-origin');
+  });
+
+  it('refuses a null Origin on login', async () => {
+    const { app } = setup();
+    const res = await app.request('/desktop/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'null' },
+      body: `key=${KEY}`,
+    });
+    expect(res.status).toBe(403);
+  });
+
   it('refuses cross-origin login and logout (S51)', async () => {
     const { app } = setup();
     const badLogin = await app.request('/desktop/login', {

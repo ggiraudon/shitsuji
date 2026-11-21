@@ -51,7 +51,9 @@ const SECURITY_HEADERS = {
   'content-security-policy':
     "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; " +
     "img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-  'referrer-policy': 'no-referrer',
+  // `same-origin`, not `no-referrer`: with `no-referrer` browsers send `Origin: null` on the login
+  // form, which the Origin check refuses. Other sites still get no referrer.
+  'referrer-policy': 'same-origin',
   'x-content-type-options': 'nosniff',
   'cache-control': 'no-store',
 } as const;
