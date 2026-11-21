@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod/v4';
+import { InMemoryRepositories } from '../../../src/adapters/memory/InMemoryRepositories.js';
 import { EgressProbe, type EgressTarget } from '../../../src/application/sandbox/EgressProbe.js';
 import { SandboxService } from '../../../src/application/sandbox/SandboxService.js';
+import { defaultMiddlewares } from '../../../src/application/tools/middlewares.js';
+import { ToolPipeline } from '../../../src/application/tools/ToolPipeline.js';
 import { SandboxUnavailable } from '../../../src/domain/errors.js';
-import { asId, type OwnerId } from '../../../src/domain/model/ids.js';
+import { asId, type OwnerId, type ToolCallId } from '../../../src/domain/model/ids.js';
+import type { Tool, ToolContext } from '../../../src/ports/Tool.js';
 import type {
   DesktopCapability,
   ExecEvent,
@@ -69,6 +73,27 @@ const fakeTool = (name: string) => ({
   untrustedOutput: false,
   run: async () => ({ content: '' }),
 });
+
+/** Runs one registered tool through the real pipeline, with the default trust policy. */
+const piped = (tools: readonly Tool[], name: string) => {
+  const services = testServices();
+  const repos = new InMemoryRepositories();
+  const pipeline = new ToolPipeline(
+    { get: (n) => tools.find((tool) => tool.name === n) },
+    defaultMiddlewares({ turnEvents: repos.turnEvents, clock: services.clock }),
+  );
+  const ctx: ToolContext = {
+    turnId: 'turn-1',
+    sessionId: 'session-1',
+    signal: new AbortController().signal,
+    log: services.log,
+    events: services.events,
+    writeFenced: async () => {
+      throw new Error('not used');
+    },
+  };
+  return pipeline.execute({ id: asId<ToolCallId>('c1'), name, arguments: {} }, ctx);
+};
 
 const build = (d: SandboxDriver, retry = { attempts: 1, delayMs: 0 }, vision = false) => {
   const services = testServices();
@@ -227,6 +252,12 @@ describe('SandboxService (F08, S40)', () => {
     const sandbox = service(good);
     await sandbox.start();
     expect(names(sandbox)).toContain('fake.hello');
+
+    // A driver's own tool is third-party code, so the pipeline wraps its output unless core owns it (#141).
+    const extra = sandbox.tools().find((tool) => tool.name === 'fake.hello')!;
+    expect(extra.untrustedOutput).toBe(true);
+    const outcome = await piped(sandbox.tools(), 'fake.hello');
+    expect(outcome.content).toMatch(/^<untrusted_data source="fake\.hello">/);
 
     const shadowing = {
       ...driver({
