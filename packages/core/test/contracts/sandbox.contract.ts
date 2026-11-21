@@ -41,6 +41,7 @@ export async function describeSandboxContract(options: SandboxContractOptions): 
   const itExec = capabilities.exec && capabilities.files ? it : it.skip;
   const itFiles = capabilities.files ? it : it.skip;
   const itDesktop = capabilities.desktop?.screenshots ? it : it.skip;
+  const itA11y = capabilities.desktop?.accessibility ? it : it.skip;
   const itContainer = options.processContainment ? it : it.skip;
   const itNetwork = capabilities.egress.lanBlocked ? it : it.skip;
 
@@ -78,6 +79,45 @@ export async function describeSandboxContract(options: SandboxContractOptions): 
 
       await expect(desktop.windows()).resolves.toBeInstanceOf(Array);
     });
+
+    itA11y(
+      'returns a window tree with refs, finds elements and refuses a stale ref',
+      async () => {
+        const desktop = sandbox.desktop!;
+        expect(desktop.accessibility).toBe(true);
+        const signal = AbortSignal.timeout(20_000);
+        const windows = await desktop.windows(signal);
+        if (!windows.some((window) => /thunar|file manager/i.test(window.title))) {
+          await desktop.act({ kind: 'launch_app', app: 'thunar' }, signal);
+        }
+        let title: string | undefined;
+        await waitFor(async () => {
+          const list = await desktop.windows(signal);
+          const found = list.find((window) => /thunar|file manager/i.test(window.title));
+          if (found) title = found.title;
+          return Boolean(found);
+        }, 'the Thunar window');
+
+        const tree = await desktop.inspect({ window: title!, depth: 6 }, signal);
+        expect(tree.snapshot).toMatch(/^s\d+$/);
+        expect(tree.nodes.length).toBeGreaterThan(0);
+        expect(tree.nodes.every((node) => /^e\d+$/.test(node.ref))).toBe(true);
+        expect(tree.nodes.some((node) => node.depth > 0 && node.name)).toBe(true);
+
+        const found = await desktop.find({ window: title!, role: 'push button' }, signal);
+        expect(found.snapshot).toMatch(/^s\d+$/);
+        expect(Array.isArray(found.nodes)).toBe(true);
+
+        await expect(
+          desktop.actOnElement({ snapshot: tree.snapshot, ref: 'e9999', action: 'click' }, signal),
+        ).rejects.toThrow(/stale/);
+
+        const status = await desktop.accessibilityStatus(signal);
+        expect(status.helper).toBe(true);
+        expect(status.missing).toBeInstanceOf(Array);
+      },
+      60_000,
+    );
 
     itExec('runs a program and returns its output', async () => {
       const result = await run(sandbox, await cwd(sandbox), printOne, { timeoutMs: 30_000 });
@@ -196,4 +236,18 @@ async function run(
 
 async function cwd(sandbox: Sandbox): Promise<string> {
   return sandbox.files!.resolve('.');
+}
+
+/** Polls a condition for a window or a tree the desktop takes a moment to publish. */
+async function waitFor(
+  check: () => Promise<boolean>,
+  what: string,
+  timeoutMs = 20_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`${what} did not become ready`);
 }
