@@ -48,6 +48,16 @@ export class ModelRouter {
     return first;
   }
 
+  /**
+   * Whether the model bound to a purpose declares a capability. Missing capabilities count as no
+   * vision: images are only sent to a model that explicitly says it can see them (S52).
+   */
+  supports(purpose: ModelPurpose, capability: Capability): boolean {
+    const ref = this.config.purposes[purpose] ?? this.config.purposes.chat;
+    if (!ref) return false;
+    return this.catalog.get(ref)?.capabilities?.has(capability) ?? false;
+  }
+
   /** Every suitable model for a purpose, primary first, then its fallbacks. */
   candidates(purpose: ModelPurpose, needs: readonly Capability[] = []): ModelBinding[] {
     const primary = this.config.purposes[purpose] ?? this.config.purposes.chat;
@@ -126,7 +136,9 @@ export class ModelRouter {
           model: binding.ref,
         });
       }
-      return true;
+      // Absence is not permission for vision: an image sent to a model that cannot see it is a
+      // failed call, so only the other needs keep the old permissive default (S52).
+      return !needs.includes('vision');
     }
     return needs.every((n) => caps.has(n));
   }

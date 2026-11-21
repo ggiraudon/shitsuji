@@ -140,6 +140,23 @@ describe('ModelRouter', () => {
     expect(services.log.records.filter((r) => r.level === 'warn')).toHaveLength(1);
   });
 
+  it('answers supports() from the catalog and treats unknown capabilities as no vision (S52)', () => {
+    const vision = setup({ purposes: { chat: 'deepseek/flash' } }, [
+      { ref: 'deepseek/flash', capabilities: new Set(['tools', 'vision']) },
+    ]).router;
+    expect(vision.supports('chat', 'vision')).toBe(true);
+    expect(vision.supports('chat', 'tools')).toBe(true);
+
+    const textOnly = setup({ purposes: { chat: 'deepseek/flash' } }, [
+      { ref: 'deepseek/flash', capabilities: new Set(['tools']) },
+    ]).router;
+    expect(textOnly.supports('chat', 'vision')).toBe(false);
+
+    const unknown = setup({ purposes: { chat: 'deepseek/flash' } }).router;
+    expect(unknown.supports('chat', 'vision')).toBe(false);
+    expect(() => unknown.select('chat', ['vision'])).toThrow(NoModelAvailable);
+  });
+
   it('fails clearly for an unregistered provider or no chat model', () => {
     expect(() => setup({ purposes: { chat: 'ghost/x' } }).router.select('chat')).toThrow(
       /uses provider "ghost", which is not registered/,
