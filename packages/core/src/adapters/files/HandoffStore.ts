@@ -1,11 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+/** A file stored in the handoff folder, ready to be named to the agent. */
 export interface HandoffFile {
   /** The stored name (sanitized, possibly suffixed to stay unique). */
   name: string;
   /** The absolute path the agent can read. */
   path: string;
+  /** The file's size in bytes, as saved. */
   size: number;
 }
 
@@ -15,8 +17,12 @@ export interface HandoffFile {
  * short suffix instead of overwriting (F06, S33).
  */
 export class HandoffStore {
-  constructor(readonly dir: string) {}
+  constructor(
+    /** The handoff folder, `<dataDir>/handoff`; it is created on the first save. */
+    readonly dir: string,
+  ) {}
 
+  /** Writes the bytes under a safe, unique name and returns where they landed. */
   async save(name: string, data: Uint8Array): Promise<HandoffFile> {
     await fs.mkdir(this.dir, { recursive: true });
     const base = safeName(name);
