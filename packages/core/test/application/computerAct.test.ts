@@ -13,7 +13,7 @@ const image = {
   scale: 1280 / 1440,
 };
 
-const setup = () => {
+const setup = (scale = 1280 / 1440) => {
   const writes: { ref: string; bytes: Uint8Array }[] = [];
   const files = {
     resolve: async (ref: string) => `/workspace/${ref}`,
@@ -26,7 +26,7 @@ const setup = () => {
     accessibility: false,
     screenshots: true,
     state: async () => ({ display: ':0', width: 1440, height: 900 }),
-    screenshot: async () => image,
+    screenshot: async () => ({ ...image, scale }),
     windows: async () => [],
     act: async (action: unknown) => {
       actions.push(action);
@@ -65,6 +65,13 @@ describe('computer.act (S53)', () => {
     expect(output.content).toContain('Clicked left at (10, 20).');
     expect(output.content).toContain('1280x800 px');
     expect(JSON.stringify(output)).not.toContain('base64');
+  });
+
+  it('maps input with the scale of the last screenshot, not a fresh fit', async () => {
+    const { tool, actions, ctx } = setup(0.5);
+    await tool.run({ action: 'screenshot' }, ctx);
+    await tool.run({ action: 'click', x: 100, y: 100 }, ctx);
+    expect(actions).toEqual([{ kind: 'click', x: 200, y: 200 }]);
   });
 
   it('marks screenshot, move and OCR as read, the rest write_local', () => {

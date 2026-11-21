@@ -75,6 +75,8 @@ export class ComputerActTool extends BaseTool<typeof actionSchema> {
   override readonly target = 'desktop' as const;
   override readonly untrustedOutput = true;
   private shots = 0;
+  /** The scale of the last screenshot the model saw, per session; input coordinates use it. */
+  private readonly screenshotScales = new Map<string, number>();
 
   constructor(
     private readonly files: SandboxFiles,
@@ -88,11 +90,12 @@ export class ComputerActTool extends BaseTool<typeof actionSchema> {
 
   async run(args: ComputerAction, ctx: ToolContext): Promise<ToolOutput> {
     let ocr: string | undefined;
-    let scale = 1;
-    if (needsCoordinates(args.action)) {
+    let scale = this.screenshotScales.get(ctx.sessionId);
+    if (needsCoordinates(args.action) && scale === undefined) {
       const state = await this.desktop.state(ctx.signal);
       scale = Math.min(1, DESKTOP_MAX_LONG_SIDE / Math.max(state.width, state.height));
     }
+    scale ??= 1;
     switch (args.action) {
       case 'screenshot':
         break;
@@ -121,6 +124,7 @@ export class ComputerActTool extends BaseTool<typeof actionSchema> {
     }
 
     const screenshot = await this.desktop.screenshot({}, ctx.signal);
+    this.screenshotScales.set(ctx.sessionId, screenshot.scale);
     const shot = ++this.shots;
     const ref = `sessions/${ctx.sessionId}/images/computer-${ctx.turnId}-${shot}.png`;
     const name = `computer-${ctx.turnId}-${shot}.png`;
