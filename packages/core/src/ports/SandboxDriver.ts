@@ -211,75 +211,164 @@ export interface DesktopCapability {
   readonly accessibility: boolean;
   /** Can take screenshots of the display. */
   readonly screenshots: boolean;
+  /** The display's size and name, for coordinates and for the viewer. */
   state(signal?: AbortSignal): Promise<DesktopState>;
+  /** A PNG of the whole display, optionally scaled down (`scale` 0.05..1). */
   screenshot(opts?: { scale?: number }, signal?: AbortSignal): Promise<DesktopImage>;
+  /** The top-level windows, so the model can aim at one rather than guess coordinates. */
   windows(signal?: AbortSignal): Promise<DesktopWindow[]>;
+  /** Performs one pointer, keyboard or launch action; the signal stops a slow one. */
   act(action: DesktopAction, signal: AbortSignal): Promise<void>;
+  /** Text found on screen, optionally inside a region; read-only, for the model to inspect. */
   ocr(opts?: { region?: DesktopRect }, signal?: AbortSignal): Promise<DesktopOcrResult>;
+  /** The desktop clipboard's text. */
   readClipboard(signal?: AbortSignal): Promise<string>;
+  /** Replaces the desktop clipboard's text. */
   writeClipboard(text: string, signal?: AbortSignal): Promise<void>;
 }
 
+/** The display a desktop runs on: its name and its pixel size. */
 export interface DesktopState {
+  /** The X display, e.g. `:0`. */
   display: string;
+  /** Width in pixels. */
   width: number;
+  /** Height in pixels. */
   height: number;
 }
 
 /** A PNG the provider can send; `width`/`height` are the returned pixels, the originals are pre-scale. */
 export interface DesktopImage {
+  /** Always PNG; the providers accept it. */
   mediaType: 'image/png';
+  /** The image bytes, exactly as captured (or scaled). */
   data: Uint8Array;
+  /** The width of the returned pixels. */
   width: number;
+  /** The height of the returned pixels. */
   height: number;
+  /** The display width before scaling, for mapping a click back to real coordinates. */
   originalWidth: number;
+  /** The display height before scaling. */
   originalHeight: number;
   /** Scale actually applied, 0.05..1. */
   scale: number;
 }
 
+/** One top-level window on the desktop. */
 export interface DesktopWindow {
+  /** The window manager's id, stable while the window exists. */
   id: string;
+  /** The title bar text. */
   title: string;
+  /** Left edge, in display pixels. */
   x: number;
+  /** Top edge, in display pixels. */
   y: number;
+  /** Width in pixels. */
   width: number;
+  /** Height in pixels. */
   height: number;
+  /** The virtual desktop the window is on. */
   desktop: number;
 }
 
+/** A rectangle on the display, in pixels. */
 export interface DesktopRect {
+  /** Left edge. */
   x: number;
+  /** Top edge. */
   y: number;
+  /** Width. */
   width: number;
+  /** Height. */
   height: number;
 }
 
+/** One pointer, keyboard or launch action the model can ask for. */
 export type DesktopAction =
-  | { kind: 'move'; x: number; y: number }
-  | { kind: 'click'; x: number; y: number; button?: 'left' | 'right' | 'middle' }
-  | { kind: 'double_click'; x: number; y: number }
-  | { kind: 'right_click'; x: number; y: number }
   | {
-      kind: 'drag';
-      fromX: number;
-      fromY: number;
-      toX: number;
-      toY: number;
+      /** Move the pointer without clicking. */
+      kind: 'move';
+      /** Target x in display pixels. */
+      x: number;
+      /** Target y in display pixels. */
+      y: number;
+    }
+  | {
+      /** A single click. */
+      kind: 'click';
+      /** Target x in display pixels. */
+      x: number;
+      /** Target y in display pixels. */
+      y: number;
+      /** Which button; left when unset. */
       button?: 'left' | 'right' | 'middle';
     }
   | {
-      kind: 'scroll';
+      /** Two clicks in quick succession. */
+      kind: 'double_click';
+      /** Target x in display pixels. */
       x: number;
+      /** Target y in display pixels. */
       y: number;
+    }
+  | {
+      /** A click with the right button. */
+      kind: 'right_click';
+      /** Target x in display pixels. */
+      x: number;
+      /** Target y in display pixels. */
+      y: number;
+    }
+  | {
+      /** Press, move and release, e.g. to select text or move a window. */
+      kind: 'drag';
+      /** Start x. */
+      fromX: number;
+      /** Start y. */
+      fromY: number;
+      /** End x. */
+      toX: number;
+      /** End y. */
+      toY: number;
+      /** Which button; left when unset. */
+      button?: 'left' | 'right' | 'middle';
+    }
+  | {
+      /** A scroll wheel step at a point. */
+      kind: 'scroll';
+      /** Pointer x while scrolling. */
+      x: number;
+      /** Pointer y while scrolling. */
+      y: number;
+      /** Which way to scroll. */
       direction: 'up' | 'down' | 'left' | 'right';
+      /** How many steps; one when unset. */
       amount?: number;
     }
-  | { kind: 'type'; text: string }
-  | { kind: 'key'; key: string }
-  | { kind: 'launch_app'; app: 'chromium' | 'libreoffice' | 'thunar' | 'xfce4-terminal' };
+  | {
+      /** Type text into the focused window. */
+      kind: 'type';
+      /** The text to type. */
+      text: string;
+    }
+  | {
+      /** Press one key or chord, named as xdotool names it. */
+      kind: 'key';
+      /** The key, e.g. `Return` or `ctrl+s`. */
+      key: string;
+    }
+  | {
+      /** Start one of the desktop's known applications. */
+      kind: 'launch_app';
+      /** Which application to start. */
+      app: 'chromium' | 'libreoffice' | 'thunar' | 'xfce4-terminal';
+    };
 
+/** Text read off the screen. */
 export interface DesktopOcrResult {
+  /** The recognised text, in reading order. */
   text: string;
 }
 
