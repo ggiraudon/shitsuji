@@ -13,23 +13,33 @@ import type { ModelCatalog } from './ModelCatalog.js';
 
 /** Base for decorators: forwards everything to the wrapped provider. */
 abstract class ModelProviderDecorator implements ModelProvider {
-  constructor(protected readonly inner: ModelProvider) {}
+  constructor(
+    /** The provider a decorator wraps; the chain ends at a real adapter. */
+    protected readonly inner: ModelProvider,
+  ) {}
+  /** The wrapped provider's id, so a decorated provider is still addressed the same way. */
   get id(): string {
     return this.inner.id;
   }
+  /** Lists models through the wrapped provider; decorators do not filter the list. */
   listModels(signal?: AbortSignal): Promise<string[]> {
     return this.inner.listModels(signal);
   }
+  /** Decorators change the stream, so each one implements it. */
   abstract stream(request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent>;
 }
 
+/** How the retry decorator behaves: attempts, backoff, and the logger and sleep it uses. */
 export interface RetryOptions {
   /** Total attempts, including the first. */
   maxAttempts?: number;
   /** First wait in ms; doubles each time. A Retry-After from the provider wins if longer. */
   baseDelayMs?: number;
+  /** The longest wait between attempts; a provider hint beyond it is clipped to it. */
   maxDelayMs?: number;
+  /** Structured logger, for every retry. */
   log: Logger;
+  /** The wait implementation, injectable so a test does not sleep. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
@@ -48,13 +58,19 @@ const defaultSleep = (ms: number, signal?: AbortSignal) =>
  * action is never requested twice (F03, from nod).
  */
 export class RetryingModelProvider extends ModelProviderDecorator {
+  /** The total attempts allowed, first one included; three by default. */
   private readonly maxAttempts: number;
+  /** The first backoff, doubled per attempt; 500 ms by default. */
   private readonly baseDelayMs: number;
+  /** The backoff ceiling; 30 s by default. */
   private readonly maxDelayMs: number;
+  /** The wait implementation; a test passes one that returns at once. */
   private readonly sleep: NonNullable<RetryOptions['sleep']>;
 
   constructor(
+    /** The provider whose transient failures are retried. */
     inner: ModelProvider,
+    /** The retry policy and logger. */
     private readonly options: RetryOptions,
   ) {
     super(inner);
@@ -64,6 +80,7 @@ export class RetryingModelProvider extends ModelProviderDecorator {
     this.sleep = options.sleep ?? defaultSleep;
   }
 
+  /** Streams the inner response, retrying only a retryable failure before anything was emitted. */
   async *stream(request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent> {
     for (let attempt = 1; ; attempt++) {
       let emitted = false;
@@ -93,11 +110,17 @@ export class RetryingModelProvider extends ModelProviderDecorator {
   }
 }
 
+/** Where metering writes: the owner, the usage ledger, the price catalogue and the clock. */
 export interface MeteringOptions {
+  /** The owner the usage row belongs to. */
   ownerId: OwnerId;
+  /** The append-only ledger; a failed write is logged, never thrown. */
   usage: UsageRepository;
+  /** Prices the request; a model with no price records tokens with no cost. */
   catalog: ModelCatalog;
+  /** Injected clock for the row's timestamp. */
   clock: Clock;
+  /** Structured logger; a missing usage event or a failed write is reported here. */
   log: Logger;
 }
 
@@ -107,12 +130,15 @@ export interface MeteringOptions {
  */
 export class MeteredModelProvider extends ModelProviderDecorator {
   constructor(
+    /** The provider whose usage is recorded. */
     inner: ModelProvider,
+    /** The owner, ledger, catalogue and clock the row is written with. */
     private readonly options: MeteringOptions,
   ) {
     super(inner);
   }
 
+  /** Passes events through and records the usage on `done`, once the counts are known. */
   async *stream(request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent> {
     let usage: TokenUsage | undefined;
     for await (const event of this.inner.stream(request, signal)) {
@@ -122,6 +148,7 @@ export class MeteredModelProvider extends ModelProviderDecorator {
     }
   }
 
+  /** Appends the usage row; failures are logged so metering never breaks a reply. */
   private async record(request: ModelRequest, usage: TokenUsage | undefined): Promise<void> {
     const { ownerId, catalog, clock, log } = this.options;
     const ref = `${this.id}/${request.model}`;
@@ -154,6 +181,7 @@ export class MeteredModelProvider extends ModelProviderDecorator {
  * passes requests through unchanged; it is in the chain now so F12 only has to fill it in.
  */
 export class RedactingModelProvider extends ModelProviderDecorator {
+  /** Passes the request through unchanged until F12 adds the secret removal. */
   stream(request: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelStreamEvent> {
     return this.inner.stream(request, signal);
   }

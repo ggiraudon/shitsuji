@@ -7,11 +7,17 @@ import type {
   TokenUsage,
 } from '../ports/ModelProvider.js';
 
+/** A whole streamed response collected into one value: the text, the reasoning, the calls and cost. */
 export interface ModelResponse {
+  /** The reply text, deltas joined. */
   text: string;
+  /** Model reasoning, kept apart so it is never shown as the reply or sent back (F03). */
   reasoning: string;
+  /** Tool calls in the order the model emitted them. */
   toolCalls: ToolCall[];
+  /** What the request cost, when the provider reported it. */
   usage?: TokenUsage;
+  /** Why the stream ended; `tool_calls` means the loop must run the calls and continue. */
   finishReason: FinishReason;
 }
 

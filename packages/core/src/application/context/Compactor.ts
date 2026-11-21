@@ -10,7 +10,9 @@ import type { ModelRouter } from '../models/ModelRouter.js';
 
 /** A fresh summary of the older transcript and how many of its messages it covers. */
 export interface Compaction {
+  /** The rolling summary after folding in the new messages. */
   summary: string;
+  /** How many of the session's oldest messages the summary now covers. */
   count: number;
 }
 
@@ -19,14 +21,21 @@ export interface Compaction {
  * messages a model call sends. Going over either one starts a compaction.
  */
 export interface CompactionBudget {
+  /** The chat model's context window, in tokens. */
   contextWindow?: number;
+  /** The most messages a model call may send, from `historyLimit`. */
   maxMessages?: number;
 }
 
+/** What the compactor needs: the model router, the session store, the clock and its limits. */
 export interface CompactorDeps {
+  /** Calls the `summarize` purpose; a failure is logged, never fatal to the turn. */
   models: ModelRouter;
+  /** Reads and writes the session's summary and watermark. */
   sessions: SessionRepository;
+  /** Injected clock for the summary's timestamp. */
   clock: Clock;
+  /** Structured logger; a failed summary is reported here. */
   log: Logger;
   /** Compact when the visible transcript passes this fraction of the context window. */
   threshold?: number;
@@ -48,12 +57,19 @@ const CHARACTERS_PER_TOKEN = 4;
  * and the open request is never summarised away (F04 criterion 5, S23).
  */
 export class Compactor {
+  /** Fraction of the window that triggers a compaction; 0.75 by default. */
   private readonly threshold: number;
+  /** Character budget of one summarize request; 24k by default. */
   private readonly maxInputChars: number;
+  /** Output-token budget of the summary; 600 by default. */
   private readonly maxSummaryTokens: number;
+  /** How many summarize requests one compaction may make; four by default. */
   private readonly maxRounds: number;
 
-  constructor(private readonly deps: CompactorDeps) {
+  constructor(
+    /** The model router, session store, logger and limit overrides. */
+    private readonly deps: CompactorDeps,
+  ) {
     this.threshold = deps.threshold ?? 0.75;
     this.maxInputChars = deps.maxInputChars ?? 24_000;
     this.maxSummaryTokens = deps.maxSummaryTokens ?? 600;
@@ -116,6 +132,7 @@ export class Compactor {
     return { summary, count };
   }
 
+  /** True when the transcript is over the message limit or past the window threshold. */
   private overWindow(messages: readonly Message[], { contextWindow }: CompactionBudget): boolean {
     if (!contextWindow || contextWindow <= 0) return false;
     return estimateTokens(messages) > contextWindow * this.threshold;
