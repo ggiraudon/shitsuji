@@ -2,6 +2,7 @@ import { SandboxUnavailable } from '../../domain/errors.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { OutboundFiles } from '../../ports/OutboundFiles.js';
 import type {
+  DesktopA11yStatus,
   DriverHealth,
   LeaseRequest,
   Sandbox,
@@ -157,6 +158,13 @@ export class SandboxService {
       });
     }
     return driver.viewerCredentials();
+  }
+
+  /** Which allowed apps publish a tree (S54); undefined when the sandbox has no accessibility. */
+  async accessibilityStatus(): Promise<DesktopA11yStatus | undefined> {
+    const desktop = this.opened?.sandbox.desktop;
+    if (!desktop?.accessibility) return undefined;
+    return desktop.accessibilityStatus();
   }
 
   /**

@@ -61,6 +61,8 @@ export interface ChannelGatewayDeps {
   attachmentPath?: (hostPath: string) => Promise<string>;
   /** The viewer's URL when the active sandbox has a desktop (S51); absent otherwise. */
   viewerUrl?: string;
+  /** Which allowed apps publish an accessibility tree, for `/status` (S54); absent without one. */
+  accessibility?: () => Promise<{ helper: boolean; missing: readonly string[] } | undefined>;
   /** Answers directly through the channel adapter that received the message. */
   reply: (channel: string, chatId: string, text: string, intent: OutboundIntent) => Promise<void>;
 }
@@ -237,6 +239,12 @@ export class ChannelGateway {
         ];
         if (queued) parts.push(`${queued} turn${queued === 1 ? '' : 's'} queued.`);
         if (sessionId) parts.push(`Session ${sessionId.slice(0, 8)}.`);
+        const a11y = await this.deps.accessibility?.().catch(() => undefined);
+        if (a11y && !a11y.helper) {
+          parts.push('The desktop accessibility helper is not running.');
+        } else if (a11y?.missing.length) {
+          parts.push(`No accessibility tree from: ${a11y.missing.join(', ')}.`);
+        }
         await this.answer(message, parts.join(' '), 'final');
         return { kind: 'replied', reason: 'command' };
       }
