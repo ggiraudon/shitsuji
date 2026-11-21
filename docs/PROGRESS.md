@@ -150,14 +150,19 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       Telegram and the TUI. Integration tests cover the 401s, cookie expiry, the relay and view-only
       pointer input; the temporary VNC relay services are removed.)*
 - [x] **S52** Images the model can see in tool results
-      *(`ModelRouter.supports()` reads `models.catalog`; an undeclared model counts as no vision and
-      gets one startup warning. A `tool_result` can carry image references (`mediaType`, `ref`, `name`),
-      never bytes: ContextBuilder loads them through the active sandbox's files port and base64-encodes
-      them at build time. Anthropic sends image blocks inside the tool result; OpenAI-compatible
-      providers keep tool messages contiguous and add one marked user image message. The newest three
-      images stay pixels (`context.imageHistoryLimit`), older ones become deterministic placeholders,
-      and two builds of the same transcript are byte-identical. Tests cover the lookup, both provider
-      mappings, pruning and a stored reference through Postgres jsonb.)*
+      *(`ModelRouter.supports()` reads `models.catalog`; an undeclared model counts as no vision, an
+      unbound purpose follows chat, and core warns once when no chat candidate has vision. A
+      `tool_result` can carry image references (`mediaType`, `ref`, `name`), never bytes:
+      ContextBuilder loads them through the active sandbox's files port and base64-encodes them at
+      build time only when the chat purpose has a vision candidate; otherwise every image becomes a
+      deterministic cannot-view placeholder and no bytes are read. The model call asks for the
+      `vision` need when pixels go out, so a fallback without vision is skipped. Anthropic sends
+      image blocks inside the tool result; OpenAI-compatible providers keep tool messages contiguous
+      and add one marked user image message. The newest three images stay pixels
+      (`context.imageHistoryLimit`), older ones become deterministic placeholders, and files over
+      `context.imageMaxBytes` (default 5 MiB raw) become a too-large placeholder with one warning.
+      Two builds of the same transcript are byte-identical. Tests cover the lookup, both provider
+      mappings, gating, the size cap, pruning and a stored reference through Postgres jsonb.)*
 - [ ] **S53** The desktop endpoints and `computer.act`
 - [ ] **S54** The accessibility tree: `desktop.inspect` and `desktop.act`
 - [ ] **S55** Take control and Give back
