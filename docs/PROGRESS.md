@@ -163,7 +163,17 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       `context.imageMaxBytes` (default 5 MiB raw) become a too-large placeholder with one warning.
       Two builds of the same transcript are byte-identical. Tests cover the lookup, both provider
       mappings, gating, the size cap, pruning and a stored reference through Postgres jsonb.)*
-- [ ] **S53** The desktop endpoints and `computer.act`
+- [x] **S53** The desktop endpoints and `computer.act`
+      *(`sandbox-protocol` and `sandboxd` expose state, scaled PNG screenshots, mouse/keyboard input,
+      windows, the allow-listed app launcher, clipboard and OCR. Every input is zod-validated, points
+      are bounded by the real screen, keys are an allow-list, typed text is one argument, and every
+      command has a deadline with no retry. Screenshots fit 1280 px, are saved through the driver under
+      `sessions/<id>/images/` and returned as S52 references; `computer.act` maps its screenshot-space
+      coordinates back to the display. The tool is registered only with a desktop driver and a
+      vision-capable `vision` purpose, with `screenshot`/`move`/`ocr` read and the rest write_local.
+      The driver advertises `desktop: { accessibility: false, screenshots: true, takeControl: false }`;
+      the conformance suite runs desktop tests only when claimed. The integration test launches Thunar,
+      clicks, types a path and sees it in OCR. The desktop image adds `tesseract-ocr-eng`.)*
 - [ ] **S54** The accessibility tree: `desktop.inspect` and `desktop.act`
 - [ ] **S55** Take control and Give back
 - [ ] **S56** The desktop end to end

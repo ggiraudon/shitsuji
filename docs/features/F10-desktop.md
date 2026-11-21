@@ -140,19 +140,27 @@ matters: build and tag `shitsuji/sandbox` first, which Compose does with its `sa
 
 | Endpoint | Action |
 |----------|--------|
-| `GET /screenshot?scale=` | PNG/JPEG of the screen (scaled for the model) |
-| `POST /input/mouse` | move, click (left/right/double), drag, scroll at coordinates |
-| `POST /input/keyboard` | type text, key combos |
-| `GET /windows` | open windows with titles and geometry (`wmctrl`) |
-| `GET /a11y/tree?window=&depth=&filter=` | AT-SPI tree of a window as compact text with element refs (see below) |
-| `GET /a11y/find?name=&role=` | Elements matching a name or role, across windows |
-| `POST /a11y/act` | Run an action on an element ref: `click`, `focus`, `set_text`, `select`, `toggle`, `expand` |
-| `POST /ocr` | Text and boxes from a screen region (Tesseract), for apps with no tree |
-| `POST /apps/launch` | start an allowed app (`chromium`, `libreoffice`, `thunar`, `xfce4-terminal`) |
-| `GET/POST /clipboard` | read / write the clipboard (`xclip`) |
-| `GET /frames` (WebSocket) | low-rate JPEG frames for thumbnails |
+| `GET /desktop/state` | display, width and height |
+| `GET /desktop/screenshot?scale=` | PNG of the screen, scaled for the model |
+| `POST /desktop/input/mouse` | move, click (left/right/double), drag, scroll at coordinates |
+| `POST /desktop/input/keyboard` | type text, key combos |
+| `GET /desktop/windows` | open windows with titles and geometry (`wmctrl`) |
+| `GET /desktop/a11y/tree?window=&depth=&filter=` | AT-SPI tree of a window as compact text with element refs (S54) |
+| `GET /desktop/a11y/find?name=&role=` | Elements matching a name or role (S54) |
+| `POST /desktop/a11y/act` | Run an action on an element ref (S54) |
+| `POST /desktop/ocr` | Text from a screen region (Tesseract), for apps with no tree |
+| `POST /desktop/apps/launch` | start an allowed app (`chromium`, `libreoffice`, `thunar`, `xfce4-terminal`) |
+| `GET/POST /desktop/clipboard` | read / write the clipboard (`xclip`) |
+| `GET /desktop/frames` (WebSocket) | low-rate JPEG frames for thumbnails (later) |
 
-Implemented with `xdotool`, `scrot`/`import`, `wmctrl`, `xclip`, AT-SPI and Tesseract.
+S53 implements the state, screenshot, input, window, clipboard, OCR and launch routes. Input coordinates
+are bounded by the real screen; keys come from a fixed allow-list and typed text is one argument, never a
+shell string. Every desktop command has a deadline and is killed rather than retried. Screenshots are PNG
+scaled to fit 1280 px on the long side (the reply carries the scale and the original size), and stay as
+S52 image references under `sessions/<sessionId>/images/`; `computer.act` input coordinates are in the
+latest scaled screenshot, and the tool maps them back to display pixels.
+
+Implemented with `xdotool`, `scrot`, `ffmpeg` for scaling, `wmctrl`, `xclip` and Tesseract.
 
 ### Reading the screen: structure first, pixels last
 
@@ -266,12 +274,22 @@ Two tools, matching the levels above:
   DeepSeek V4.1 Flash accepts images, so computer use can run on the same model as chat. Keeping
   `purpose: vision` separate still lets you point it at a stronger or local vision model later without
   touching the chat setup.
+- **Registration:** `computer.act` is registered only when the active driver advertises a desktop and
+  the `vision` purpose has a model with vision. The input is validated with zod in `sandbox-protocol`;
+  coordinate actions are bounded by the real screen, keys come from an allow-list, typed text is passed
+  as one argument, and only the four allowed apps can be launched (as uid 1000, never the daemon's 1001).
+  Every desktop command has a deadline and is killed rather than retried.
+- **Screenshots:** each action ends with a fresh PNG scaled to fit 1280 px on the long side (the result
+  states the scale and the original size). The tool saves it under `sessions/<sessionId>/images/` and
+  returns it as an S52 image reference, never bytes in the transcript. Its input coordinates are in that
+  latest screenshot; the tool maps them back to display pixels.
 - **Prefer structure over pixels.** Browser tools ([F09](F09-browser.md)) for web pages, `desktop.inspect` /
   `desktop.act` for desktop apps; `computer.act` only when neither tree can drive what is on screen.
-- **Effects:** `screenshot` and `move` are `read`; clicks and keys are `write_local` inside the desktop, but a
-  click in the browser on a submit control is judged by the browser rules in [F09](F09-browser.md).
-- **Screenshot pruning:** keep only the last N screenshots in context (nod: above twelve, drop the oldest in
-  steps of eight, which keeps prompt caching stable).
+- **Effects:** `screenshot`, `move` and `ocr` are `read`; every other action is `write_local` inside the
+  desktop. A click in the browser on a submit control is judged by the browser rules in
+  [F09](F09-browser.md).
+- **Screenshot pruning:** the context keeps the newest N images as pixels
+  (`context.imageHistoryLimit`, default 3); older screenshots become deterministic placeholders.
 
 ### Take control
 
