@@ -242,6 +242,170 @@ export const EXEC_SIGNAL_ROUTE = /^\/exec\/([^/]+)\/signal$/;
 export const viewerCredentialsReplySchema = z.object({ viewOnly: z.string().min(1) }).strict();
 export type ViewerCredentialsReply = z.infer<typeof viewerCredentialsReplySchema>;
 
+// ---- desktop (S53) ----------------------------------------------------------------------------
+
+/** Apps the model may launch; the daemon never takes an arbitrary command. */
+export const DESKTOP_APPS = ['chromium', 'libreoffice', 'thunar', 'xfce4-terminal'] as const;
+export const desktopAppSchema = z.enum(DESKTOP_APPS);
+export type DesktopApp = z.infer<typeof desktopAppSchema>;
+
+/** Key names and chords xdotool may press; never an arbitrary argument. */
+export const DESKTOP_KEYS = [
+  'Return',
+  'Tab',
+  'Escape',
+  'BackSpace',
+  'Delete',
+  'Up',
+  'Down',
+  'Left',
+  'Right',
+  'Home',
+  'End',
+  'Page_Up',
+  'Page_Down',
+  'space',
+  'ctrl+a',
+  'ctrl+c',
+  'ctrl+l',
+  'ctrl+v',
+  'ctrl+x',
+  'ctrl+z',
+  'alt+F4',
+] as const;
+export const desktopKeySchema = z.enum(DESKTOP_KEYS);
+export type DesktopKey = z.infer<typeof desktopKeySchema>;
+
+export const desktopStateReplySchema = z
+  .object({
+    display: z.string(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+  })
+  .strict();
+export type DesktopStateReply = z.infer<typeof desktopStateReplySchema>;
+
+/** The screen and its default long-side fit (the daemon clamps `scale` to this). */
+export const DESKTOP_MAX_LONG_SIDE = 1280;
+
+export const desktopScreenshotQuerySchema = z
+  .object({
+    /** 0.05..1; omitted means fit within DESKTOP_MAX_LONG_SIDE. */
+    scale: z.coerce.number().min(0.05).max(1).optional(),
+  })
+  .strict();
+
+export const desktopScreenshotReplySchema = z
+  .object({
+    encoding: z.literal('base64'),
+    content: z.string(),
+    mediaType: z.literal('image/png'),
+    /** The returned PNG's size. */
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    /** The display's size before scaling. */
+    originalWidth: z.number().int().positive(),
+    originalHeight: z.number().int().positive(),
+    scale: z.number().positive().max(1),
+  })
+  .strict();
+export type DesktopScreenshotReply = z.infer<typeof desktopScreenshotReplySchema>;
+
+const coordinateSchema = z.number().int().min(0).max(100_000);
+
+export const desktopMouseRequestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('move'), x: coordinateSchema, y: coordinateSchema }).strict(),
+  z
+    .object({
+      action: z.literal('click'),
+      x: coordinateSchema,
+      y: coordinateSchema,
+      button: z.enum(['left', 'right', 'middle']).default('left'),
+    })
+    .strict(),
+  z
+    .object({ action: z.literal('double_click'), x: coordinateSchema, y: coordinateSchema })
+    .strict(),
+  z.object({ action: z.literal('right_click'), x: coordinateSchema, y: coordinateSchema }).strict(),
+  z
+    .object({
+      action: z.literal('drag'),
+      fromX: coordinateSchema,
+      fromY: coordinateSchema,
+      toX: coordinateSchema,
+      toY: coordinateSchema,
+      button: z.enum(['left', 'right', 'middle']).default('left'),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('scroll'),
+      x: coordinateSchema,
+      y: coordinateSchema,
+      direction: z.enum(['up', 'down', 'left', 'right']),
+      amount: z.number().int().min(1).max(20).default(1),
+    })
+    .strict(),
+]);
+export type DesktopMouseRequest = z.infer<typeof desktopMouseRequestSchema>;
+
+export const desktopKeyboardRequestSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('type'),
+      text: z.string().min(1).max(10_000),
+    })
+    .strict(),
+  z.object({ action: z.literal('key'), key: desktopKeySchema }).strict(),
+]);
+export type DesktopKeyboardRequest = z.infer<typeof desktopKeyboardRequestSchema>;
+
+export const desktopWindowSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    x: z.number().int(),
+    y: z.number().int(),
+    width: z.number().int().nonnegative(),
+    height: z.number().int().nonnegative(),
+    desktop: z.number().int(),
+  })
+  .strict();
+export type DesktopWindow = z.infer<typeof desktopWindowSchema>;
+
+export const desktopWindowsReplySchema = z
+  .object({ windows: z.array(desktopWindowSchema) })
+  .strict();
+export type DesktopWindowsReply = z.infer<typeof desktopWindowsReplySchema>;
+
+export const desktopLaunchRequestSchema = z.object({ app: desktopAppSchema }).strict();
+export type DesktopLaunchRequest = z.infer<typeof desktopLaunchRequestSchema>;
+export const desktopLaunchReplySchema = z.object({ launched: z.literal(true) }).strict();
+export const desktopOkReplySchema = z.object({ ok: z.literal(true) }).strict();
+export type DesktopOkReply = z.infer<typeof desktopOkReplySchema>;
+
+export const desktopClipboardRequestSchema = z.object({ text: z.string().max(100_000) }).strict();
+export type DesktopClipboardRequest = z.infer<typeof desktopClipboardRequestSchema>;
+export const desktopClipboardReplySchema = z.object({ text: z.string() }).strict();
+export type DesktopClipboardReply = z.infer<typeof desktopClipboardReplySchema>;
+
+export const desktopOcrRequestSchema = z
+  .object({
+    region: z
+      .object({
+        x: coordinateSchema,
+        y: coordinateSchema,
+        width: z.number().int().positive().max(100_000),
+        height: z.number().int().positive().max(100_000),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type DesktopOcrRequest = z.infer<typeof desktopOcrRequestSchema>;
+export const desktopOcrReplySchema = z.object({ text: z.string() }).strict();
+export type DesktopOcrReply = z.infer<typeof desktopOcrReplySchema>;
+
 // ---- health, capabilities and errors ----------------------------------------------------------
 
 export const healthReplySchema = z
@@ -255,6 +419,15 @@ export const capabilitiesReplySchema = z
     files: z.object({ roots: z.array(sandboxRootSchema) }).strict(),
     /** The longest timeout the daemon allows for one command (S46). */
     exec: z.object({ maxTimeoutMs: z.number().int().positive() }).strict(),
+    /** F10/S53: what the desktop layer can do. Absent on the base image. */
+    desktop: z
+      .object({
+        accessibility: z.boolean(),
+        screenshots: z.boolean(),
+        takeControl: z.boolean(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type CapabilitiesReply = z.infer<typeof capabilitiesReplySchema>;
@@ -279,4 +452,12 @@ export const SANDBOX_ROUTES = {
   probe: '/probe',
   exec: '/exec',
   viewerCredentials: '/desktop/viewer-credentials',
+  desktopState: '/desktop/state',
+  desktopScreenshot: '/desktop/screenshot',
+  desktopInputMouse: '/desktop/input/mouse',
+  desktopInputKeyboard: '/desktop/input/keyboard',
+  desktopWindows: '/desktop/windows',
+  desktopLaunch: '/desktop/apps/launch',
+  desktopClipboard: '/desktop/clipboard',
+  desktopOcr: '/desktop/ocr',
 } as const;

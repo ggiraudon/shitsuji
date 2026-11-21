@@ -12,8 +12,13 @@ import type {
   SandboxDriver,
   ViewerCredentials,
 } from '../../../ports/SandboxDriver.js';
-import { SandboxClient } from './ShitsujiSandbox.js';
-import { ShitsujiEgress, ShitsujiExec, ShitsujiFiles } from './ShitsujiSandbox.js';
+import {
+  SandboxClient,
+  ShitsujiDesktop,
+  ShitsujiEgress,
+  ShitsujiExec,
+  ShitsujiFiles,
+} from './ShitsujiSandbox.js';
 
 export interface ShitsujiDriverOptions {
   /** The sandboxd service, e.g. http://sandbox:4555. */
@@ -47,6 +52,7 @@ export class ShitsujiSandboxDriver implements SandboxDriver {
     return {
       files: { roots: reply.files.roots.map((root) => `/${root}`) },
       exec: { maxTimeoutMs: reply.exec.maxTimeoutMs },
+      ...(reply.desktop && { desktop: reply.desktop }),
       egress: { lanBlocked: true, credentialSwap: false },
     };
   }
@@ -56,6 +62,7 @@ export class ShitsujiSandboxDriver implements SandboxDriver {
     return {
       files: new ShitsujiFiles(this.client),
       exec: new ShitsujiExec(this.client, capabilities.exec!.maxTimeoutMs),
+      ...(capabilities.desktop && { desktop: new ShitsujiDesktop(this.client) }),
       egress: new ShitsujiEgress(this.client),
       close: async () => undefined,
     };

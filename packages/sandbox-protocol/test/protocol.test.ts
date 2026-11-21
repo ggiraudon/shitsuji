@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   SANDBOX_MAX_TIMEOUT_MS,
   capabilitiesReplySchema,
+  desktopKeyboardRequestSchema,
+  desktopMouseRequestSchema,
+  desktopScreenshotReplySchema,
   errorReplySchema,
   execEventSchema,
   execRequestSchema,
@@ -182,5 +185,59 @@ describe('sandbox protocol: health, capabilities and errors', () => {
     expect(errorReplySchema.safeParse({ error: { code: 'oops', message: 'no' } }).success).toBe(
       false,
     );
+  });
+});
+
+describe('sandbox protocol: desktop (S53)', () => {
+  it('bounds coordinates and only accepts the closed mouse actions', () => {
+    expect(desktopMouseRequestSchema.parse({ action: 'click', x: 10, y: 20 })).toMatchObject({
+      action: 'click',
+      button: 'left',
+    });
+    expect(desktopMouseRequestSchema.safeParse({ action: 'click', x: -1, y: 0 }).success).toBe(
+      false,
+    );
+    expect(desktopMouseRequestSchema.safeParse({ action: 'run', x: 1, y: 2 }).success).toBe(false);
+  });
+
+  it('accepts typed text and allow-listed keys, never an arbitrary key', () => {
+    expect(desktopKeyboardRequestSchema.parse({ action: 'type', text: 'hello' })).toEqual({
+      action: 'type',
+      text: 'hello',
+    });
+    expect(desktopKeyboardRequestSchema.parse({ action: 'key', key: 'ctrl+l' })).toEqual({
+      action: 'key',
+      key: 'ctrl+l',
+    });
+    expect(
+      desktopKeyboardRequestSchema.safeParse({ action: 'key', key: 'ctrl+alt+delete' }).success,
+    ).toBe(false);
+  });
+
+  it('requires a PNG screenshot with both sizes and the applied scale', () => {
+    expect(
+      desktopScreenshotReplySchema.parse({
+        encoding: 'base64',
+        content: 'AAAA',
+        mediaType: 'image/png',
+        width: 1280,
+        height: 800,
+        originalWidth: 1440,
+        originalHeight: 900,
+        scale: 1280 / 1440,
+      }),
+    ).toMatchObject({ mediaType: 'image/png' });
+    expect(
+      desktopScreenshotReplySchema.safeParse({
+        encoding: 'base64',
+        content: 'AAAA',
+        mediaType: 'image/jpeg',
+        width: 1,
+        height: 1,
+        originalWidth: 1,
+        originalHeight: 1,
+        scale: 1,
+      }).success,
+    ).toBe(false);
   });
 });

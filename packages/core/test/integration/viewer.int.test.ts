@@ -12,7 +12,11 @@ import { ShitsujiSandboxDriver } from '../../src/adapters/sandbox/shitsuji/Shits
 import { startApiServer, type RunningApi } from '../../src/composition/apiServer.js';
 import { asId, type OwnerId } from '../../src/domain/model/ids.js';
 import type { ApiDeps } from '../../src/interfaces/http/createApi.js';
-import type { SandboxExec } from '../../src/ports/SandboxDriver.js';
+import type {
+  SandboxExec,
+  SandboxFiles,
+  DesktopCapability,
+} from '../../src/ports/SandboxDriver.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SANDBOX_IMAGE = process.env.SANDBOX_TEST_IMAGE ?? 'shitsuji/sandbox-desktop:integration';
@@ -41,6 +45,8 @@ const token = randomBytes(32).toString('hex');
 let api: RunningApi;
 let driver: ShitsujiSandboxDriver;
 let exec: SandboxExec;
+let files: SandboxFiles;
+let desktop: DesktopCapability;
 let controlPort: string;
 let viewerPort: string;
 let now = Date.parse('2026-01-01T00:00:00.000Z');
@@ -297,6 +303,8 @@ beforeAll(async () => {
   });
   const opened = await driver.open({ ownerId: OWNER });
   exec = opened.exec!;
+  files = opened.files!;
+  desktop = opened.desktop!;
   viewOnlyPassword = (await driver.viewerCredentials()).viewOnlyPassword;
 
   api = await startApiServer(
@@ -394,4 +402,51 @@ describe('desktop viewer (S51)', () => {
     expect(after).toEqual(before);
     ws.close();
   });
+});
+
+describe('desktop computer use (S53)', () => {
+  it.runIf(available)(
+    'launches Thunar, clicks, types a path and sees it in OCR',
+    async () => {
+      const folder = 's53-folder';
+      await files.mkdir(await files.resolve(folder));
+      const signal = AbortSignal.timeout(20_000);
+
+      await desktop.act({ kind: 'launch_app', app: 'thunar' }, signal);
+      let thunar: { x: number; y: number } | undefined;
+      await waitFor(async () => {
+        const windows = await desktop.windows(signal);
+        const found = windows.find((window) => /thunar|file manager/i.test(window.title));
+        if (found) {
+          thunar = { x: found.x, y: found.y };
+          return true;
+        }
+        return false;
+      }, 'the Thunar window');
+
+      await desktop.act({ kind: 'click', x: thunar!.x + 80, y: thunar!.y + 20 }, signal);
+      await desktop.act({ kind: 'key', key: 'ctrl+l' }, signal);
+      await desktop.act({ kind: 'type', text: `/workspace/${folder}` }, signal);
+      await desktop.act({ kind: 'key', key: 'Return' }, signal);
+
+      await waitFor(async () => {
+        const windows = await desktop.windows(signal);
+        return windows.some((window) => window.title.toLowerCase().includes(folder));
+      }, 'the Thunar title to show the folder');
+
+      const shot = await desktop.screenshot({}, signal);
+      expect(shot.mediaType).toBe('image/png');
+      expect(shot.data.length).toBeGreaterThan(0);
+      const full = await desktop.screenshot({ scale: 1 }, signal);
+      expect(full).toMatchObject({
+        width: shot.originalWidth,
+        height: shot.originalHeight,
+        scale: 1,
+      });
+      expect(full.data.length).toBeGreaterThan(0);
+      const ocr = await desktop.ocr({}, signal);
+      expect(ocr.text.toLowerCase()).toContain(folder);
+    },
+    60_000,
+  );
 });

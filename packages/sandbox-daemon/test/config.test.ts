@@ -88,4 +88,23 @@ describe('sandboxd config (F08, S45–S46)', () => {
       }).vncPasswordsFile,
     ).toBe('/tmp/vnc.json');
   });
+
+  it('reads the desktop display and deadline settings (S53)', () => {
+    const config = configFromEnv({
+      SANDBOX_TOKEN: 'x',
+      SANDBOX_DESKTOP: '1',
+      SANDBOX_DISPLAY: ':1',
+      SANDBOX_DESKTOP_TIMEOUT_MS: '3000',
+      SANDBOX_DESKTOP_MAX_OUTPUT_BYTES: '4096',
+      SANDBOX_DESKTOP_MAX_BINARY_BYTES: '8192',
+    });
+    expect(config).toMatchObject({
+      desktopEnabled: true,
+      display: ':1',
+      desktopTimeoutMs: 3000,
+      desktopMaxOutputBytes: 4096,
+      desktopMaxBinaryBytes: 8192,
+    });
+    expect(configFromEnv({ SANDBOX_TOKEN: 'x' }).desktopEnabled).toBe(false);
+  });
 });

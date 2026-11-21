@@ -4,6 +4,7 @@ import { MemoryLogger } from '../../../src/adapters/logging/loggers.js';
 import {
   SandboxClient,
   SandboxRequestError,
+  ShitsujiDesktop,
   ShitsujiEgress,
   ShitsujiExec,
   ShitsujiFiles,
@@ -306,5 +307,44 @@ describe('shitsuji egress and client (F08, S48)', () => {
     const sandbox = (await driver.open({ ownerId: 'owner' as never })) as ShitsujiSandbox;
     expect(sandbox.files).toBeDefined();
     expect(sandbox.exec?.maxTimeoutMs).toBe(60_000);
+  });
+});
+
+describe('shitsuji desktop (S53)', () => {
+  it('maps the desktop routes and decodes screenshot bytes', async () => {
+    const { client, calls } = fakeClient({
+      '/desktop/state': () => ({ display: ':0', width: 1440, height: 900 }),
+      '/desktop/screenshot': () => ({
+        encoding: 'base64',
+        content: Buffer.from('PNG').toString('base64'),
+        mediaType: 'image/png',
+        width: 1280,
+        height: 800,
+        originalWidth: 1440,
+        originalHeight: 900,
+        scale: 1280 / 1440,
+      }),
+      '/desktop/windows': () => ({ windows: [] }),
+      '/desktop/input/mouse': () => ({ ok: true }),
+      '/desktop/input/keyboard': () => ({ ok: true }),
+      '/desktop/ocr': () => ({ text: 'S53-MARKER' }),
+    });
+    const desktop = new ShitsujiDesktop(client);
+
+    await expect(desktop.state()).resolves.toEqual({ display: ':0', width: 1440, height: 900 });
+    const shot = await desktop.screenshot();
+    expect(shot).toMatchObject({ mediaType: 'image/png', width: 1280, height: 800 });
+    expect(Buffer.from(shot.data).toString()).toBe('PNG');
+    await desktop.act({ kind: 'click', x: 10, y: 20 });
+    await desktop.act({ kind: 'type', text: 'hello' });
+    await expect(desktop.ocr()).resolves.toEqual({ text: 'S53-MARKER' });
+
+    expect(calls).toEqual([
+      { route: '/desktop/state', body: undefined },
+      { route: '/desktop/screenshot', body: undefined },
+      { route: '/desktop/input/mouse', body: { action: 'click', x: 10, y: 20, button: 'left' } },
+      { route: '/desktop/input/keyboard', body: { action: 'type', text: 'hello' } },
+      { route: '/desktop/ocr', body: {} },
+    ]);
   });
 });

@@ -1,4 +1,16 @@
 import {
+  desktopClipboardReplySchema,
+  desktopClipboardRequestSchema,
+  desktopKeyboardRequestSchema,
+  desktopLaunchReplySchema,
+  desktopLaunchRequestSchema,
+  desktopMouseRequestSchema,
+  desktopOcrReplySchema,
+  desktopOcrRequestSchema,
+  desktopOkReplySchema,
+  desktopScreenshotReplySchema,
+  desktopStateReplySchema,
+  desktopWindowsReplySchema,
   errorReplySchema,
   execEventSchema,
   healthReplySchema,
@@ -10,11 +22,20 @@ import {
   writeFileReplySchema,
   SANDBOX_ROUTES,
   SANDBOX_TOKEN_HEADER,
+  type DesktopApp,
+  type DesktopKey,
   type SandboxRoot,
 } from '@shitsuji/sandbox-protocol';
 import type { z } from 'zod';
 import { SandboxUnavailable } from '../../../domain/errors.js';
 import type {
+  DesktopAction,
+  DesktopCapability,
+  DesktopImage,
+  DesktopOcrResult,
+  DesktopRect,
+  DesktopState,
+  DesktopWindow,
   ExecEvent,
   ExecRequest,
   SandboxEgress,
@@ -247,6 +268,18 @@ export class ShitsujiFiles implements SandboxFiles {
     });
   }
 
+  async writeBytes(absolute: string, content: Uint8Array): Promise<void> {
+    const { root, path } = this.split(absolute);
+    await this.client.call(SANDBOX_ROUTES.write, writeFileReplySchema, {
+      root,
+      path,
+      encoding: 'base64',
+      content: Buffer.from(content).toString('base64'),
+      append: false,
+      createParents: true,
+    });
+  }
+
   async mkdir(absolute: string): Promise<void> {
     const { root, path } = this.split(absolute);
     await this.client.call(SANDBOX_ROUTES.mkdir, mkdirReplySchema, { root, path });
@@ -366,12 +399,143 @@ export class ShitsujiEgress implements SandboxEgress {
   }
 }
 
+/** Desktop endpoints from S53; the client validates every reply with the protocol schemas. */
+export class ShitsujiDesktop implements DesktopCapability {
+  readonly accessibility = false;
+  readonly screenshots = true;
+
+  constructor(private readonly client: SandboxClient) {}
+
+  async state(): Promise<DesktopState> {
+    const reply = await this.client.call(SANDBOX_ROUTES.desktopState, desktopStateReplySchema);
+    return { display: reply.display, width: reply.width, height: reply.height };
+  }
+
+  async screenshot(opts: { scale?: number } = {}): Promise<DesktopImage> {
+    const query =
+      opts.scale === undefined
+        ? SANDBOX_ROUTES.desktopScreenshot
+        : `${SANDBOX_ROUTES.desktopScreenshot}?scale=${opts.scale}`;
+    const reply = await this.client.call(query, desktopScreenshotReplySchema);
+    return {
+      mediaType: 'image/png',
+      data: new Uint8Array(Buffer.from(reply.content, 'base64')),
+      width: reply.width,
+      height: reply.height,
+      originalWidth: reply.originalWidth,
+      originalHeight: reply.originalHeight,
+      scale: reply.scale,
+    };
+  }
+
+  async windows(): Promise<DesktopWindow[]> {
+    const reply = await this.client.call(SANDBOX_ROUTES.desktopWindows, desktopWindowsReplySchema);
+    return reply.windows;
+  }
+
+  async act(action: DesktopAction): Promise<void> {
+    switch (action.kind) {
+      case 'move':
+        await this.mouse({ action: 'move', x: action.x, y: action.y });
+        return;
+      case 'click':
+        await this.mouse({
+          action: 'click',
+          x: action.x,
+          y: action.y,
+          button: action.button ?? 'left',
+        });
+        return;
+      case 'double_click':
+        await this.mouse({ action: 'double_click', x: action.x, y: action.y });
+        return;
+      case 'right_click':
+        await this.mouse({ action: 'right_click', x: action.x, y: action.y });
+        return;
+      case 'drag':
+        await this.mouse({
+          action: 'drag',
+          fromX: action.fromX,
+          fromY: action.fromY,
+          toX: action.toX,
+          toY: action.toY,
+          button: action.button ?? 'left',
+        });
+        return;
+      case 'scroll':
+        await this.mouse({
+          action: 'scroll',
+          x: action.x,
+          y: action.y,
+          direction: action.direction,
+          amount: action.amount ?? 1,
+        });
+        return;
+      case 'type':
+        await this.client.call(
+          SANDBOX_ROUTES.desktopInputKeyboard,
+          desktopOkReplySchema,
+          desktopKeyboardRequestSchema.parse({ action: 'type', text: action.text }),
+        );
+        return;
+      case 'key':
+        await this.client.call(
+          SANDBOX_ROUTES.desktopInputKeyboard,
+          desktopOkReplySchema,
+          desktopKeyboardRequestSchema.parse({ action: 'key', key: action.key as DesktopKey }),
+        );
+        return;
+      case 'launch_app':
+        await this.client.call(
+          SANDBOX_ROUTES.desktopLaunch,
+          desktopLaunchReplySchema,
+          desktopLaunchRequestSchema.parse({ app: action.app as DesktopApp }),
+        );
+        return;
+    }
+  }
+
+  async ocr(opts: { region?: DesktopRect } = {}): Promise<DesktopOcrResult> {
+    const reply = await this.client.call(
+      SANDBOX_ROUTES.desktopOcr,
+      desktopOcrReplySchema,
+      desktopOcrRequestSchema.parse({ ...(opts.region && { region: opts.region }) }),
+    );
+    return { text: reply.text };
+  }
+
+  async readClipboard(): Promise<string> {
+    const reply = await this.client.call(
+      SANDBOX_ROUTES.desktopClipboard,
+      desktopClipboardReplySchema,
+    );
+    return reply.text;
+  }
+
+  async writeClipboard(text: string): Promise<void> {
+    await this.client.call(
+      SANDBOX_ROUTES.desktopClipboard,
+      desktopOkReplySchema,
+      desktopClipboardRequestSchema.parse({ text }),
+    );
+  }
+
+  private async mouse(request: z.infer<typeof desktopMouseRequestSchema>): Promise<void> {
+    await this.client.call(
+      SANDBOX_ROUTES.desktopInputMouse,
+      desktopOkReplySchema,
+      desktopMouseRequestSchema.parse(request),
+    );
+  }
+}
+
 /** One open shitsuji sandbox: the capabilities the daemon reported, and the three ports. */
 export class ShitsujiSandbox {
   constructor(
     readonly files: ShitsujiFiles,
     readonly exec: SandboxExec,
     readonly egress: SandboxEgress,
+    readonly desktop?: DesktopCapability,
   ) {}
 
   async close(): Promise<void> {

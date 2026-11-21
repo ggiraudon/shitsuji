@@ -40,6 +40,7 @@ export async function describeSandboxContract(options: SandboxContractOptions): 
   };
   const itExec = capabilities.exec && capabilities.files ? it : it.skip;
   const itFiles = capabilities.files ? it : it.skip;
+  const itDesktop = capabilities.desktop?.screenshots ? it : it.skip;
   const itContainer = options.processContainment ? it : it.skip;
   const itNetwork = capabilities.egress.lanBlocked ? it : it.skip;
 
@@ -57,7 +58,25 @@ export async function describeSandboxContract(options: SandboxContractOptions): 
       expect(options.driver.id.length).toBeGreaterThan(0);
       expect(Boolean(sandbox.files)).toBe(Boolean(capabilities.files));
       expect(Boolean(sandbox.exec)).toBe(Boolean(capabilities.exec));
+      expect(Boolean(sandbox.desktop)).toBe(Boolean(capabilities.desktop));
       for (const root of capabilities.files?.roots ?? []) expect(root.length).toBeGreaterThan(0);
+    });
+
+    itDesktop('provides a state, a scaled PNG screenshot and a window list', async () => {
+      const desktop = sandbox.desktop!;
+      const state = await desktop.state();
+      expect(state.width).toBeGreaterThan(0);
+      expect(state.height).toBeGreaterThan(0);
+
+      const shot = await desktop.screenshot({ scale: 0.5 });
+      expect(shot.mediaType).toBe('image/png');
+      expect(shot.data.length).toBeGreaterThan(0);
+      expect(shot.width).toBe(Math.round(state.width * 0.5));
+      expect(shot.height).toBe(Math.round(state.height * 0.5));
+      expect(shot.originalWidth).toBe(state.width);
+      expect(shot.scale).toBe(0.5);
+
+      await expect(desktop.windows()).resolves.toBeInstanceOf(Array);
     });
 
     itExec('runs a program and returns its output', async () => {

@@ -1,6 +1,6 @@
 # Fifth pass plan: F10 desktop, then F09 browser
 
-> **Status:** in progress (S50-S52 done; S53-S62 planned).
+> **Status:** in progress (S50-S53 done; S54-S62 planned).
 
 The fifth pass finishes most of Phase 2 ("its own computer"). The sandbox from the fourth pass gets a
 graphical desktop that you can watch, the agent learns to use it (structure first, pixels last), and its

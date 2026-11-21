@@ -26,6 +26,16 @@ export interface SandboxDaemonConfig {
   commandProxy?: string;
   /** The VNC passwords the desktop launcher writes (S50); read only for the viewer (S51). */
   vncPasswordsFile: string;
+  /** The X display the desktop tools drive (S53). */
+  display: string;
+  /** True only in the desktop image; the base image has no X server. */
+  desktopEnabled: boolean;
+  /** The default deadline for one desktop tool call (S53). */
+  desktopTimeoutMs: number;
+  /** The most output a desktop command may produce (S53). */
+  desktopMaxOutputBytes: number;
+  /** The most bytes a binary screenshot may produce (S53). */
+  desktopMaxBinaryBytes: number;
 }
 
 /**
@@ -86,5 +96,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SandboxDaem
     setprivPath: env.SANDBOX_SETPRIV ?? '/usr/bin/setpriv',
     ...(commandProxy && { commandProxy }),
     vncPasswordsFile: env.SANDBOX_VNC_PASSWORDS_FILE ?? '/run/sandbox/vnc-passwords.json',
+    display: env.SANDBOX_DISPLAY ?? ':0',
+    desktopEnabled: env.SANDBOX_DESKTOP === '1',
+    desktopTimeoutMs: Number(env.SANDBOX_DESKTOP_TIMEOUT_MS ?? 5_000),
+    desktopMaxOutputBytes: Number(env.SANDBOX_DESKTOP_MAX_OUTPUT_BYTES ?? 1024 * 1024),
+    desktopMaxBinaryBytes: Number(env.SANDBOX_DESKTOP_MAX_BINARY_BYTES ?? 16 * 1024 * 1024),
   };
 }
