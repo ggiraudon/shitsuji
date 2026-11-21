@@ -3,11 +3,15 @@ import type { Logger } from '../../ports/Logger.js';
 
 /** A text message as the adapter needs it, independent of grammY's update types. */
 export interface TelegramIncoming {
+  /** The chat's numeric id, as a string; it is the chat part of a reply channel. */
   chatId: string;
   /** `private`, `group`, `supergroup` or `channel`; the adapter accepts only private chats. */
   chatType: string;
+  /** Telegram's id for the message, for replies and edits. */
   messageId: number;
+  /** The message text, or the caption of an attachment. */
   text: string;
+  /** When Telegram says it was sent. */
   receivedAt: Date;
   /** A document, photo or voice note, downloaded when the adapter stores it. */
   attachment?: TelegramAttachment;
@@ -19,21 +23,31 @@ export interface TelegramIncoming {
 export interface TelegramCallback {
   /** Telegram's callback id, for the answerCallbackQuery toast. */
   id: string;
+  /** The button's payload, e.g. `y:<approvalId>` or `n:<approvalId>`. */
   data: string;
   /** The card's message id, so it can be edited once answered. */
   messageId?: number;
 }
 
+/** One inline button: what it says, and the payload Telegram sends back when it is pressed. */
 export interface TelegramButton {
+  /** The label on the button. */
   text: string;
+  /** The callback data, kept short: an approval decision and its id. */
   data: string;
 }
 
+/** A file the owner sent, as Telegram describes it before the bytes are downloaded. */
 export interface TelegramAttachment {
+  /** Which kind of upload it was; decides the stored name and media type. */
   kind: 'document' | 'photo' | 'voice';
+  /** Telegram's file id, for `downloadFile`. */
   fileId: string;
+  /** A name to store it under; Telegram does not always send the original. */
   name: string;
+  /** MIME type, when Telegram reports one. */
   mediaType?: string;
+  /** Size in bytes, when Telegram reports it. */
   size?: number;
 }
 
@@ -42,15 +56,20 @@ export interface TelegramAttachment {
  * touch grammY or the network; the grammY implementation is the only place that does (F06, S32).
  */
 export interface TelegramTransport {
+  /** Starts long polling and hands every accepted update to `onMessage`. */
   start(onMessage: (message: TelegramIncoming) => void): Promise<void>;
+  /** Stops polling; the adapter calls it once on shutdown. */
   stop(): Promise<void>;
   /**
    * Sends a message and returns its Telegram id. `plain` is the same chunk as the original Markdown,
    * sent without `parse_mode` when Telegram rejects the HTML (#41).
    */
   sendMessage(chatId: string, html: string, plain: string): Promise<number>;
+  /** Replaces a sent message's text, for the "Working…" indicator and edits. */
   editMessage(chatId: string, messageId: number, html: string): Promise<void>;
+  /** Removes a message, e.g. the "Working…" line once the reply is delivered. */
   deleteMessage(chatId: string, messageId: number): Promise<void>;
+  /** Shows Telegram's "typing" indicator in the chat. */
   sendTyping(chatId: string): Promise<void>;
   /** Sends a card with inline buttons; an approval's data is `y:<id>` or `n:<id>` (S37). */
   sendApproval(chatId: string, html: string, buttons: readonly TelegramButton[]): Promise<number>;
@@ -72,12 +91,17 @@ export interface TelegramTransport {
  * reduced to their message, because grammY's URLs contain the token (F06, S32).
  */
 export class GrammyTelegramTransport implements TelegramTransport {
+  /** The polling promise, while the bot runs; `stop` awaits it. */
   private running?: Promise<void>;
+  /** True once the message handlers were attached, so a second `start` does not attach them again. */
   private registered = false;
 
   constructor(
+    /** The grammY bot; the only object that holds the token. */
     private readonly bot: Bot,
+    /** Structured logger for transport failures; the token never reaches it. */
     private readonly log: Logger,
+    /** The fetch used to download files, injectable for tests. */
     private readonly fetchImpl: typeof fetch = fetch,
   ) {
     // grammY stops polling when a handler throws unless it has a catcher; log and keep going (#42).
@@ -156,6 +180,7 @@ export class GrammyTelegramTransport implements TelegramTransport {
     });
   }
 
+  /** Starts polling; resolves once Telegram confirms the long-poll loop began. */
   async start(onMessage: (message: TelegramIncoming) => void): Promise<void> {
     this.register(onMessage);
     await new Promise<void>((resolve, reject) => {
@@ -168,6 +193,7 @@ export class GrammyTelegramTransport implements TelegramTransport {
     this.log.info('Telegram channel started (long polling)');
   }
 
+  /** Stops polling and waits for the loop to end; a failure there is ignored. */
   async stop(): Promise<void> {
     await this.bot.stop();
     await this.running?.catch(() => undefined);
@@ -175,6 +201,7 @@ export class GrammyTelegramTransport implements TelegramTransport {
     this.log.info('Telegram channel stopped');
   }
 
+  /** Sends Markdown-rendered HTML, falling back to the plain text when Telegram rejects the HTML. */
   async sendMessage(chatId: string, html: string, plain: string): Promise<number> {
     try {
       const message = await this.bot.api.sendMessage(chatId, html, {
@@ -193,6 +220,7 @@ export class GrammyTelegramTransport implements TelegramTransport {
     }
   }
 
+  /** Edits a sent message's text in place, with the same HTML rules as `sendMessage`. */
   async editMessage(chatId: string, messageId: number, html: string): Promise<void> {
     await this.bot.api.editMessageText(chatId, messageId, html, {
       parse_mode: 'HTML',
@@ -200,14 +228,17 @@ export class GrammyTelegramTransport implements TelegramTransport {
     });
   }
 
+  /** Deletes a message; an already-deleted one is left alone by Telegram's own rules. */
   async deleteMessage(chatId: string, messageId: number): Promise<void> {
     await this.bot.api.deleteMessage(chatId, messageId);
   }
 
+  /** Sends Telegram's typing action, which lasts a few seconds on its own. */
   async sendTyping(chatId: string): Promise<void> {
     await this.bot.api.sendChatAction(chatId, 'typing');
   }
 
+  /** Sends the approval card with one row of buttons, and returns its message id. */
   async sendApproval(
     chatId: string,
     html: string,
@@ -225,10 +256,12 @@ export class GrammyTelegramTransport implements TelegramTransport {
     return message.message_id;
   }
 
+  /** Answers a button press, which stops Telegram's spinner and may show a short toast. */
   async answerCallback(callbackId: string, text: string): Promise<void> {
     await this.bot.api.answerCallbackQuery(callbackId, { text });
   }
 
+  /** Downloads a file's bytes; a failure names the status, never the token-bearing URL. */
   async downloadFile(fileId: string): Promise<Uint8Array> {
     const file = await this.bot.api.getFile(fileId);
     if (!file.file_path) throw new Error('Telegram did not return a file path');
@@ -240,6 +273,7 @@ export class GrammyTelegramTransport implements TelegramTransport {
     return new Uint8Array(await response.arrayBuffer());
   }
 
+  /** Uploads bytes as a document, with the owner-visible name and an optional caption. */
   async sendDocument(
     chatId: string,
     fileName: string,

@@ -121,7 +121,9 @@ const toSession = (r: SessionRow) =>
  * and restores the previous state if the function throws, so tests can rely on rollback.
  */
 export class InMemoryRepositories implements Repositories {
+  /** Every table, as plain records; a transaction snapshots and restores this whole object. */
   private state = emptyState();
+  /** Tail of the transaction chain, so `uow.run` calls run one at a time. */
   private queue: Promise<unknown> = Promise.resolve();
 
   readonly uow: UnitOfWork = {
@@ -515,6 +517,7 @@ export class InMemoryRepositories implements Repositories {
     return Money.fromMicros(micros, currency);
   }
 
+  /** The owner's revisions, oldest first, as copies. */
   private revisionsOf(ownerId: OwnerId): SoulRevision[] {
     return this.state.soulRevisions
       .filter((r) => r.ownerId === ownerId)
@@ -522,12 +525,14 @@ export class InMemoryRepositories implements Repositories {
       .sort((a, b) => a.revision - b.revision);
   }
 
+  /** The thread's sessions in creation order, by the same rule as the other listings. */
   private sessionsOf(threadId: ThreadId): SessionRow[] {
     return [...this.state.sessions.values()]
       .filter((s) => s.threadId === threadId)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
+  /** Every turn in creation order; `TurnRepository`'s listings filter it. */
   private sortedTurns(): TurnProps[] {
     return [...this.state.turns.values()].sort(
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),

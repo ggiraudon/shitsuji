@@ -43,12 +43,19 @@ import {
   type UsageDto,
 } from '@shitsuji/shared';
 
+/** Everything the API routes may use; `createShitsuji` builds it once. */
 export interface ApiDeps {
+  /** The runtime: submitting messages, reading turns, starting sessions. */
   agent: Agent;
+  /** Reads for history, usage, activity and approvals; the services own every write. */
   repos: Repositories;
+  /** The bus the live-event WebSocket subscribes to. */
   events: EventBus;
+  /** Injected clock, for message timestamps and ticket expiry. */
   clock: Clock;
+  /** Structured logger; route errors and rejected sign-ins are reported here. */
   log: Logger;
+  /** The owner the key check and the viewer cookie belong to. */
   ownerId: OwnerId;
   /** The assembled SOUL: reading it and confirming an edit of its export (S23). */
   soul: SoulService;
@@ -65,9 +72,13 @@ export interface ApiDeps {
   verifyKey: (key: string | undefined) => boolean;
   /** The desktop viewer (S51); absent when the active driver has no desktop. */
   viewer?: {
+    /** Reads the view-only password from sandboxd, behind its token. */
     credentials(): Promise<ViewerCredentials>;
+    /** The gateway's view-only stream the viewer relays to the browser. */
     stream: ViewerStream;
+    /** True when the API is served over TLS, so the cookie carries Secure. */
     cookieSecure: boolean;
+    /** Tests shorten the sign-in lifetime; production keeps one hour. */
     cookieTtlMs?: number;
   };
   /** Builds the WebSocket upgrade for this app (@hono/node-ws); omitted in tests that only use REST. */
@@ -339,8 +350,10 @@ export function createApi(deps: ApiDeps): Hono {
   return app;
 }
 
+/** The Hono context a route receives, exported so route helpers can name it. */
 export type ApiContext = Context;
 
+/** A stored message as the API sends it: text and tool calls, never reasoning. */
 export function toMessageDto(m: Message): MessageDto {
   return {
     id: m.id,

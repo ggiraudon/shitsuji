@@ -155,7 +155,10 @@ export function kyselyOf(tx: Transaction): KyselyTx<Database> {
 export class PostgresRepositories implements Repositories {
   readonly usage: UsageRepository;
 
-  constructor(private readonly db: Kysely<Database>) {
+  constructor(
+    /** The Kysely instance; without a transaction, every method runs its own statement. */
+    private readonly db: Kysely<Database>,
+  ) {
     this.usage = usageRepository((tx) => this.ex(tx));
   }
 

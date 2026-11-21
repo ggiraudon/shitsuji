@@ -21,8 +21,15 @@ export const MIGRATIONS_DIR = path.resolve(
 
 /** Runs every `NNNN_name.sql` file in order, each in its own transaction. Forward-only. */
 export class SqlFileMigrationProvider implements MigrationProvider {
-  constructor(private readonly dir: string = MIGRATIONS_DIR) {}
+  constructor(
+    /** The folder holding the `.sql` files; `MIGRATIONS_DIR` by default. */
+    private readonly dir: string = MIGRATIONS_DIR,
+  ) {}
 
+  /**
+   * The migrations Kysely runs, keyed by file name without `.sql`. A file has only an `up`: the
+   * migrations are forward-only, so Kysely is never asked to roll one back.
+   */
   async getMigrations(): Promise<Record<string, Migration>> {
     const files = fs
       .readdirSync(this.dir)
@@ -41,8 +48,11 @@ export class SqlFileMigrationProvider implements MigrationProvider {
   }
 }
 
+/** How to open the database: the connection string, a logger, and the pool size. */
 export interface PostgresOptions {
+  /** The `postgres://` URL; only the composition root reads it from config. */
   url: string;
+  /** Structured logger for pool errors and applied migrations. */
   log: Logger;
   /** Pool size. */
   max?: number;
@@ -51,10 +61,13 @@ export interface PostgresOptions {
 /** Owns the connection pool and the Kysely instance. */
 export class PostgresDatabase {
   private constructor(
+    /** The typed query builder over the migrated schema. */
     readonly db: Kysely<Database>,
+    /** The logger shared with the pool. */
     private readonly log: Logger,
   ) {}
 
+  /** Opens the pool and wraps it in Kysely; no query runs until `migrate` or a repository call. */
   static connect(options: PostgresOptions): PostgresDatabase {
     const pool = new pg.Pool({ connectionString: options.url, max: options.max ?? 10 });
     pool.on('error', (error) =>
@@ -87,6 +100,7 @@ export class PostgresDatabase {
     return applied;
   }
 
+  /** Destroys the pool; the process calls it once on shutdown. */
   async close(): Promise<void> {
     await this.db.destroy();
   }

@@ -1,5 +1,6 @@
 /** One AbortController per running turn. Stop aborts it; the runner then marks the turn cancelled. */
 export class StopController {
+  /** The controllers for the turns this process is running, by turn id. */
   private readonly running = new Map<string, AbortController>();
 
   /** The signal for a turn that is starting. */
@@ -9,6 +10,7 @@ export class StopController {
     return controller.signal;
   }
 
+  /** Forgets a turn once it ended; the runner calls it in a `finally`. */
   end(turnId: string): void {
     this.running.delete(turnId);
   }
@@ -21,11 +23,14 @@ export class StopController {
     return true;
   }
 
+  /** Whether this process is running the turn (another process may be, and this cannot see it). */
   isRunning(turnId: string): boolean {
     return this.running.has(turnId);
   }
 }
 
+/** The abort reason a Stop puts on the signal, so the runner can tell it from a timeout. */
 export class TurnStopped extends Error {
+  /** The class name, for logs; the message is the owner-readable reason. */
   override readonly name = 'TurnStopped';
 }

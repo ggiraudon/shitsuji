@@ -13,24 +13,32 @@ import type { ViewerCredentials } from '../../ports/SandboxDriver.js';
 
 /** The cookie the viewer page uses; HttpOnly and SameSite=Strict, never the owner key itself. */
 export const VIEWER_COOKIE = 'shitsuji_viewer';
+/** How long a viewer sign-in lasts, in milliseconds: one hour. */
 export const VIEWER_COOKIE_TTL_MS = 60 * 60 * 1000;
 const LOGIN_WINDOW_MS = 5 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 5;
 
+/** Where the gateway's view-only WebSocket listens, as core reaches it on the internal network. */
 export interface ViewerStream {
   /** The gateway's view-only stream listener; core reaches it on the internal network. */
   host: string;
+  /** The gateway's stream port; the viewer relays raw WebSocket frames to it. */
   port: number;
 }
 
+/** What the viewer needs from the rest of core: auth, the clock, sandboxd's password, the relay. */
 export interface ViewerDeps {
   /** The same owner-key check the API uses. */
   verifyKey: (key: string | undefined) => boolean;
+  /** The owner the session cookie belongs to; one per install. */
   ownerId: OwnerId;
+  /** Injected clock: sign-in expiry and the login throttle use it. */
   clock: Clock;
+  /** Structured logger for rejected sign-ins and relay failures. */
   log: Logger;
   /** Reads the view-only password from sandboxd (token-protected). */
   credentials: () => Promise<ViewerCredentials>;
+  /** The gateway's view-only stream, relayed to the browser once the cookie is valid. */
   stream: ViewerStream;
   /** True when the API is served over TLS, so the cookie carries Secure. */
   cookieSecure: boolean;
