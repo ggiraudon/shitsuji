@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { A11yService } from '../src/a11y.js';
+import { A11yService, a11yHelperArgv } from '../src/a11y.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/a11y-helper.mjs', import.meta.url));
 
@@ -59,6 +59,14 @@ afterEach(async () => {
 });
 
 describe('sandboxd AT-SPI helper client (S54)', () => {
+  it('runs the helper with -I so a uid-1000 user site folder is never imported (S54 follow-up)', () => {
+    expect(a11yHelperArgv('/usr/bin/python3', '/app/a11y_helper.py')).toEqual([
+      '/usr/bin/python3',
+      '-I',
+      '/app/a11y_helper.py',
+    ]);
+  });
+
   it('returns a validated tree and maps the allowed apps for the startup check', async () => {
     const { service, log } = await make();
     await expect(service.start()).resolves.toBe(true);

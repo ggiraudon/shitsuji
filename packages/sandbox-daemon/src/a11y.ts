@@ -75,6 +75,11 @@ const actReplySchema = z
 /** The helper's `apps` reply, validated like every other line from it. */
 type AppsReply = z.infer<typeof appsReplySchema>['apps'];
 
+/** The helper's argv; `-I` keeps the uid-1000 user site folder out of its import path (S54). */
+export function a11yHelperArgv(pythonPath: string, helperPath: string): string[] {
+  return [pythonPath, '-I', helperPath];
+}
+
 export interface A11yHelperOptions {
   /** The helper command; the image puts `setpriv` in front so it runs as uid 1000. */
   command: readonly string[];
