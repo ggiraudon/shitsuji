@@ -437,6 +437,13 @@ describe('desktop computer use (S53)', () => {
       const shot = await desktop.screenshot({}, signal);
       expect(shot.mediaType).toBe('image/png');
       expect(shot.data.length).toBeGreaterThan(0);
+      const full = await desktop.screenshot({ scale: 1 }, signal);
+      expect(full).toMatchObject({
+        width: shot.originalWidth,
+        height: shot.originalHeight,
+        scale: 1,
+      });
+      expect(full.data.length).toBeGreaterThan(0);
       const ocr = await desktop.ocr({}, signal);
       expect(ocr.text.toLowerCase()).toContain(folder);
     },

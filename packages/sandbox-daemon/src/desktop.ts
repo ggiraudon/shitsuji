@@ -1,6 +1,4 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import fs from 'node:fs/promises';
 import {
   DESKTOP_APPS,
   DESKTOP_MAX_LONG_SIDE,
@@ -27,11 +25,24 @@ export interface DesktopCommandResult {
   timedOut: boolean;
 }
 
+/** Binary output (a screenshot) with its own cap; never written to a shared file. */
+export interface DesktopBinaryResult {
+  stdout: Buffer;
+  stderr: string;
+  code: number | null;
+  signal: string | null;
+  timedOut: boolean;
+}
+
 export interface DesktopCommandRunner {
   run(
     argv: readonly string[],
-    options?: { timeoutMs?: number; input?: string; maxOutputBytes?: number },
+    options?: { timeoutMs?: number; input?: string | Uint8Array; maxOutputBytes?: number },
   ): Promise<DesktopCommandResult>;
+  runBinary(
+    argv: readonly string[],
+    options?: { timeoutMs?: number; input?: string | Uint8Array; maxOutputBytes?: number },
+  ): Promise<DesktopBinaryResult>;
   startDetached(argv: readonly string[]): Promise<void>;
 }
 
@@ -44,6 +55,8 @@ export interface DesktopRunnerOptions {
   /** The command runner's default deadline. */
   timeoutMs: number;
   maxOutputBytes: number;
+  /** Screenshots are larger than text output; this cap is separate. */
+  maxBinaryBytes: number;
 }
 
 /**
@@ -53,12 +66,28 @@ export interface DesktopRunnerOptions {
 export class SetprivDesktopRunner implements DesktopCommandRunner {
   constructor(private readonly options: DesktopRunnerOptions) {}
 
-  run(
+  async run(
     argv: readonly string[],
-    options: { timeoutMs?: number; input?: string; maxOutputBytes?: number } = {},
+    options: { timeoutMs?: number; input?: string | Uint8Array; maxOutputBytes?: number } = {},
   ): Promise<DesktopCommandResult> {
+    const result = await this.execute(argv, options, this.options.maxOutputBytes);
+    return { ...result, stdout: result.stdout.toString() };
+  }
+
+  async runBinary(
+    argv: readonly string[],
+    options: { timeoutMs?: number; input?: string | Uint8Array; maxOutputBytes?: number } = {},
+  ): Promise<DesktopBinaryResult> {
+    return this.execute(argv, options, this.options.maxBinaryBytes);
+  }
+
+  private execute(
+    argv: readonly string[],
+    options: { timeoutMs?: number; input?: string | Uint8Array; maxOutputBytes?: number },
+    defaultMaxBytes: number,
+  ): Promise<DesktopBinaryResult> {
     const timeoutMs = Math.min(options.timeoutMs ?? this.options.timeoutMs, 60_000);
-    const maxOutputBytes = options.maxOutputBytes ?? this.options.maxOutputBytes;
+    const maxOutputBytes = options.maxOutputBytes ?? defaultMaxBytes;
     const command = setprivCommand([...argv], {
       uid: this.options.uid,
       gid: this.options.gid,
@@ -70,18 +99,14 @@ export class SetprivDesktopRunner implements DesktopCommandRunner {
         detached: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      let stdout = '';
-      let stderr = '';
+      const stdout: Buffer[] = [];
       let stdoutBytes = 0;
+      let stderr = '';
       let stderrBytes = 0;
       let timedOut = false;
       let settled = false;
       let graceTimer: NodeJS.Timeout | undefined;
 
-      const collect = (chunk: Buffer, current: string, limit: number): string => {
-        if (current.length >= limit) return current;
-        return current + chunk.subarray(0, Math.max(0, limit - current.length)).toString();
-      };
       const killGroup = (signal: NodeJS.Signals) => {
         if (!child.pid) return;
         try {
@@ -90,7 +115,7 @@ export class SetprivDesktopRunner implements DesktopCommandRunner {
           // The process may already be gone.
         }
       };
-      const finish = (result: DesktopCommandResult) => {
+      const finish = (result: DesktopBinaryResult) => {
         if (settled) return;
         settled = true;
         if (deadline) clearTimeout(deadline);
@@ -100,12 +125,13 @@ export class SetprivDesktopRunner implements DesktopCommandRunner {
 
       child.stdout?.on('data', (chunk: Buffer) => {
         if (stdoutBytes >= maxOutputBytes) return;
-        stdout = collect(chunk, stdout, maxOutputBytes);
-        stdoutBytes += chunk.length;
+        const kept = chunk.subarray(0, Math.max(0, maxOutputBytes - stdoutBytes));
+        if (kept.length) stdout.push(kept);
+        stdoutBytes += kept.length;
       });
       child.stderr?.on('data', (chunk: Buffer) => {
         if (stderrBytes >= maxOutputBytes) return;
-        stderr = collect(chunk, stderr, maxOutputBytes);
+        stderr += chunk.subarray(0, Math.max(0, maxOutputBytes - stderrBytes)).toString();
         stderrBytes += chunk.length;
       });
       child.once('error', (error) => {
@@ -115,7 +141,9 @@ export class SetprivDesktopRunner implements DesktopCommandRunner {
         if (graceTimer) clearTimeout(graceTimer);
         reject(error);
       });
-      child.once('close', (code, signal) => finish({ stdout, stderr, code, signal, timedOut }));
+      child.once('close', (code, signal) =>
+        finish({ stdout: Buffer.concat(stdout), stderr, code, signal, timedOut }),
+      );
 
       const deadline = setTimeout(() => {
         timedOut = true;
@@ -152,9 +180,7 @@ export class SetprivDesktopRunner implements DesktopCommandRunner {
 
 export interface DesktopServiceOptions {
   runner: DesktopCommandRunner;
-  /** Where temporary screenshots/OCR files go; the container uses /tmp. */
-  tempDir?: string;
-  /** The X display name reported to core. */
+  /** The X display reported to core and captured by ffmpeg. */
   display?: string;
 }
 
@@ -163,14 +189,13 @@ const MEDIA_TYPE = 'image/png' as const;
 /**
  * The daemon-side desktop API (S53): screen state, scaled PNG screenshots, xdotool input, wmctrl
  * windows, xclip and tesseract OCR. Every command goes through the injected runner, so it runs as
- * uid 1000 with a deadline; the daemon itself stays 1001.
+ * uid 1000 with a deadline; the daemon itself stays 1001. Screenshots and OCR images travel through
+ * pipes, never through a shared temp file a sandbox command could swap.
  */
 export class DesktopService {
-  private readonly tempDir: string;
   private readonly display: string;
 
   constructor(private readonly options: DesktopServiceOptions) {
-    this.tempDir = options.tempDir ?? '/tmp';
     this.display = options.display ?? ':0';
   }
 
@@ -187,43 +212,42 @@ export class DesktopService {
     const applied = Math.max(0.05, Math.min(1, scale ?? fit));
     const width = Math.max(1, Math.round(state.width * applied));
     const height = Math.max(1, Math.round(state.height * applied));
-    const raw = `${this.tempDir}/desktop-${randomUUID()}.png`;
-    const scaled = `${this.tempDir}/desktop-${randomUUID()}.png`;
-    try {
-      await this.run(['scrot', '-o', raw], 10_000);
-      if (width === state.width && height === state.height) {
-        await fs.rename(raw, scaled);
-      } else {
-        await this.run(
-          [
-            'ffmpeg',
-            '-loglevel',
-            'error',
-            '-y',
-            '-i',
-            raw,
-            '-vf',
-            `scale=${width}:${height}`,
-            scaled,
-          ],
-          20_000,
-        );
-      }
-      const bytes = await fs.readFile(scaled);
-      return {
-        encoding: 'base64',
-        content: bytes.toString('base64'),
-        mediaType: MEDIA_TYPE,
-        width,
-        height,
-        originalWidth: state.width,
-        originalHeight: state.height,
-        scale: applied,
-      };
-    } finally {
-      await remove(raw);
-      await remove(scaled);
+    const args = [
+      'ffmpeg',
+      '-loglevel',
+      'error',
+      '-f',
+      'x11grab',
+      '-video_size',
+      `${state.width}x${state.height}`,
+      '-i',
+      `${this.display}.0`,
+      '-frames:v',
+      '1',
+      ...(width !== state.width || height !== state.height
+        ? ['-vf', `scale=${width}:${height}`]
+        : []),
+      '-an',
+      '-f',
+      'image2pipe',
+      '-vcodec',
+      'png',
+      'pipe:1',
+    ];
+    const result = await this.options.runner.runBinary(args, { timeoutMs: 20_000 });
+    if (result.code !== 0 || result.stdout.length === 0) {
+      throw new SandboxHttpError(500, 'internal', 'The screen could not be captured.');
     }
+    return {
+      encoding: 'base64',
+      content: result.stdout.toString('base64'),
+      mediaType: MEDIA_TYPE,
+      width,
+      height,
+      originalWidth: state.width,
+      originalHeight: state.height,
+      scale: applied,
+    };
   }
 
   async mouse(request: DesktopMouseRequest): Promise<void> {
@@ -376,23 +400,43 @@ export class DesktopService {
         throw invalidRequest('The OCR region is outside the screen.');
       }
     }
-    const file = `${this.tempDir}/desktop-ocr-${randomUUID()}.png`;
-    try {
-      const args = request.region
+    const args = [
+      'ffmpeg',
+      '-loglevel',
+      'error',
+      '-f',
+      'x11grab',
+      '-video_size',
+      `${state.width}x${state.height}`,
+      '-i',
+      `${this.display}.0`,
+      '-frames:v',
+      '1',
+      ...(request.region
         ? [
-            '-a',
-            `${request.region.x},${request.region.y},${request.region.width},${request.region.height}`,
+            '-vf',
+            `crop=${request.region.width}:${request.region.height}:${request.region.x}:${request.region.y}`,
           ]
-        : [];
-      await this.run(['scrot', '-o', ...args, file], 10_000);
-      const result = await this.run(
-        ['tesseract', file, 'stdout', '-l', 'eng', '--psm', '6'],
-        20_000,
-      );
-      return { text: result.stdout.trim() };
-    } finally {
-      await remove(file);
+        : []),
+      '-an',
+      '-f',
+      'image2pipe',
+      '-vcodec',
+      'png',
+      'pipe:1',
+    ];
+    const png = await this.options.runner.runBinary(args, { timeoutMs: 20_000 });
+    if (png.code !== 0 || png.stdout.length === 0) {
+      throw new SandboxHttpError(500, 'internal', 'The screen could not be captured for OCR.');
     }
+    const result = await this.options.runner.run(
+      ['tesseract', 'stdin', 'stdout', '-l', 'eng', '--psm', '6'],
+      { timeoutMs: 20_000, input: png.stdout },
+    );
+    if (result.code !== 0) {
+      throw new SandboxHttpError(500, 'internal', 'OCR could not read the screen.');
+    }
+    return { text: result.stdout.trim() };
   }
 
   private check(inside: boolean, x: number, y: number, state: DesktopStateReply): void {
@@ -414,7 +458,3 @@ export class DesktopService {
 
 const button = (name: 'left' | 'right' | 'middle'): string =>
   name === 'right' ? '3' : name === 'middle' ? '2' : '1';
-
-async function remove(file: string): Promise<void> {
-  await fs.rm(file, { force: true }).catch(() => undefined);
-}

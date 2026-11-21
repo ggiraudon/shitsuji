@@ -1,20 +1,28 @@
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DesktopService, type DesktopCommandRunner } from '../src/desktop.js';
+import { describe, expect, it } from 'vitest';
+import {
+  DesktopService,
+  type DesktopBinaryResult,
+  type DesktopCommandRunner,
+  type DesktopCommandResult,
+} from '../src/desktop.js';
 import { SandboxHttpError } from '../src/errors.js';
 
-let tempDir: string;
-
-beforeEach(async () => {
-  tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'desktop-test-'));
+const ok = (stdout = ''): DesktopCommandResult => ({
+  stdout,
+  stderr: '',
+  code: 0,
+  signal: null,
+  timedOut: false,
 });
-afterEach(async () => {
-  await fs.rm(tempDir, { recursive: true, force: true });
+const bin = (): DesktopBinaryResult => ({
+  stdout: Buffer.from('PNGDATA'),
+  stderr: '',
+  code: 0,
+  signal: null,
+  timedOut: false,
 });
 
-const service = (runner: DesktopCommandRunner) => new DesktopService({ runner, tempDir });
+const service = (runner: DesktopCommandRunner) => new DesktopService({ runner });
 
 const fake = () => {
   const calls: string[][] = [];
@@ -22,36 +30,20 @@ const fake = () => {
     async run(argv) {
       calls.push([...argv]);
       if (argv[0] === 'xdpyinfo') {
-        return {
-          stdout: '  dimensions:    1440x900 pixels (381x238 millimeters)',
-          stderr: '',
-          code: 0,
-          signal: null,
-          timedOut: false,
-        };
+        return ok('  dimensions:    1440x900 pixels (381x238 millimeters)');
       }
       if (argv[0] === 'wmctrl') {
-        return {
-          stdout:
-            '0x01e00028  0 0 0 1440 900 host Desktop\n0x02e00033  0 10 20 500 400 host s53-folder - File Manager\n',
-          stderr: '',
-          code: 0,
-          signal: null,
-          timedOut: false,
-        };
+        return ok(
+          '0x01e00028  0 0 0 1440 900 host Desktop\n0x02e00033  0 10 20 500 400 host s53-folder - File Manager\n',
+        );
       }
-      if (argv[0] === 'xclip') {
-        return { stdout: 'clip text', stderr: '', code: 0, signal: null, timedOut: false };
-      }
-      if (argv[0] === 'tesseract') {
-        return { stdout: 'S53-MARKER\n', stderr: '', code: 0, signal: null, timedOut: false };
-      }
-      // scrot writes the output file; ffmpeg writes the scaled file.
-      const target = argv.at(-1);
-      if (typeof target === 'string' && target.endsWith('.png')) {
-        await fs.writeFile(target, Buffer.from('PNGDATA'));
-      }
-      return { stdout: '', stderr: '', code: 0, signal: null, timedOut: false };
+      if (argv[0] === 'xclip') return ok('clip text');
+      if (argv[0] === 'tesseract') return ok('S53-MARKER\n');
+      return ok();
+    },
+    async runBinary(argv) {
+      calls.push([...argv]);
+      return bin();
     },
     async startDetached(argv) {
       calls.push([...argv]);
@@ -61,7 +53,7 @@ const fake = () => {
 };
 
 describe('sandboxd desktop service (S53)', () => {
-  it('reports the screen and returns a PNG scaled to fit 1280 px', async () => {
+  it('reports the screen and captures a PNG through a pipe, scaled to fit 1280 px', async () => {
     const { runner, calls } = fake();
     const desktop = service(runner);
 
@@ -81,8 +73,19 @@ describe('sandboxd desktop service (S53)', () => {
     });
     expect(shot.scale).toBeCloseTo(1280 / 1440);
     expect(Buffer.from(shot.content, 'base64').toString()).toBe('PNGDATA');
-    expect(calls.some((call) => call[0] === 'scrot')).toBe(true);
-    expect(calls.some((call) => call[0] === 'ffmpeg')).toBe(true);
+    const capture = calls.find((call) => call[0] === 'ffmpeg')!;
+    expect(capture).toContain('pipe:1');
+    expect(capture.some((arg) => arg.endsWith('.png'))).toBe(false);
+  });
+
+  it('captures scale=1 without a temp rename or scale filter', async () => {
+    const { runner, calls } = fake();
+    const desktop = service(runner);
+    const shot = await desktop.screenshot(1);
+    expect(shot).toMatchObject({ width: 1440, height: 900, scale: 1 });
+    const capture = calls.find((call) => call[0] === 'ffmpeg')!;
+    expect(capture).not.toContain('-vf');
+    expect(capture).not.toContain('scale=1440:900');
   });
 
   it('validates coordinates against the screen before running xdotool', async () => {
@@ -144,12 +147,15 @@ describe('sandboxd desktop service (S53)', () => {
     await expect(desktop.readClipboard()).resolves.toEqual({ text: 'clip text' });
   });
 
-  it('OCRs a validated region and returns the text', async () => {
-    const { runner } = fake();
+  it('OCRs through ffmpeg stdin and tesseract stdin, with no temp path', async () => {
+    const { runner, calls } = fake();
     const desktop = service(runner);
     await expect(
       desktop.ocr({ region: { x: 10, y: 20, width: 300, height: 100 } }),
     ).resolves.toEqual({ text: 'S53-MARKER' });
+    const tesseract = calls.find((call) => call[0] === 'tesseract')!;
+    expect(tesseract).toEqual(['tesseract', 'stdin', 'stdout', '-l', 'eng', '--psm', '6']);
+    expect(calls.some((call) => call.some((arg) => arg.endsWith('.png')))).toBe(false);
     await expect(
       desktop.ocr({ region: { x: 1400, y: 0, width: 100, height: 100 } }),
     ).rejects.toBeInstanceOf(SandboxHttpError);

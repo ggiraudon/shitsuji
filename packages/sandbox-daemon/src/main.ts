@@ -58,6 +58,7 @@ async function main(): Promise<void> {
           },
           timeoutMs: config.desktopTimeoutMs,
           maxOutputBytes: config.desktopMaxOutputBytes,
+          maxBinaryBytes: config.desktopMaxBinaryBytes,
         }),
       }),
     }),
