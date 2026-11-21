@@ -29,7 +29,7 @@ export interface ApprovalProps {
   sessionId: SessionId;
   /** The exact action: tool, effect, target, arguments and the hash an approval is bound to. */
   tool: string;
-  /** The tool's {@link ToolEffect}, as a string so the domain stays independent of the port. */
+  /** The tool's `ToolEffect`, as a string so the domain stays independent of the port. */
   effect: string;
   target: string;
   actionHash: string;
