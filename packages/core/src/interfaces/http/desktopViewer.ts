@@ -250,10 +250,7 @@ export function registerViewer(app: Hono, deps: ViewerDeps): void {
     try {
       const status = deps.control.status();
       const credentials = await deps.credentials();
-      const full =
-        status.mode === 'owner'
-          ? await deps.control.fullCredentials().catch(() => undefined)
-          : undefined;
+      const full = status.mode === 'owner' ? await deps.control.fullCredentials() : undefined;
       return c.json(
         {
           viewOnlyPassword: credentials.viewOnlyPassword,

@@ -184,7 +184,8 @@ export class DesktopControlService implements DesktopControl {
     this.info = undefined;
     // Leave owner mode first: the viewer listener closes full-control streams immediately.
     this.deps.sandbox.leaveOwnerControl();
-    const note = reason === 'timeout' ? this.timeoutNote() : this.ownerNote();
+    const noteFor = (hasImage: boolean) =>
+      reason === 'timeout' ? this.timeoutNote(hasImage) : this.ownerNote(hasImage);
     const paused = [...this.paused.entries()];
     this.paused.clear();
     let resumed = 0;
@@ -192,6 +193,7 @@ export class DesktopControlService implements DesktopControl {
       const image = this.deps.vision
         ? await this.deps.sandbox.captureScreenshot(record.sessionId, turnId)
         : undefined;
+      const note = noteFor(Boolean(image));
       if (await this.resume({ turnId, sessionId: record.sessionId }, note, image)) resumed += 1;
       else this.pending.set(turnId, { ...record, note, ...(image && { image }) });
     }
@@ -347,7 +349,11 @@ export class DesktopControlService implements DesktopControl {
         ? await this.deps.sandbox.captureScreenshot(turn.sessionId, turn.id)
         : undefined;
       if (
-        await this.resume({ turnId: turn.id, sessionId: turn.sessionId }, this.restartNote(), image)
+        await this.resume(
+          { turnId: turn.id, sessionId: turn.sessionId },
+          this.restartNote(Boolean(image)),
+          image,
+        )
       ) {
         this.deps.log.warn('Resumed a takeover turn after a restart', { turnId: turn.id });
       }
@@ -394,20 +400,20 @@ export class DesktopControlService implements DesktopControl {
       : 'The desktop viewer is not available on this deployment.';
   }
 
-  private ownerNote(): string {
-    return this.deps.vision
+  private ownerNote(hasImage: boolean): string {
+    return hasImage
       ? 'The owner gave the desktop back. The screen may have changed while they had control; the attached screenshot shows it now. Use desktop.inspect for an exact tree.'
       : 'The owner gave the desktop back. The screen may have changed while they had control; take a fresh desktop.inspect snapshot before continuing.';
   }
 
-  private timeoutNote(): string {
-    return this.deps.vision
+  private timeoutNote(hasImage: boolean): string {
+    return hasImage
       ? 'The owner did not give the desktop back in time, so the desktop returned to the agent. The screen may have changed; the attached screenshot shows it now.'
       : 'The owner did not give the desktop back in time, so the desktop returned to the agent. The screen may have changed; take a fresh desktop.inspect snapshot before continuing.';
   }
 
-  private restartNote(): string {
-    return this.deps.vision
+  private restartNote(hasImage: boolean): string {
+    return hasImage
       ? 'Core restarted while the desktop was with the owner. The desktop is back with the agent; the attached screenshot shows the current screen.'
       : 'Core restarted while the desktop was with the owner. The desktop is back with the agent; take a fresh desktop.inspect snapshot before continuing.';
   }
