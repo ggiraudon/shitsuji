@@ -116,6 +116,8 @@ export interface SandboxFiles {
   read(absolute: string): Promise<string>;
   /** The file's bytes, unchanged: an image or a PDF is not text. */
   readBytes(absolute: string): Promise<Uint8Array>;
+  /** Writes bytes, for a screenshot or another binary result (S53). */
+  writeBytes(absolute: string, content: Uint8Array): Promise<void>;
   /** Undefined when nothing is there. */
   stat(absolute: string): Promise<FileStat | undefined>;
   write(absolute: string, content: string, options: { append: boolean }): Promise<void>;
@@ -125,10 +127,80 @@ export interface SandboxFiles {
   list(absolute: string): Promise<FileEntry[] | undefined>;
 }
 
-/** F10; named now so the driver port does not change when the desktop lands. */
+/** F10/S53: the desktop the agent can see and drive. */
 export interface DesktopCapability {
   readonly accessibility: boolean;
   readonly screenshots: boolean;
+  state(signal?: AbortSignal): Promise<DesktopState>;
+  screenshot(opts?: { scale?: number }, signal?: AbortSignal): Promise<DesktopImage>;
+  windows(signal?: AbortSignal): Promise<DesktopWindow[]>;
+  act(action: DesktopAction, signal: AbortSignal): Promise<void>;
+  ocr(opts?: { region?: DesktopRect }, signal?: AbortSignal): Promise<DesktopOcrResult>;
+  readClipboard(signal?: AbortSignal): Promise<string>;
+  writeClipboard(text: string, signal?: AbortSignal): Promise<void>;
+}
+
+export interface DesktopState {
+  display: string;
+  width: number;
+  height: number;
+}
+
+/** A PNG the provider can send; `width`/`height` are the returned pixels, the originals are pre-scale. */
+export interface DesktopImage {
+  mediaType: 'image/png';
+  data: Uint8Array;
+  width: number;
+  height: number;
+  originalWidth: number;
+  originalHeight: number;
+  /** Scale actually applied, 0.05..1. */
+  scale: number;
+}
+
+export interface DesktopWindow {
+  id: string;
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  desktop: number;
+}
+
+export interface DesktopRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type DesktopAction =
+  | { kind: 'move'; x: number; y: number }
+  | { kind: 'click'; x: number; y: number; button?: 'left' | 'right' | 'middle' }
+  | { kind: 'double_click'; x: number; y: number }
+  | { kind: 'right_click'; x: number; y: number }
+  | {
+      kind: 'drag';
+      fromX: number;
+      fromY: number;
+      toX: number;
+      toY: number;
+      button?: 'left' | 'right' | 'middle';
+    }
+  | {
+      kind: 'scroll';
+      x: number;
+      y: number;
+      direction: 'up' | 'down' | 'left' | 'right';
+      amount?: number;
+    }
+  | { kind: 'type'; text: string }
+  | { kind: 'key'; key: string }
+  | { kind: 'launch_app'; app: 'chromium' | 'libreoffice' | 'thunar' | 'xfce4-terminal' };
+
+export interface DesktopOcrResult {
+  text: string;
 }
 
 /** F09; named now for the same reason. */

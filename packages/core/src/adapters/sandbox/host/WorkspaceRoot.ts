@@ -117,6 +117,11 @@ export class WorkspaceRoot implements SandboxFiles {
       : fs.writeFile(absolute, content, 'utf8'));
   }
 
+  async writeBytes(absolute: string, content: Uint8Array): Promise<void> {
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    await fs.writeFile(absolute, content);
+  }
+
   async mkdir(absolute: string): Promise<void> {
     await fs.mkdir(absolute, { recursive: true });
   }
