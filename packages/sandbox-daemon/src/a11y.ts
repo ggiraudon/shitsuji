@@ -287,8 +287,15 @@ export class A11yHelper {
     }
     const error = helperErrorSchema.safeParse(parsed);
     if (error.success) {
+      const failure = new A11yHelperError(error.data.error.code, error.data.error.message);
+      // An internal failure may have left the helper's state inconsistent; start a fresh one on
+      // the next request. A stale/invalid answer is normal and keeps it alive.
+      if (error.data.error.code === 'failed') {
+        this.fail(failure, true);
+        return;
+      }
       this.settle();
-      pending.reject(new A11yHelperError(error.data.error.code, error.data.error.message));
+      pending.reject(failure);
       return;
     }
     const value = pending.schema.safeParse(parsed);
