@@ -2,8 +2,8 @@
   "$schema": "https://typedoc.org/schema.json",
   "entryPoints": [
     "packages/core/src/index.ts",
-    "packages/core/src/domain/index.ts",
-    "packages/core/src/ports/index.ts",
+    "packages/core/src/domain",
+    "packages/core/src/ports",
     "packages/core/src/composition/Shitsuji.ts",
     "packages/core/src/application/Agent.ts",
     "packages/core/src/application/channels/ChannelGateway.ts",
@@ -14,7 +14,7 @@
     "packages/sandbox-daemon/src/index.ts",
     "packages/egress-proxy/src/index.ts"
   ],
-  "entryPointStrategy": "resolve",
+  "entryPointStrategy": "expand",
   "tsconfig": "tsconfig.docs.json",
   "out": "docs-site",
   "readme": "README.md",
@@ -28,6 +28,7 @@
   "validation": {
     "notDocumented": true
   },
+  "packagesRequiringDocumentation": ["@shitsuji/core"],
   "treatValidationWarningsAsErrors": false,
   "treatWarningsAsErrors": false,
   "navigationLinks": {
