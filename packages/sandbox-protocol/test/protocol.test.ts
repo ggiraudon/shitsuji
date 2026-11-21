@@ -23,6 +23,7 @@ import {
   sandboxPathSchema,
   signalExecRequestSchema,
   statFileReplySchema,
+  viewerFullCredentialsReplySchema,
   writeFileRequestSchema,
 } from '../src/index.js';
 
@@ -241,6 +242,21 @@ describe('sandbox protocol: desktop (S53)', () => {
         originalHeight: 1,
         scale: 1,
       }).success,
+    ).toBe(false);
+  });
+});
+
+describe('sandbox protocol: viewer credentials (S55)', () => {
+  it('requires a non-empty full-control password and nothing else', () => {
+    expect(viewerFullCredentialsReplySchema.parse({ fullControlPassword: 'full-pass' })).toEqual({
+      fullControlPassword: 'full-pass',
+    });
+    expect(viewerFullCredentialsReplySchema.safeParse({ fullControlPassword: '' }).success).toBe(
+      false,
+    );
+    expect(
+      viewerFullCredentialsReplySchema.safeParse({ fullControlPassword: 'x', viewOnly: 'y' })
+        .success,
     ).toBe(false);
   });
 });

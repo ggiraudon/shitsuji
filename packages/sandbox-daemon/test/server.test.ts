@@ -100,6 +100,15 @@ describe('sandboxd HTTP surface (F08, S45)', () => {
     expect(await reply.json()).toEqual({ viewOnly: 'view-only-pass' });
   });
 
+  it('gives the full-control password on its own token-protected route (S55)', async () => {
+    const denied = await call('/desktop/viewer-credentials/full', { method: 'GET' });
+    expect(denied.status).toBe(401);
+
+    const reply = await call('/desktop/viewer-credentials/full', { method: 'GET', token: TOKEN });
+    expect(reply.status).toBe(200);
+    expect(await reply.json()).toEqual({ fullControlPassword: 'full-pass' });
+  });
+
   it('writes, reads, lists, stats and moves through the routes', async () => {
     const write = await call('/files/write', {
       token: TOKEN,

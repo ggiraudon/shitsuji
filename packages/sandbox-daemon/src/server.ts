@@ -44,6 +44,7 @@ import {
   statFileReplySchema,
   statFileRequestSchema,
   viewerCredentialsReplySchema,
+  viewerFullCredentialsReplySchema,
   writeFileReplySchema,
   writeFileRequestSchema,
   type ErrorReply,
@@ -51,6 +52,7 @@ import {
   type ExecRequest,
   type SandboxRoot,
   type ViewerCredentialsReply,
+  type ViewerFullCredentialsReply,
 } from '@shitsuji/sandbox-protocol';
 import { z, type ZodIssue, type ZodTypeAny } from 'zod';
 import type { A11yService } from './a11y.js';
@@ -113,6 +115,9 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
       }
       if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.viewerCredentials) {
         return send(res, 200, await readViewerCredentials(deps.vncPasswordsFile));
+      }
+      if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.viewerFullCredentials) {
+        return send(res, 200, await readViewerFullCredentials(deps.vncPasswordsFile));
       }
       const desktop = (): DesktopService => {
         if (!deps.desktop) throw notFound('The desktop is not available in this sandbox.');
@@ -272,16 +277,34 @@ const vncPasswordsFileSchema = z
 
 /**
  * The view-only password for the owner's viewer (S51). The file also holds the full-control
- * password, which must never leave the sandbox; only the view-only field is returned. A missing or
- * malformed file is an internal error with no path in the message.
+ * password, which must never leave the sandbox through this route; only the view-only field is
+ * returned. A missing or malformed file is an internal error with no path in the message.
  */
 async function readViewerCredentials(file: string | undefined): Promise<ViewerCredentialsReply> {
+  const passwords = await readPasswords(file);
+  return viewerCredentialsReplySchema.parse({ viewOnly: passwords.viewOnly });
+}
+
+/**
+ * The full-control password (S55). Core asks for it only after the owner takes control; the route is
+ * token-protected like every other, and its reply never includes the view-only password.
+ */
+async function readViewerFullCredentials(
+  file: string | undefined,
+): Promise<ViewerFullCredentialsReply> {
+  const passwords = await readPasswords(file);
+  return viewerFullCredentialsReplySchema.parse({ fullControlPassword: passwords.full });
+}
+
+async function readPasswords(
+  file: string | undefined,
+): Promise<z.infer<typeof vncPasswordsFileSchema>> {
   if (!file) throw new SandboxHttpError(404, 'not_found', 'The desktop viewer is not available.');
   try {
     const text = await fs.readFile(file, 'utf8');
     const parsed = vncPasswordsFileSchema.safeParse(JSON.parse(text));
     if (!parsed.success) throw new Error('malformed');
-    return viewerCredentialsReplySchema.parse({ viewOnly: parsed.data.viewOnly });
+    return parsed.data;
   } catch {
     throw new SandboxHttpError(500, 'internal', 'The desktop credentials are not available.');
   }
