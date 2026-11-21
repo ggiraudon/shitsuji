@@ -109,9 +109,10 @@ class ModelRouter {
 ```
 
 `supports` is strict for vision: a model with no `capabilities` in `models.catalog` counts as **no
-vision**, and core logs one startup warning naming it. Images are never sent to it. The other
-capabilities keep the permissive default when the catalogue is silent, so an older configuration
-does not lose its tools.
+vision**, and core logs one startup warning when no chat candidate has it. Images are never sent to a
+model that lacks it; the context builder uses placeholders. `anySupports` checks the primary and the
+fallbacks, so a vision-capable fallback can still receive the call. The other capabilities keep the
+permissive default when the catalogue is silent, so an older configuration does not lose its tools.
 
 Example configuration for a DeepSeek-first setup:
 

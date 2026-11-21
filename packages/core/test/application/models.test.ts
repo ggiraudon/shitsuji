@@ -157,6 +157,57 @@ describe('ModelRouter', () => {
     expect(() => unknown.select('chat', ['vision'])).toThrow(NoModelAvailable);
   });
 
+  it('makes an unbound purpose follow chat, and sees a vision fallback (S52)', () => {
+    const unbound = setup({ purposes: { chat: 'deepseek/flash' } }, [
+      { ref: 'deepseek/flash', capabilities: new Set(['tools', 'vision']) },
+    ]).router;
+    expect(unbound.supports('summarize', 'vision')).toBe(true);
+    expect(unbound.supports('vision', 'vision')).toBe(true);
+    expect(unbound.anySupports('summarize', 'vision')).toBe(true);
+
+    const fallback = setup(
+      {
+        purposes: { chat: 'local/text-only' },
+        fallbacks: { chat: ['deepseek/flash'] },
+      },
+      [
+        { ref: 'local/text-only', capabilities: new Set(['tools']) },
+        { ref: 'deepseek/flash', capabilities: new Set(['tools', 'vision']) },
+      ],
+    ).router;
+    expect(fallback.supports('chat', 'vision')).toBe(false); // primary only
+    expect(fallback.anySupports('chat', 'vision')).toBe(true); // fallback can see
+  });
+
+  it('skips a non-vision primary when a call needs vision (S52)', async () => {
+    const primary = new ScriptedProvider([{ content: 'text only' }], 'local');
+    const vision = new ScriptedProvider([{ content: 'I can see' }], 'deepseek');
+    const router = new ModelRouter(
+      new Map<string, ModelProvider>([
+        ['local', primary],
+        ['deepseek', vision],
+      ]),
+      {
+        purposes: { chat: 'local/text-only' },
+        fallbacks: { chat: ['deepseek/flash'] },
+      },
+      new ModelCatalog([
+        { ref: 'local/text-only', capabilities: new Set(['tools']) },
+        { ref: 'deepseek/flash', capabilities: new Set(['tools', 'vision']) },
+      ]),
+      testServices().log,
+    );
+
+    const { binding } = await router.complete(
+      'chat',
+      { messages: [{ role: 'user', parts: [{ type: 'text', text: 'look' }] }] },
+      { needs: ['vision'] },
+    );
+    expect(binding.ref).toBe('deepseek/flash');
+    expect(primary.requests).toHaveLength(0);
+    expect(vision.requests).toHaveLength(1);
+  });
+
   it('fails clearly for an unregistered provider or no chat model', () => {
     expect(() => setup({ purposes: { chat: 'ghost/x' } }).router.select('chat')).toThrow(
       /uses provider "ghost", which is not registered/,
