@@ -1,6 +1,6 @@
 # Fifth pass plan: F10 desktop, then F09 browser
 
-> **Status:** in progress (S50-S53 done; S54-S62 planned).
+> **Status:** in progress (S50-S54 done; S55-S62 planned).
 
 The fifth pass finishes most of Phase 2 ("its own computer"). The sandbox from the fourth pass gets a
 graphical desktop that you can watch, the agent learns to use it (structure first, pixels last), and its
@@ -136,8 +136,9 @@ packages/
   `POST /desktop/apps/launch` (allow-list: chromium, libreoffice, thunar, xfce4-terminal),
   `GET/POST /desktop/clipboard`, `POST /desktop/ocr`.
 - The `DesktopCapability` port from F10, implemented by the `shitsuji` driver; the driver advertises
-  `desktop: { accessibility: false, screenshots: true, takeControl: false }` until S55 and S56 turn those on.
-  The conformance suite gets desktop tests that run when a driver claims the capability.
+  `desktop: { accessibility: false, screenshots: true, takeControl: false }` (S54 sets accessibility true;
+  S55 turns takeControl on). The conformance suite gets desktop tests that run when a driver claims the
+  capability.
 - `computer.act` (`screenshot`, `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`, `type`,
   `key`, `wait`, `launch_app`, `ocr`). It is registered only when the driver has a desktop **and** the
   `vision` purpose's model has vision. Every result includes a fresh scaled screenshot (S52). Effects:
@@ -148,8 +149,9 @@ packages/
 ### Structure first, and your hands
 
 #### S54. The accessibility tree: `desktop.inspect` and `desktop.act`
-- The Python AT-SPI helper (`python3-gi`, `gir1.2-atspi-2.0`) as a long-lived child of `sandboxd`, speaking
-  JSON lines: `tree`, `find`, `act`. It keeps the snapshot table; refs never expose AT-SPI object paths.
+- The Python AT-SPI helper (`python3-gi`, `gir1.2-atspi-2.0`, `python3-pyatspi`) as a long-lived child of
+  `sandboxd`, speaking JSON lines: `ping`, `apps`, `tree`, `find`, `act`. It keeps the snapshot table;
+  refs never expose AT-SPI object paths.
 - `GET /desktop/a11y/tree`, `GET /desktop/a11y/find`, `POST /desktop/a11y/act`, and the compact text
   format with `[eN]` refs from F10, capped at about 8,000 tokens per window with a note on how to ask for a
   sub-tree.
