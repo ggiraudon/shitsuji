@@ -60,11 +60,28 @@ export interface TurnRunnerDeps {
 /** The end of a turn, as the scheduler and callers see it. */
 export type TurnResult =
   /** The model produced a final answer; `files` are the outbound files the tools staged. */
-  | { status: 'succeeded'; reply: string; files?: OutboundFile[] }
+  | {
+      /** The turn ended with an answer. */
+      status: 'succeeded';
+      /** The assistant's text. */
+      reply: string;
+      /** Files tools attached to the reply, when there are any. */
+      files?: OutboundFile[];
+    }
   /** The check-in limit asked the owner a question; the next message resumes the session. */
-  | { status: 'waiting'; question: string }
+  | {
+      /** The turn paused with a question. */
+      status: 'waiting';
+      /** The question that was stored as the reply. */
+      question: string;
+    }
   /** The turn ended without an answer; `error` is also stored on the turn row. */
-  | { status: 'failed' | 'cancelled'; error: string };
+  | {
+      /** The turn failed, or was stopped by its abort signal. */
+      status: 'failed' | 'cancelled';
+      /** The reason stored on the row and published with the terminal event. */
+      error: string;
+    };
 
 /** One pass of the loop: an answer, or a question when the check-in limit is passed. */
 type LoopOutcome =
@@ -122,7 +139,10 @@ export class TurnRunner {
    * Builds the lock and merges the step limits. No I/O; the runner is created once by `Agent` and
    * reused for every turn.
    */
-  constructor(private readonly deps: TurnRunnerDeps) {
+  constructor(
+    /** Everything one runner needs; `Agent` passes the same object to every turn. */
+    private readonly deps: TurnRunnerDeps,
+  ) {
     this.turnLock = new TurnLock(deps.repos);
     this.limits = { ...DEFAULT_STEP_LIMITS, ...deps.limits };
   }
@@ -451,7 +471,16 @@ export class TurnRunner {
     turn: Turn,
     call: ToolCall,
     signal: AbortSignal,
-  ): Promise<{ content: string; isError: boolean; files: OutboundFile[]; images?: ToolImage[] }> {
+  ): Promise<{
+    /** What the model is told, including the pipeline's wrapping. */
+    content: string;
+    /** True when the outcome was an error, so the stall detector counts the round. */
+    isError: boolean;
+    /** Files the tool staged for this turn's reply. */
+    files: OutboundFile[];
+    /** Images the tool staged for the model, by reference. */
+    images?: ToolImage[];
+  }> {
     const { events, log } = this.deps;
     const meta = {
       turnId: turn.id,

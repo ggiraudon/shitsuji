@@ -41,6 +41,7 @@ export class TurnScheduler {
    * that once the job queue is running.
    */
   constructor(
+    /** Everything the scheduler needs; see the comments on each field. */
     private readonly deps: {
       /** Turn and session storage; the drain reads turns and the start is a compare-and-set. */
       repos: Repositories;
