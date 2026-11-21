@@ -14,8 +14,11 @@ const colors = {
 
 /** One line on screen. */
 export interface Line {
+  /** Unique key, so Ink does not redraw the whole transcript. */
   id: string;
+  /** Who or what the line is from; decides its colour and prefix. */
   kind: 'owner' | 'assistant' | 'tool' | 'note' | 'error' | 'approval';
+  /** The text to draw. */
   text: string;
 }
 
@@ -55,6 +58,10 @@ export function historyLines(messages: MessageDto[]): Line[] {
   return lines;
 }
 
+/**
+ * The terminal UI (S24): the transcript, a prompt, streaming text and the slash commands. It renders
+ * with Ink and talks to core only through `TuiClient`, so a test drives it with a fake client.
+ */
 export function ShitsujiApp({ client, maxLines = 40 }: { client: TuiClient; maxLines?: number }) {
   const { exit } = useApp();
   const [lines, setLines] = useState<Line[]>([]);
