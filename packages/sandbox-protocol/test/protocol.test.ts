@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   SANDBOX_MAX_TIMEOUT_MS,
   capabilitiesReplySchema,
+  desktopA11yActRequestSchema,
+  desktopA11yFindQuerySchema,
+  desktopA11yTreeQuerySchema,
   desktopKeyboardRequestSchema,
   desktopMouseRequestSchema,
   desktopScreenshotReplySchema,
@@ -238,6 +241,53 @@ describe('sandbox protocol: desktop (S53)', () => {
         originalHeight: 1,
         scale: 1,
       }).success,
+    ).toBe(false);
+  });
+});
+
+describe('sandbox protocol: accessibility tree (S54)', () => {
+  it('accepts a window query, a sub-tree ref and a bounded depth', () => {
+    expect(desktopA11yTreeQuerySchema.parse({ window: 'Thunar', ref: 'e12', depth: '3' })).toEqual({
+      window: 'Thunar',
+      ref: 'e12',
+      depth: 3,
+    });
+    expect(desktopA11yTreeQuerySchema.safeParse({ ref: 'w1' }).success).toBe(false);
+    expect(desktopA11yTreeQuerySchema.safeParse({ depth: 101 }).success).toBe(false);
+  });
+
+  it('requires a name or role for a find', () => {
+    expect(desktopA11yFindQuerySchema.parse({ name: 'Save' })).toEqual({ name: 'Save' });
+    expect(desktopA11yFindQuerySchema.safeParse({ window: 'Thunar' }).success).toBe(false);
+  });
+
+  it('takes text only with set_text, and only the closed action list', () => {
+    expect(
+      desktopA11yActRequestSchema.parse({
+        snapshot: 's3',
+        ref: 'e12',
+        action: 'set_text',
+        text: 'hello',
+      }),
+    ).toMatchObject({ action: 'set_text', text: 'hello' });
+    expect(
+      desktopA11yActRequestSchema.safeParse({ snapshot: 's3', ref: 'e12', action: 'set_text' })
+        .success,
+    ).toBe(false);
+    expect(
+      desktopA11yActRequestSchema.safeParse({
+        snapshot: 's3',
+        ref: 'e12',
+        action: 'click',
+        text: 'hello',
+      }).success,
+    ).toBe(false);
+    expect(
+      desktopA11yActRequestSchema.safeParse({ snapshot: 's3', ref: 'e12', action: 'run' }).success,
+    ).toBe(false);
+    expect(
+      desktopA11yActRequestSchema.safeParse({ snapshot: 's3', ref: '/org/a11y/1', action: 'click' })
+        .success,
     ).toBe(false);
   });
 });

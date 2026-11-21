@@ -165,6 +165,7 @@ export const SANDBOX_ERROR_CODES = [
   'read_only',
   'already_exists',
   'too_large',
+  'stale',
   'internal',
 ] as const;
 export const sandboxErrorCodeSchema = z.enum(SANDBOX_ERROR_CODES);
@@ -406,6 +407,133 @@ export type DesktopOcrRequest = z.infer<typeof desktopOcrRequestSchema>;
 export const desktopOcrReplySchema = z.object({ text: z.string() }).strict();
 export type DesktopOcrReply = z.infer<typeof desktopOcrReplySchema>;
 
+// ---- accessibility tree (S54) ------------------------------------------------------------------
+
+/** Actions `desktop.act` may run on an element ref; both are local desktop writes. */
+export const DESKTOP_A11Y_ACTIONS = ['click', 'set_text'] as const;
+export const desktopA11yActionSchema = z.enum(DESKTOP_A11Y_ACTIONS);
+export type DesktopA11yAction = z.infer<typeof desktopA11yActionSchema>;
+
+/** A ref is snapshot-scoped and never an AT-SPI object path. */
+export const refSchema = z.string().regex(/^e\d{1,6}$/);
+export const snapshotSchema = z.string().regex(/^s\d{1,6}$/);
+
+/** One node of a window's tree, flattened in depth-first order. */
+export const desktopA11yNodeSchema = z
+  .object({
+    /** `e12`: usable with `desktop.act` until this snapshot goes stale. */
+    ref: refSchema,
+    /** 0 is the window or the requested sub-tree root. */
+    depth: z.number().int().min(0).max(200),
+    /** The AT-SPI role name, e.g. `push button`. */
+    role: z.string().min(1).max(200),
+    name: z.string().max(500).optional(),
+    /** Editable or displayed text, truncated by the helper. */
+    value: z.string().max(2_000).optional(),
+    states: z.array(z.string().max(40)).max(20),
+    actions: z.array(z.string().max(80)).max(20),
+    /** True when a `filter` matched this node itself; ancestors are kept to show the path. */
+    matched: z.boolean().optional(),
+  })
+  .strict();
+export type DesktopA11yNode = z.infer<typeof desktopA11yNodeSchema>;
+
+/** A window's tree, its snapshot id and whether the node or token cap cut it. */
+export const desktopA11yTreeReplySchema = z
+  .object({
+    app: z.string().max(200),
+    window: z.string().max(500),
+    snapshot: snapshotSchema,
+    nodes: z.array(desktopA11yNodeSchema).max(10_000),
+    /** How many interesting nodes the tree had before any cap. */
+    total: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+export type DesktopA11yTreeReply = z.infer<typeof desktopA11yTreeReplySchema>;
+
+export const desktopA11yTreeQuerySchema = z
+  .object({
+    /** A window title substring, or the application's name. Omitted: the active window. */
+    window: z.string().min(1).max(500).optional(),
+    /** Start at this element of the current snapshot instead of the window root (a sub-tree). */
+    ref: refSchema.optional(),
+    depth: z.coerce.number().int().min(0).max(100).optional(),
+    /** Keep only nodes whose role or name contains this text, plus their ancestors. */
+    filter: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+export type DesktopA11yTreeQuery = z.infer<typeof desktopA11yTreeQuerySchema>;
+
+export const desktopA11yFindQuerySchema = z
+  .object({
+    window: z.string().min(1).max(500).optional(),
+    name: z.string().min(1).max(200).optional(),
+    role: z.string().min(1).max(200).optional(),
+  })
+  .strict()
+  .refine((query) => query.name !== undefined || query.role !== undefined, {
+    message: 'name or role is required',
+  });
+export type DesktopA11yFindQuery = z.infer<typeof desktopA11yFindQuerySchema>;
+
+export const desktopA11yActRequestSchema = z
+  .object({
+    /** The snapshot the ref came from; acting after a newer one is still allowed if nothing changed. */
+    snapshot: snapshotSchema,
+    ref: refSchema,
+    action: desktopA11yActionSchema,
+    /** The replacement text for `set_text`; never a shell string. */
+    text: z.string().max(10_000).optional(),
+  })
+  .strict()
+  .superRefine((request, ctx) => {
+    if (request.action === 'set_text' && request.text === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['text'], message: 'is required' });
+    }
+    if (request.action !== 'set_text' && request.text !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['text'],
+        message: 'is only allowed with set_text',
+      });
+    }
+  });
+export type DesktopA11yActRequest = z.infer<typeof desktopA11yActRequestSchema>;
+
+export const desktopA11yActReplySchema = z
+  .object({
+    ok: z.literal(true),
+    action: desktopA11yActionSchema,
+    role: z.string().min(1).max(200),
+    name: z.string().max(500).optional(),
+    /** The window and app the element belongs to, so the caller can take a fresh snapshot. */
+    window: z.string().max(500),
+    app: z.string().max(200),
+  })
+  .strict();
+export type DesktopA11yActReply = z.infer<typeof desktopA11yActReplySchema>;
+
+/** One allowed app's tree at the startup check (S54); `tree: false` is the warning. */
+export const desktopA11yAppStatusSchema = z
+  .object({
+    app: desktopAppSchema,
+    tree: z.boolean(),
+    nodes: z.number().int().nonnegative(),
+  })
+  .strict();
+export type DesktopA11yAppStatus = z.infer<typeof desktopA11yAppStatusSchema>;
+
+export const desktopA11yStatusReplySchema = z
+  .object({
+    /** False when the helper is down; then every app is missing. */
+    helper: z.boolean(),
+    apps: z.array(desktopA11yAppStatusSchema),
+    missing: z.array(desktopAppSchema),
+  })
+  .strict();
+export type DesktopA11yStatusReply = z.infer<typeof desktopA11yStatusReplySchema>;
+
 // ---- health, capabilities and errors ----------------------------------------------------------
 
 export const healthReplySchema = z
@@ -460,4 +588,8 @@ export const SANDBOX_ROUTES = {
   desktopLaunch: '/desktop/apps/launch',
   desktopClipboard: '/desktop/clipboard',
   desktopOcr: '/desktop/ocr',
+  desktopA11yTree: '/desktop/a11y/tree',
+  desktopA11yFind: '/desktop/a11y/find',
+  desktopA11yAct: '/desktop/a11y/act',
+  desktopA11yStatus: '/desktop/a11y/status',
 } as const;
