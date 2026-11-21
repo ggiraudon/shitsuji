@@ -1,15 +1,20 @@
 import { z } from 'zod/v4';
 import { BaseTool, type ToolContext, type ToolOutput } from '../../ports/Tool.js';
 
+/** What `test.notify` posts to: the local mock service, with test seams for time and fetch. */
 export interface NotifyToolOptions {
   /** Where the local mock service listens (S38's evaluation harness). */
   url: string;
+  /** The fetch implementation, injectable for tests. */
   fetch?: typeof fetch;
+  /** The POST's timeout; five seconds by default. */
   timeoutMs?: number;
+  /** The clock for the posted timestamp, injectable for deterministic tests. */
   now?: () => Date;
 }
 
 const input = z.object({
+  /** The notification text to post. */
   text: z.string().min(1).max(1_000).describe('The notification to post'),
 });
 
@@ -19,23 +24,34 @@ const input = z.object({
  * the point: it can never run on its own.
  */
 export class NotifyTool extends BaseTool<typeof input> {
+  /** The tool's name, `test.notify`. */
   readonly name = 'test.notify';
+  /** What the model reads: an outside action, so trust may ask first. */
   readonly description =
     'Post a notification to the local test service. It acts outside the workspace, so trust checks it ' +
     'and may ask the owner first.';
+  /** The notification schema. */
   readonly input = input;
+  /** Acting outside the workspace, so the trust policy decides. */
   readonly effect = 'external' as const;
+  /** The fetch implementation, shared by every post. */
   private readonly fetchImpl: typeof fetch;
+  /** The POST's timeout in milliseconds. */
   private readonly timeoutMs: number;
+  /** The clock for the posted timestamp. */
   private readonly now: () => Date;
 
-  constructor(private readonly options: NotifyToolOptions) {
+  constructor(
+    /** The service URL and the test seams. */
+    private readonly options: NotifyToolOptions,
+  ) {
     super();
     this.fetchImpl = options.fetch ?? fetch;
     this.timeoutMs = options.timeoutMs ?? 5_000;
     this.now = options.now ?? (() => new Date());
   }
 
+  /** Posts the text with a timestamp; any failure is an ordinary tool error, not a throw. */
   async run({ text }: z.infer<typeof input>, _ctx: ToolContext): Promise<ToolOutput> {
     try {
       const response = await this.fetchImpl(this.options.url, {

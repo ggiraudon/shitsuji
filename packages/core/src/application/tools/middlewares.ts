@@ -10,8 +10,10 @@ import type { ToolInvocation, ToolMiddleware } from './ToolPipeline.js';
 
 /** Races the call against the turn's AbortSignal; never waits for a tool that ignores it. */
 export class CancellationMiddleware implements ToolMiddleware {
+  /** The step's name in the chain. */
   readonly name = 'cancellation';
 
+  /** Returns `cancelled` at once if the turn is already stopped, else races `next()` against the signal. */
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const signal = inv.ctx.signal;
     const cancelled: ToolOutcome = {
@@ -35,8 +37,10 @@ export class CancellationMiddleware implements ToolMiddleware {
 
 /** Parses the arguments with the tool's schema; a failure names every bad field and runs nothing. */
 export class ValidationMiddleware implements ToolMiddleware {
+  /** The step's name in the chain. */
   readonly name = 'validation';
 
+  /** Parses the arguments and records the effect; a failure refuses the call with every problem named. */
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const parsed = inv.tool.input.safeParse(inv.call.arguments);
     if (!parsed.success) {
@@ -61,11 +65,25 @@ export class ValidationMiddleware implements ToolMiddleware {
  * last specific cause) so the runner ends the turn instead of looping (F05, from nod).
  */
 export class RepeatFailureMiddleware implements ToolMiddleware {
+  /** The step's name in the chain. */
   readonly name = 'repeat-failure';
-  private readonly streaks = new Map<string, { key: string; count: number }>();
+  /** Per turn: the last failure (tool and message) and how many times in a row it repeated. */
+  private readonly streaks = new Map<
+    string,
+    {
+      /** The tool name and error text that identify the streak. */
+      key: string;
+      /** How many identical failures in a row so far. */
+      count: number;
+    }
+  >();
 
-  constructor(private readonly limit = 5) {}
+  constructor(
+    /** How many identical failures in a row stop the turn; five by default. */
+    private readonly limit = 5,
+  ) {}
 
+  /** Passes the call on, then counts an identical failure; at the limit it returns `repeated_failure`. */
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const outcome = await next();
     const turn = inv.ctx.turnId;
@@ -101,13 +119,16 @@ export type { TrustPolicy };
  * unasked.
  */
 export class TrustMiddleware implements ToolMiddleware {
+  /** The step's name in the chain. */
   readonly name = 'trust';
   constructor(
+    /** The policy: the engine alone, or the full service with the judge and the owner. */
     private readonly policy: TrustPolicy,
     /** Records what became of an approved action after it ran (F11, S36). */
     private readonly approvals?: ApprovalService,
   ) {}
 
+  /** Allows the call and runs it, or refuses it with the policy's reason; an approval is finished after. */
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const request = actionRequest({
       tool: inv.tool.name,
@@ -180,13 +201,18 @@ export type RedactFn = (text: string) => string;
  * calls are receipts too (F22, S29).
  */
 export class ReceiptMiddleware implements ToolMiddleware {
+  /** The step's name in the chain. */
   readonly name = 'receipt';
   constructor(
+    /** Where `tool_start` and `tool_end` are appended. */
     private readonly turnEvents: TurnEventRepository,
+    /** Injected clock, for the start time and the duration. */
     private readonly clock: Clock,
+    /** Masks secrets in the stored arguments; identity until F12. */
     private readonly redact: RedactFn = (text) => text,
   ) {}
 
+  /** Writes the start event, passes the call on, then writes the end event with the basis. */
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const turnId = inv.ctx.turnId as TurnId;
     const common = {
@@ -227,8 +253,10 @@ export class ReceiptMiddleware implements ToolMiddleware {
 
 /** Wraps output from outside (web, email, browser) so the model treats it as data, not instructions. */
 export class UntrustedWrapMiddleware implements ToolMiddleware {
+  /** The step's name in the chain. */
   readonly name = 'untrusted-wrap';
 
+  /** Wraps a successful untrusted result, or passes anything else through unchanged. */
   async handle(inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const outcome = await next();
     if (!inv.tool.untrustedOutput || outcome.kind !== 'ok') return outcome;
@@ -245,7 +273,9 @@ export class UntrustedWrapMiddleware implements ToolMiddleware {
 
 /** Will remove known secrets from results (F12). A pass-through until the vault exists. */
 export class RedactionMiddleware implements ToolMiddleware {
+  /** The step's name in the chain. */
   readonly name = 'redaction';
+  /** Passes the call and its result through; F12 will mask known secrets here. */
   async handle(_inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     return next();
   }
@@ -256,12 +286,16 @@ export class RedactionMiddleware implements ToolMiddleware {
  * the full output as a workspace file comes with the workspace container, F08.)
  */
 export class OutputLimitMiddleware implements ToolMiddleware {
+  /** The step's name in the chain. */
   readonly name = 'output-limit';
   constructor(
+    /** The most characters the model may see; 20k by default. */
     private readonly maxChars = 20_000,
+    /** How much of the end to keep when cutting; at most a quarter of `maxChars`. */
     private readonly tailChars = 4_000,
   ) {}
 
+  /** Truncates an over-long result to head plus tail, with the omitted count in between. */
   async handle(_inv: ToolInvocation, next: () => Promise<ToolOutcome>): Promise<ToolOutcome> {
     const outcome = await next();
     if (outcome.content.length <= this.maxChars) return outcome;
@@ -275,8 +309,10 @@ export class OutputLimitMiddleware implements ToolMiddleware {
 
 /** The end of the chain: runs the tool. Exceptions become `failed` with the specific cause. */
 export class ExecuteMiddleware implements ToolMiddleware {
+  /** The step's name in the chain. */
   readonly name = 'execute';
 
+  /** Runs the tool; a thrown error or `isError` becomes an error outcome, never a thrown call. */
   async handle(inv: ToolInvocation): Promise<ToolOutcome> {
     try {
       const output = await inv.tool.run(inv.args, inv.ctx);
@@ -310,13 +346,19 @@ function shorten(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…(${text.length - max} more)`;
 }
 
+/** What the standard chain is built from; every optional knob has a working default. */
 export interface DefaultPipelineDeps {
+  /** Where the receipt middleware appends its events. */
   turnEvents: TurnEventRepository;
+  /** Injected clock, for the receipt duration. */
   clock: Clock;
+  /** The trust policy; the deterministic engine alone when unset (no judge, no owner). */
   policy?: TrustPolicy;
   /** Records the end of an approved action (F11, S36). */
   approvals?: ApprovalService;
+  /** How many identical failures in a row stop the turn; five when unset. */
   repeatLimit?: number;
+  /** The most output characters the model sees; 20k when unset. */
   maxOutputChars?: number;
   /** Masks known secrets in receipt arguments (identity until F12). */
   redact?: RedactFn;

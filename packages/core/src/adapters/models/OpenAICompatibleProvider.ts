@@ -24,6 +24,7 @@ export const providerQuirksSchema = z
     toolCalls: z.enum(['native', 'json-in-text', 'none']).default('native'),
     /** How the system prompt is sent: as a system/developer message or prefixed to the first user one. */
     systemRole: z.enum(['system', 'developer', 'user-prefix']).default('system'),
+    /** Send several tool calls in one turn; endpoints that reject that need it off. */
     parallelToolCalls: z.boolean().default(true),
     /** Where the endpoint streams reasoning: DeepSeek uses reasoning_content, others reasoning. */
     reasoningField: z.enum(['reasoning_content', 'reasoning']).optional(),
@@ -32,14 +33,22 @@ export const providerQuirksSchema = z
   })
   .strict();
 
+/** The endpoint differences this adapter understands, with defaults applied. */
 export type ProviderQuirks = z.infer<typeof providerQuirksSchema>;
 
+/** How to configure one compatible endpoint: where it is, how to authenticate, and its quirks. */
 export interface OpenAICompatibleOptions {
+  /** The provider id from the model ref, e.g. `deepseek`. */
   id: string;
+  /** The API root, e.g. `https://api.deepseek.com/v1`; a trailing slash is ignored. */
   baseUrl: string;
+  /** The bearer token; absent for a local endpoint that needs none. */
   apiKey?: string;
+  /** Extra headers, e.g. an OpenRouter referer. */
   headers?: Record<string, string>;
+  /** The quirks table, validated by `providerQuirksSchema`; defaults when unset. */
   quirks?: unknown;
+  /** Structured logger for stream errors and text-mode tool calls. */
   log: Logger;
   /** Injected in tests to replay recorded HTTP responses. */
   fetch?: typeof fetch;
@@ -76,12 +85,19 @@ interface Chunk {
  * LM Studio, Groq, OpenAI. Streams /chat/completions and normalises it to ModelStreamEvents.
  */
 export class OpenAICompatibleProvider implements ModelProvider {
+  /** The provider id from the options, used in errors and usage rows. */
   readonly id: string;
+  /** The validated endpoint quirks; they change how the body and the stream are read. */
   readonly quirks: ProviderQuirks;
+  /** The API root without a trailing slash. */
   private readonly baseUrl: string;
+  /** The fetch used for every call, injectable for recorded fixtures. */
   private readonly fetchImpl: typeof fetch;
 
-  constructor(private readonly options: OpenAICompatibleOptions) {
+  constructor(
+    /** The endpoint, its key and headers, and its quirks. */
+    private readonly options: OpenAICompatibleOptions,
+  ) {
     this.id = options.id;
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     const quirks = providerQuirksSchema.safeParse(options.quirks ?? {});
@@ -168,11 +184,18 @@ export class OpenAICompatibleProvider implements ModelProvider {
     yield { type: 'done', finishReason };
   }
 
+  /** The reasoning text of a delta, under the quirk's field or the two common names. */
   private reasoningOf(delta: NonNullable<ChunkChoice['delta']>): string | undefined {
     if (this.quirks.reasoningField) return delta[this.quirks.reasoningField] ?? undefined;
     return delta.reasoning_content ?? delta.reasoning ?? undefined;
   }
 
+  /**
+   * The request body: system prompt by the quirk, tool schemas only in native mode, and the S52 image
+   * rule for tool results. OpenAI's tool message carries text only, so a run of tool results stays
+   * contiguous as `tool` messages and one user message right after it carries their images, marked as
+   * tool output so the model does not read them as something the owner sent.
+   */
   private buildBody(request: ModelRequest, textMode: boolean): Record<string, unknown> {
     let system = request.system ?? '';
     if (textMode)
@@ -331,6 +354,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     return content;
   }
 
+  /** Sends one request with the key and extra headers; a network failure becomes a retryable error. */
   private async request(
     method: 'GET' | 'POST',
     path: string,

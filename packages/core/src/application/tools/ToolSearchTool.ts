@@ -2,6 +2,7 @@ import { z } from 'zod/v4';
 import { BaseTool, toolSpec, type Tool, type ToolOutput } from '../../ports/Tool.js';
 
 const input = z.object({
+  /** What the tool should do, in the model's words; matched against names and descriptions. */
   query: z.string().min(1).describe('What the tool should do, e.g. "send email" or "read pdf"'),
 });
 
@@ -10,16 +11,24 @@ const input = z.object({
  * full schemas, so the model can call one on the next step without another lookup (F05).
  */
 export class ToolSearchTool extends BaseTool<typeof input> {
+  /** The tool's name, `tool_search`. */
   readonly name = 'tool_search';
+  /** What the model reads: it finds hidden tools and how to call one. */
   readonly description =
     'Find a tool that is not listed in this request. Returns up to 5 matches; call one with tool_call.';
+  /** The query schema: one free-text description of what is needed. */
   readonly input = input;
+  /** Reading the catalogue changes nothing. */
   readonly effect = 'read' as const;
 
-  constructor(private readonly tools: () => readonly Tool[]) {
+  constructor(
+    /** The live catalog; read per call so a tool added later is searchable. */
+    private readonly tools: () => readonly Tool[],
+  ) {
     super();
   }
 
+  /** Scores the query against every other tool: up to five matches, the top three with schemas. */
   async run({ query }: z.infer<typeof input>): Promise<ToolOutput> {
     const words = tokens(query);
     const scored = this.tools()

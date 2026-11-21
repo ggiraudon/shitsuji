@@ -2,21 +2,31 @@ import { randomUUID } from 'node:crypto';
 import type { ToolCallId } from '../../domain/model/ids.js';
 import type { ToolCall } from '../../domain/model/Message.js';
 
+/** One streamed piece of a tool call: the index it belongs to, and whatever this chunk carries. */
 export interface ToolCallFragment {
+  /** The position of the call in the response; id, name and arguments all arrive under it. */
   index: number;
+  /** The provider's id for the call, sent once near the start. */
   id?: string;
+  /** A piece of the tool name, which some providers split across chunks. */
   name?: string;
   /** A piece of the JSON arguments string. */
   arguments?: string;
 }
 
+/** A call under construction: what has arrived so far. */
 interface Partial {
+  /** The provider's id, when it sent one. */
   id?: string;
+  /** The name, concatenated from its fragments. */
   name: string;
+  /** The argument JSON, concatenated from its fragments. */
   args: string;
 }
 
+/** A call whose arguments never became a JSON object; the provider turns this into a `ProviderError`. */
 export class ToolCallArgumentsError extends Error {
+  /** The class name, for logs. */
   override readonly name = 'ToolCallArgumentsError';
 }
 
@@ -26,8 +36,10 @@ export class ToolCallArgumentsError extends Error {
  * docs/00-current-state.md parsed each fragment on its own).
  */
 export class ToolCallAccumulator {
+  /** The calls by provider index, in arrival order. */
   private readonly calls = new Map<number, Partial>();
 
+  /** Folds one fragment into its call, creating it on first sight. */
   add(fragment: ToolCallFragment): void {
     let call = this.calls.get(fragment.index);
     if (!call) this.calls.set(fragment.index, (call = { name: '', args: '' }));
@@ -36,6 +48,7 @@ export class ToolCallAccumulator {
     if (fragment.arguments) call.args += fragment.arguments;
   }
 
+  /** How many calls have started, for a progress hint in logs. */
   get size(): number {
     return this.calls.size;
   }
