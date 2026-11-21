@@ -2,6 +2,7 @@ import { SandboxUnavailable } from '../../domain/errors.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { OutboundFiles } from '../../ports/OutboundFiles.js';
 import type {
+  DesktopA11yStatus,
   DriverHealth,
   LeaseRequest,
   Sandbox,
@@ -13,6 +14,7 @@ import type { Tool } from '../../ports/Tool.js';
 import type { EgressProbe } from './EgressProbe.js';
 import { workspaceTools, type ExecOptions } from './tools/index.js';
 import { computerActTools } from '../desktop/ComputerActTool.js';
+import { desktopA11yTools } from '../desktop/DesktopA11yTools.js';
 
 export interface SandboxServiceDeps {
   driver: SandboxDriver;
@@ -91,6 +93,9 @@ export class SandboxService {
       ...(sandbox.files
         ? workspaceTools(sandbox.files, sandbox.exec, this.deps.exec, this.deps.outbound)
         : []),
+      ...(sandbox.desktop && sandbox.desktop.accessibility
+        ? desktopA11yTools(sandbox.desktop)
+        : []),
       ...(sandbox.files && sandbox.desktop && this.deps.vision
         ? computerActTools(sandbox.files, sandbox.desktop)
         : []),
@@ -153,6 +158,13 @@ export class SandboxService {
       });
     }
     return driver.viewerCredentials();
+  }
+
+  /** Which allowed apps publish a tree (S54); undefined when the sandbox has no accessibility. */
+  async accessibilityStatus(): Promise<DesktopA11yStatus | undefined> {
+    const desktop = this.opened?.sandbox.desktop;
+    if (!desktop?.accessibility) return undefined;
+    return desktop.accessibilityStatus();
   }
 
   /**

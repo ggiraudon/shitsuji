@@ -1,0 +1,225 @@
+import { z } from 'zod/v4';
+import { DESKTOP_A11Y_ACTIONS } from '@shitsuji/sandbox-protocol';
+import type {
+  DesktopA11yFindQuery,
+  DesktopA11yTree,
+  DesktopCapability,
+} from '../../ports/SandboxDriver.js';
+import {
+  BaseTool,
+  type Tool,
+  type ToolContext,
+  type ToolEffect,
+  type ToolOutput,
+} from '../../ports/Tool.js';
+import { formatA11yFind, formatA11yTree } from './formatTree.js';
+
+const ref = z.string().regex(/^e\d{1,6}$/);
+const snapshot = z.string().regex(/^s\d{1,6}$/);
+const windowName = z.string().min(1).max(500);
+
+const inspectSchema = z
+  .object({
+    /** A window title substring, or the application's name; omitted means the active window. */
+    window: windowName.optional(),
+    /** Find elements by name and/or role instead of reading the whole tree. */
+    find: z
+      .object({
+        name: z.string().min(1).max(200).optional(),
+        role: z.string().min(1).max(200).optional(),
+      })
+      .strict()
+      .optional(),
+    /** Start at this element of the current snapshot (a sub-tree). */
+    ref: ref.optional(),
+    depth: z.number().int().min(0).max(50).optional(),
+  })
+  .strict()
+  .superRefine((args, ctx) => {
+    if (args.find && args.find.name === undefined && args.find.role === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['find'],
+        message: 'give a name or a role',
+      });
+    }
+    if (args.find && args.ref) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ref'],
+        message: 'find already locates the elements; do not give a ref too',
+      });
+    }
+  });
+
+const actSchema = z
+  .object({
+    /** The snapshot the ref came from, as desktop.inspect reported it. */
+    snapshot,
+    ref,
+    action: z.enum(DESKTOP_A11Y_ACTIONS),
+    /** The replacement text for set_text, as one value; never a shell string. */
+    text: z.string().max(10_000).optional(),
+  })
+  .strict()
+  .superRefine((args, ctx) => {
+    if (args.action === 'set_text' && args.text === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['text'], message: 'is required' });
+    }
+    if (args.action !== 'set_text' && args.text !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['text'],
+        message: 'is only allowed with set_text',
+      });
+    }
+  });
+
+type InspectArgs = z.infer<typeof inspectSchema>;
+type ActArgs = z.infer<typeof actSchema>;
+
+/**
+ * `desktop.inspect` (S54): reads a window's AT-SPI tree as the compact text from F10, or finds
+ * elements by name or role. Structure before pixels: the result is text, not a screenshot, and the
+ * tool is marked untrusted because every name and value comes from an application.
+ */
+export class DesktopInspectTool extends BaseTool<typeof inspectSchema> {
+  readonly name = 'desktop.inspect';
+  readonly description =
+    'Read a desktop window as an accessibility tree with [eN] refs and a snapshot id, or find ' +
+    'elements by name or role. Prefer this over screenshots for desktop apps; use the ref with ' +
+    'desktop.act. If the tree is cut, ask for a sub-tree with window, ref and depth.';
+  readonly input = inspectSchema;
+  override readonly target = 'desktop' as const;
+  override readonly untrustedOutput = true;
+  readonly effect: ToolEffect = 'read';
+
+  constructor(private readonly desktop: DesktopCapability) {
+    super();
+  }
+
+  async run(args: InspectArgs, ctx: ToolContext): Promise<ToolOutput> {
+    try {
+      const tree = await this.read(args, ctx);
+      const content = args.find ? formatA11yFind(tree, toFindQuery(args)) : formatA11yTree(tree);
+      return {
+        content,
+        data: {
+          window: tree.window,
+          app: tree.app,
+          snapshot: tree.snapshot,
+          elements: tree.nodes.length,
+          total: tree.total,
+          truncated: tree.truncated,
+          ...(args.find && { find: args.find }),
+        },
+      };
+    } catch (error) {
+      return {
+        content: `The accessibility tree could not be read: ${messageOf(error)}`,
+        isError: true,
+      };
+    }
+  }
+
+  private read(args: InspectArgs, ctx: ToolContext): Promise<DesktopA11yTree> {
+    if (args.find) {
+      return this.desktop.find(toFindQuery(args), ctx.signal);
+    }
+    return this.desktop.inspect(
+      {
+        ...(args.window && { window: args.window }),
+        ...(args.ref && { ref: args.ref }),
+        ...(args.depth !== undefined && { depth: args.depth }),
+      },
+      ctx.signal,
+    );
+  }
+}
+
+/**
+ * `desktop.act` (S54): clicks an element or sets its text, then returns a fresh tree so the model
+ * sees what changed. Both actions are local desktop writes; a Chromium click stays `write_local`
+ * until the browser rules land in F09 (#136).
+ */
+export class DesktopActTool extends BaseTool<typeof actSchema> {
+  readonly name = 'desktop.act';
+  readonly description =
+    'Click an element or set its text using a ref from desktop.inspect. The result is a fresh tree ' +
+    'and snapshot. A ref whose window changed is refused with "stale, take a new snapshot".';
+  readonly input = actSchema;
+  override readonly target = 'desktop' as const;
+  override readonly untrustedOutput = true;
+  readonly effect: ToolEffect = 'write_local';
+
+  constructor(private readonly desktop: DesktopCapability) {
+    super();
+  }
+
+  async run(args: ActArgs, ctx: ToolContext): Promise<ToolOutput> {
+    let result;
+    try {
+      result = await this.desktop.actOnElement(
+        {
+          snapshot: args.snapshot,
+          ref: args.ref,
+          action: args.action,
+          ...(args.text !== undefined && { text: args.text }),
+        },
+        ctx.signal,
+      );
+    } catch (error) {
+      return {
+        content: `The action was not performed: ${messageOf(error)}`,
+        isError: true,
+      };
+    }
+
+    let tree: DesktopA11yTree | undefined;
+    try {
+      tree = await this.desktop.inspect({ window: result.window }, ctx.signal);
+    } catch {
+      // The action itself succeeded; a failed re-read only means no fresh tree to show.
+    }
+    const acted =
+      args.action === 'click'
+        ? `Clicked [${args.ref}] ${describe(result.role, result.name)} in "${result.window}".`
+        : `Set the text of [${args.ref}] ${describe(result.role, result.name)} ` +
+          `(${args.text?.length ?? 0} characters).`;
+    return {
+      content: [acted, tree ? formatA11yTree(tree) : 'The tree could not be read again.'].join(
+        '\n',
+      ),
+      data: {
+        action: args.action,
+        ref: args.ref,
+        snapshot: tree?.snapshot ?? args.snapshot,
+        window: result.window,
+        app: result.app,
+        role: result.role,
+        ...(result.name && { name: result.name }),
+      },
+    };
+  }
+}
+
+/** The two structure-first tools, registered only when the driver advertises accessibility. */
+export function desktopA11yTools(desktop: DesktopCapability): Tool[] {
+  return [new DesktopInspectTool(desktop), new DesktopActTool(desktop)];
+}
+
+function toFindQuery(args: InspectArgs): DesktopA11yFindQuery {
+  return {
+    ...(args.window && { window: args.window }),
+    ...(args.find?.name && { name: args.find.name }),
+    ...(args.find?.role && { role: args.find.role }),
+  };
+}
+
+function describe(role: string, name: string | undefined): string {
+  return name ? `${role} "${name}"` : role;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

@@ -97,6 +97,8 @@ describe('sandboxd config (F08, S45–S46)', () => {
       SANDBOX_DESKTOP_TIMEOUT_MS: '3000',
       SANDBOX_DESKTOP_MAX_OUTPUT_BYTES: '4096',
       SANDBOX_DESKTOP_MAX_BINARY_BYTES: '8192',
+      SANDBOX_DESKTOP_A11Y_TIMEOUT_MS: '7000',
+      SANDBOX_DESKTOP_A11Y_MAX_LINE_BYTES: '65536',
     });
     expect(config).toMatchObject({
       desktopEnabled: true,
@@ -104,7 +106,10 @@ describe('sandboxd config (F08, S45–S46)', () => {
       desktopTimeoutMs: 3000,
       desktopMaxOutputBytes: 4096,
       desktopMaxBinaryBytes: 8192,
+      desktopA11yTimeoutMs: 7000,
+      desktopA11yMaxLineBytes: 65536,
     });
+    expect(config.desktopA11yHelper).toBe('/app/a11y_helper.py');
     expect(configFromEnv({ SANDBOX_TOKEN: 'x' }).desktopEnabled).toBe(false);
   });
 });

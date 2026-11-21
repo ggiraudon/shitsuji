@@ -176,7 +176,25 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       clicks, types a path and sees it in OCR. The desktop image adds `tesseract-ocr-eng`.
       **Known risk:** Chromium input is `write_local` until the browser rules land in F09
       ([#136](https://github.com/ggiraudon/shitsuji/issues/136)); the owner accepted this for S53.)*
-- [ ] **S54** The accessibility tree: `desktop.inspect` and `desktop.act`
+- [x] **S54** The accessibility tree: `desktop.inspect` and `desktop.act`
+      *(`sandbox-protocol` and `sandboxd` expose tree, find, act and status routes. A Python AT-SPI
+      helper (`python3-gi`, `gir1.2-atspi-2.0`, `python3-pyatspi`) runs as uid 1000 — the desktop
+      session bus's uid — with a minimal environment that holds no token or VNC password. It speaks
+      JSON lines (`ping`, `apps`, `tree`, `find`, `act`) under one in-flight request, a 10 s deadline,
+      a 2 MiB line cap and zod validation of every reply; a hung, oversized, malformed or internally
+      failed helper is killed, the request fails and the next starts fresh, never replaying. The
+      snapshot table lives in the helper, keyed per window, and refs map to private child-index paths,
+      never AT-SPI object paths. A ref is refused with "stale, take a new snapshot" when its window
+      was created, destroyed or renamed, or its role, name or value changed. `desktop.inspect`
+      formats the tree as the compact `[eN]` text (about 8,000 tokens, with a sub-tree hint), or
+      finds by name or role; `desktop.act` clicks or sets text, then returns a fresh tree. Both mark
+      their output untrusted; inspect is `read`, act is `write_local`, and they register only when
+      the driver reports a helper that answered (no vision needed). The startup check logs which
+      allowed apps publish a tree, a missing one is also in `/status`, and `/capabilities` claims
+      accessibility only while the helper is up. Conformance and integration tests cover Thunar, the
+      terminal and Chromium, a real set_text/click and a stale ref after the window closes. The
+      Chromium input gap remains as recorded for S53
+      ([#136](https://github.com/ggiraudon/shitsuji/issues/136)).)*
 - [ ] **S55** Take control and Give back
 - [ ] **S56** The desktop end to end
 - [ ] **S57** The browser in `sandboxd`

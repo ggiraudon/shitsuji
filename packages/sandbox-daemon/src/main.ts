@@ -1,4 +1,5 @@
 import { configFromEnv } from './config.js';
+import { A11yService } from './a11y.js';
 import { DesktopService, SetprivDesktopRunner } from './desktop.js';
 import { ExecSupervisor, setprivCommand } from './exec.js';
 import { SandboxFilesService } from './files.js';
@@ -34,12 +35,47 @@ async function main(): Promise<void> {
         }),
     }),
   });
+  const log = (level: 'info' | 'warn', message: string) => {
+    if (level === 'warn') console.warn(`sandboxd: ${message}`);
+    else console.log(`sandboxd: ${message}`);
+  };
+  const a11y = config.desktopEnabled
+    ? new A11yService({
+        command:
+          config.commandUid !== undefined
+            ? setprivCommand([config.desktopA11yPython, config.desktopA11yHelper], {
+                uid: config.commandUid,
+                ...(config.commandGid !== undefined && { gid: config.commandGid }),
+                setprivPath: config.setprivPath,
+              })
+            : [config.desktopA11yPython, config.desktopA11yHelper],
+        env: {
+          PATH: config.commandPath,
+          HOME: config.commandHome,
+          LANG: 'C.UTF-8',
+          USER: config.commandUser,
+          DISPLAY: config.display,
+          DBUS_SESSION_BUS_ADDRESS: 'unix:path=/tmp/dbus-session',
+          XDG_RUNTIME_DIR: '/tmp/runtime-agent',
+        },
+        timeoutMs: config.desktopA11yTimeoutMs,
+        maxLineBytes: config.desktopA11yMaxLineBytes,
+        log,
+      })
+    : undefined;
+  if (a11y) {
+    // The helper must be up before /capabilities claims accessibility (S54). A failed
+    // start is not fatal: the desktop still takes screenshots, and a later request retries.
+    if (await a11y.start()) await a11y.startupCheck();
+    else log('warn', 'The accessibility helper did not start; desktop.inspect is unavailable.');
+  }
   const server = createSandboxServer({
     token: config.token,
     files: new SandboxFilesService(paths),
     exec,
     maxBodyBytes: config.maxBodyBytes,
     vncPasswordsFile: config.vncPasswordsFile,
+    ...(a11y && { a11y }),
     ...(config.desktopEnabled && {
       desktop: new DesktopService({
         display: config.display,
@@ -69,6 +105,7 @@ async function main(): Promise<void> {
   });
   const stop = () => {
     exec.stopAll();
+    a11y?.stop();
     server.close(() => process.exit(0));
   };
   process.on('SIGINT', stop);

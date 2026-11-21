@@ -13,6 +13,7 @@ import { startApiServer, type RunningApi } from '../../src/composition/apiServer
 import { asId, type OwnerId } from '../../src/domain/model/ids.js';
 import type { ApiDeps } from '../../src/interfaces/http/createApi.js';
 import type {
+  DesktopA11yTree,
   SandboxExec,
   SandboxFiles,
   DesktopCapability,
@@ -63,13 +64,29 @@ const freePort = async (): Promise<string> => {
   return String(port);
 };
 
-const waitFor = async (check: () => Promise<boolean>, what: string): Promise<void> => {
-  const deadline = Date.now() + 90_000;
+const waitFor = async (
+  check: () => Promise<boolean>,
+  what: string,
+  timeoutMs = 90_000,
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`${what} did not become ready`);
+};
+
+/** Runs an inspect-then-act step again when the window moved under the first snapshot. */
+const retryOnStale = async <T>(step: () => Promise<T>, attempts = 5): Promise<T> => {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await step();
+    } catch (error) {
+      if (attempt >= attempts || !/stale/.test((error as Error).message)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
 };
 
 const signIn = async (): Promise<string> => {
@@ -192,6 +209,21 @@ const pointer = async (): Promise<{ x: number; y: number }> => {
   const match = /x:(\d+)\s+y:(\d+)/.exec(out);
   if (!match) throw new Error(`xdotool said: ${out}`);
   return { x: Number(match[1]), y: Number(match[2]) };
+};
+
+/** Closes one window by id, so a stale-ref test does not depend on where the keyboard focus is. */
+const closeWindow = async (id: string): Promise<void> => {
+  for await (const event of exec.run({
+    program: 'wmctrl',
+    args: ['-ic', id],
+    cwd: '/workspace',
+    timeoutMs: 10_000,
+    env: { DISPLAY: ':0' },
+  })) {
+    if (event.type === 'exit' && event.code !== 0) {
+      throw new Error(`wmctrl could not close ${id}`);
+    }
+  }
 };
 
 beforeAll(async () => {
@@ -448,5 +480,134 @@ describe('desktop computer use (S53)', () => {
       expect(ocr.text.toLowerCase()).toContain(folder);
     },
     60_000,
+  );
+});
+
+describe('desktop accessibility (S54)', () => {
+  it.runIf(available)(
+    'reads named elements from Thunar, the terminal and Chromium',
+    async () => {
+      expect(desktop.accessibility).toBe(true);
+      const signal = AbortSignal.timeout(60_000);
+      const windows = [
+        { app: 'thunar', window: /thunar|file manager/i },
+        { app: 'xfce4-terminal', window: /terminal|xfce4|@/i },
+        { app: 'chromium', window: /chrom|new tab/i },
+      ] as const;
+      for (const item of windows) {
+        await desktop.act({ kind: 'launch_app', app: item.app }, signal);
+        await waitFor(async () => {
+          const list = await desktop.windows(signal);
+          return list.some((window) => item.window.test(window.title));
+        }, `the ${item.app} window`);
+
+        let tree: DesktopA11yTree | undefined;
+        await waitFor(async () => {
+          try {
+            tree = await desktop.inspect(
+              { window: item.app === 'xfce4-terminal' ? 'terminal' : item.app, depth: 8 },
+              signal,
+            );
+          } catch {
+            return false;
+          }
+          return tree.nodes.some((node) => node.depth > 0 && Boolean(node.name));
+        }, `a named ${item.app} tree`);
+        expect(tree!.snapshot).toMatch(/^s\d+$/);
+        expect(tree!.nodes.length).toBeGreaterThan(0);
+        expect(tree!.nodes.every((node) => /^e\d+$/.test(node.ref))).toBe(true);
+        expect(tree!.nodes.some((node) => node.depth > 0 && Boolean(node.name))).toBe(true);
+      }
+    },
+    240_000,
+  );
+
+  it.runIf(available)(
+    'refuses a ref from a stale snapshot',
+    async () => {
+      const signal = AbortSignal.timeout(30_000);
+      await desktop.act({ kind: 'launch_app', app: 'thunar' }, signal);
+      await waitFor(async () => {
+        const list = await desktop.windows(signal);
+        return list.some((window) => /thunar|file manager/i.test(window.title));
+      }, 'the Thunar window');
+      const tree = await desktop.inspect({ window: 'thunar', depth: 6 }, signal);
+      await expect(
+        desktop.actOnElement({ snapshot: tree.snapshot, ref: 'e9999', action: 'click' }, signal),
+      ).rejects.toThrow(/stale/);
+    },
+    90_000,
+  );
+
+  it.runIf(available)(
+    'sets text, clicks a menu and refuses the old snapshot after the window changed',
+    async () => {
+      const signal = AbortSignal.timeout(60_000);
+      await desktop.act({ kind: 'launch_app', app: 'thunar' }, signal);
+      await waitFor(async () => {
+        const list = await desktop.windows(signal);
+        return list.some((window) => /thunar|file manager/i.test(window.title));
+      }, 'the Thunar window');
+
+      // set_text replaces the location field; Return navigates. A snapshot can go stale while
+      // Thunar is still settling, so a real caller retries with a fresh one.
+      await retryOnStale(async () => {
+        const before = await desktop.inspect({ window: 'thunar', depth: 8 }, signal);
+        const field = before.nodes.find(
+          (node) => node.role === 'text' && node.states.includes('editable'),
+        );
+        if (!field) throw new Error('Thunar has no editable location field');
+        await desktop.actOnElement(
+          { snapshot: before.snapshot, ref: field.ref, action: 'set_text', text: '/workspace' },
+          signal,
+        );
+      });
+      await desktop.act({ kind: 'key', key: 'Return' }, signal);
+
+      let navigated: DesktopA11yTree | undefined;
+      await waitFor(async () => {
+        try {
+          navigated = await desktop.inspect({ window: 'thunar', depth: 8 }, signal);
+        } catch {
+          return false;
+        }
+        return navigated.nodes.some((node) => node.value?.includes('/workspace'));
+      }, 'the location field to show /workspace');
+
+      const clicked = await retryOnStale(async () => {
+        const tree = await desktop.inspect({ window: 'thunar', depth: 8 }, signal);
+        const menu = tree.nodes.find((node) => node.role === 'menu' && node.name === 'File');
+        if (!menu) throw new Error('Thunar has no File menu');
+        await desktop.actOnElement(
+          { snapshot: tree.snapshot, ref: menu.ref, action: 'click' },
+          signal,
+        );
+        return { tree, menu };
+      });
+      await desktop.act({ kind: 'key', key: 'Escape' }, signal);
+
+      const thunarWindow = (await desktop.windows(signal)).find((window) =>
+        /thunar|file manager/i.test(window.title),
+      );
+      expect(thunarWindow).toBeDefined();
+      await closeWindow(thunarWindow!.id);
+      await waitFor(
+        async () => {
+          const list = await desktop.windows(signal);
+          return !list.some((window) => window.id === thunarWindow!.id);
+        },
+        'the Thunar window to close',
+        10_000,
+      );
+
+      // The window that held this snapshot is gone; its refs must be refused, not clicked blindly.
+      await expect(
+        desktop.actOnElement(
+          { snapshot: clicked.tree.snapshot, ref: clicked.menu.ref, action: 'click' },
+          signal,
+        ),
+      ).rejects.toThrow(/stale/);
+    },
+    90_000,
   );
 });

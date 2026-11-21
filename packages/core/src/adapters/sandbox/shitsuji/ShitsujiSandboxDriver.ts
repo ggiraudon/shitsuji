@@ -59,10 +59,11 @@ export class ShitsujiSandboxDriver implements SandboxDriver {
 
   async open(_lease: LeaseRequest): Promise<Sandbox> {
     const capabilities = await this.capabilities();
+    const desktop = capabilities.desktop;
     return {
       files: new ShitsujiFiles(this.client),
       exec: new ShitsujiExec(this.client, capabilities.exec!.maxTimeoutMs),
-      ...(capabilities.desktop && { desktop: new ShitsujiDesktop(this.client) }),
+      ...(desktop && { desktop: new ShitsujiDesktop(this.client, desktop.accessibility) }),
       egress: new ShitsujiEgress(this.client),
       close: async () => undefined,
     };

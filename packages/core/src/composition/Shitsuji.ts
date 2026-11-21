@@ -238,6 +238,10 @@ export class Shitsuji {
       ...(this.readTypedApproval && { readTypedApproval: this.readTypedApproval }),
       ...(this.viewerUrl && { viewerUrl: this.viewerUrl }),
       attachmentPath: async (hostPath) => this.sandbox?.attachmentPath(hostPath) ?? hostPath,
+      accessibility: async () => {
+        const status = await this.sandbox?.accessibilityStatus();
+        return status ? { helper: status.helper, missing: status.missing } : undefined;
+      },
       reply: (channelId, chatId, text, intent) => this.deliverTo(channelId, chatId, text, intent),
     });
     for (const channel of this.channels.all()) {

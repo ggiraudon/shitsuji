@@ -68,7 +68,8 @@ root init for no extra benefit, and Compose's `init: true` already reaps zombies
 | `websockify` | 1001 | sandbox network 6080 | Raw WebSocket for full control |
 | `websockify` | 1001 | sandbox network 6081 | Raw WebSocket for watch-only |
 | `chromium --remote-debugging-pipe --force-renderer-accessibility`, launched by `sandboxd` | 1000 | — (a CDP pipe to `sandboxd`, no port; Y3) | The agent's browser ([F09](F09-browser.md)) |
-| `sandboxd` desktop endpoints (+ AT-SPI helper) | 1001 | 4555 (the same daemon as F08) | Accessibility tree, screenshots, OCR, input, window list, app launch, clipboard |
+| `sandboxd` desktop endpoints | 1001 | 4555 (the same daemon as F08) | Screenshots, OCR, input, window list, app launch, clipboard, the tree routes |
+| the AT-SPI helper, a child of `sandboxd` | 1000 | — (the session bus) | Reads the accessibility tree the desktop apps publish (S54) |
 
 Xvnc serves one password and one mode. Two passwords (view-only and full control) therefore need two VNC
 servers on one display, so the image uses Xvfb plus two `x11vnc` instances. The two x11vnc servers and the
@@ -90,9 +91,10 @@ view-only VNC password until you take control. CDP stays inside the container (Y
 and the capability split stay exactly as F08 built them; only a desktop layer is added. Build order
 matters: build and tag `shitsuji/sandbox` first, which Compose does with its `sandbox-base` service.
 
-- Package list (no recommends): XFCE, Xvfb and x11vnc, D-Bus and AT-SPI, Chromium, LibreOffice with
-  the GTK VCL plugin, Thunar, xfce4-terminal, `xdotool`, `wmctrl`, `xclip`, `scrot`, websockify, plus
-  x11-utils. The noVNC client is not in the image: `core` serves it with the viewer page (S51).
+- Package list (no recommends): XFCE, Xvfb and x11vnc, D-Bus and AT-SPI (`python3-gi`,
+  `gir1.2-atspi-2.0`, `python3-pyatspi`), Chromium, LibreOffice with the GTK VCL plugin, Thunar,
+  xfce4-terminal, `xdotool`, `wmctrl`, `xclip`, `scrot`, websockify, plus x11-utils. The noVNC client
+  is not in the image: `core` serves it with the viewer page (S51).
 - The base entrypoint still runs first as root (token, workspace repair, venv) and then execs
   `sandbox-desktop`, which generates the VNC passwords and starts supervisord. sandboxd is started by
   the supervisor as uid 1001 with the same four ambient capabilities; the desktop programs are uid
@@ -145,9 +147,10 @@ matters: build and tag `shitsuji/sandbox` first, which Compose does with its `sa
 | `POST /desktop/input/mouse` | move, click (left/right/double), drag, scroll at coordinates |
 | `POST /desktop/input/keyboard` | type text, key combos |
 | `GET /desktop/windows` | open windows with titles and geometry (`wmctrl`) |
-| `GET /desktop/a11y/tree?window=&depth=&filter=` | AT-SPI tree of a window as compact text with element refs (S54) |
+| `GET /desktop/a11y/tree?window=&depth=&filter=&ref=` | AT-SPI tree of a window, as structured nodes with element refs (S54) |
 | `GET /desktop/a11y/find?name=&role=` | Elements matching a name or role (S54) |
 | `POST /desktop/a11y/act` | Run an action on an element ref (S54) |
+| `GET /desktop/a11y/status` | Which allowed apps publish a tree, for the startup check and `/status` (S54) |
 | `POST /desktop/ocr` | Text from a screen region (Tesseract), for apps with no tree |
 | `POST /desktop/apps/launch` | start an allowed app (`chromium`, `libreoffice`, `thunar`, `xfce4-terminal`) |
 | `GET/POST /desktop/clipboard` | read / write the clipboard (`xclip`) |
@@ -160,8 +163,14 @@ scaled to fit 1280 px on the long side (the reply carries the scale and the orig
 S52 image references under `sessions/<sessionId>/images/`; `computer.act` input coordinates are in the
 latest scaled screenshot, and the tool maps them back to display pixels.
 
-Implemented with `xdotool`, `ffmpeg` (`x11grab`) for captures, `wmctrl`, `xclip` and Tesseract. Screenshots
-and OCR frames travel over pipes; the daemon never writes them to a shared `/tmp` file.
+S54 adds the tree routes and the helper; `core` formats the compact text (about 8,000 tokens per window)
+and exposes `desktop.inspect` / `desktop.act`. The driver advertises `accessibility: true` only while the
+helper has answered; a sandbox where it cannot start keeps screenshots and `computer.act` but registers
+no tree tools.
+
+Implemented with `xdotool`, `ffmpeg` (`x11grab`) for captures, `wmctrl`, `xclip`, Tesseract and the
+Python AT-SPI helper. Screenshots and OCR frames travel over pipes; the daemon never writes them to a
+shared `/tmp` file.
 
 ### Reading the screen: structure first, pixels last
 
@@ -188,7 +197,7 @@ The tree is sent to the model as compact indented text, not JSON, limited to the
 panels or decorative containers), with a ref for each actionable element:
 
 ```text
-window "Untitled 1 - LibreOffice Calc" [w1]
+window "Untitled 1 - LibreOffice Calc" (libreoffice) — snapshot s3
   menu bar
     menu "File" [e3]  menu "Edit" [e4]  …
   toolbar "Standard"
@@ -198,12 +207,14 @@ window "Untitled 1 - LibreOffice Calc" [w1]
     cell "A1" [e31] = "42"  cell "B1" [e32] = ""
 ```
 
-Refs belong to a **snapshot**: `a11y.act({ snapshot, ref, action })` re-resolves the element and refuses with
-"stale, take a new snapshot" if the window changed underneath (openbot and OpenMausBot do the same with their
-snapshot ids). Refs never leak raw AT-SPI object paths to the model.
+Refs belong to a **snapshot**: `desktop.act({ snapshot, ref, action })` re-resolves the element and refuses
+with "stale, take a new snapshot" when the window was created, destroyed or renamed, or when the element's
+role, name or value no longer matches the snapshot (openbot and OpenMausBot use their snapshot ids the same
+way). Refs map to private child-index paths in the helper; an AT-SPI object path never reaches the model.
 
-The tree is capped (default about 8,000 tokens per window); the result says how to ask for a sub-tree when
-it is cut, as openbot does when its 190 KB trees come back.
+The tree is capped at about 8,000 tokens per window; when it is cut, the result names the window and a ref
+to continue from: `desktop.inspect({ window, ref, depth })`. `desktop.inspect({ window, find: { name } })`
+lists matching elements as a flat list instead, and every match still carries a ref.
 
 #### Making apps publish a tree in the container
 
@@ -219,39 +230,61 @@ Accessibility is often off unless something asks for it. The desktop image:
   the flag when F09 needs it (the S50 CI check starts it with the same flag on the display);
 - starts LibreOffice with its accessibility bridge enabled (it uses the GTK VCL plugin in this image).
 
-A startup check lists the apps that publish a tree, so a missing one is a visible warning, not a silent
-fall-back to pixels.
+At startup `sandboxd` asks the helper which allowed apps publish a tree. It logs one line per app and a
+warning for each missing one; `/status` repeats the live answer, so a missing tree is visible instead of a
+silent fall-back to pixels. The check runs again whenever `/status` or the status route asks.
 
 #### Reading AT-SPI from the daemon
 
-The daemon is TypeScript like the rest of the monorepo, but AT-SPI has no well-maintained Node binding.
-Proposal: a **small Python helper** (`python3-gi` + `gir1.2-atspi-2.0`, both Debian packages) that the daemon
-starts once and talks to over stdin/stdout with JSON lines: `tree`, `find`, `act`. It keeps the snapshot
-table and resolves refs. The alternative, speaking the AT-SPI D-Bus interfaces directly from Node with a
-D-Bus library, avoids Python but means re-implementing what `libatspi` already does. Start with the helper;
-it stays behind the daemon API, so it can be swapped.
+The daemon is TypeScript like the rest of the monorepo, but AT-SPI has no well-maintained Node binding. A
+**small Python helper** (`python3-gi`, `gir1.2-atspi-2.0` and `python3-pyatspi` in the image) runs as a
+long-lived child of `sandboxd` and speaks JSON lines over stdin/stdout: `ping`, `apps`, `tree`, `find`,
+`act`. The alternative, speaking the AT-SPI D-Bus interfaces directly from Node with a D-Bus library,
+avoids Python but means re-implementing what `libatspi` already does; the helper stays behind the daemon
+API and can be swapped.
+
+- **It runs as uid 1000**, not as `sandboxd`'s 1001: the session D-Bus accepts clients of the uid that owns
+  the bus, and the desktop session — and its accessibility bus — is uid 1000's. It gets a fixed minimal
+  environment (display and bus address, no token and no VNC password), so it cannot read what the daemon
+  protects even if a sandbox command signals it.
+- One request is in flight at a time. Each has a deadline (10 s by default) and its line has a 2 MiB cap;
+  every reply is validated with zod, including the node count, names and values. A hung, oversized,
+  malformed or internally failed helper is killed, the request in flight fails, and the next request starts
+  a fresh process. Nothing is replayed.
+- The **snapshot table lives in the helper**, keyed per window. It keeps only private child-index paths and
+  the element's role, name and value; a stale check never exposes an object path. The map is bounded, so an
+  old snapshot is refused after enough new ones.
+- The helper can only see apps on the container's own session bus, never the host.
 
 #### Safety
 
 - Text from the tree and from OCR is **untrusted content** ([F11](F11-trust-and-approvals.md)), exactly like
-  web pages: a document open in LibreOffice can contain instructions aimed at the agent.
-- `a11y.act` has the same effects as the matching `computer.act` call: `click` and `set_text` are
+  web pages: a document open in LibreOffice can contain instructions aimed at the agent. `desktop.inspect`
+  and `desktop.act` mark their output untrusted, as `computer.act` does.
+- `desktop.act` has the same effects as the matching `computer.act` call: `click` and `set_text` are
   `write_local`; a click on a button whose name looks like an outside action ("Send", "Pay", "Delete") in a
-  browser is judged by the [F09](F09-browser.md) rules.
-- The helper can only see apps on the container's own session bus, never the host.
+  browser is judged by the [F09](F09-browser.md) rules. Until those rules land, a Chromium click stays
+  `write_local` (the recorded gap in [#136](https://github.com/ggiraudon/shitsuji/issues/136)).
+- The helper can only see apps on the container's own session bus, never the host. It holds no token and no
+  VNC password; a sandbox command that kills it only causes the next request to start a fresh one.
 
 ### Port and adapters
 
 The desktop is the `desktop` capability of a sandbox driver ([F08](F08-workspace-sandbox.md#the-driver-port)):
 `Sandbox.desktop` implements this interface, and the driver advertises
 `desktop: { accessibility, screenshots, takeControl }`. `core` registers `desktop.*` and `computer.*` only when
-the active driver has it.
+the active driver has it; `desktop.inspect` and `desktop.act` are registered only when `accessibility` is
+true, and the daemon sets that flag from a helper that actually answered.
 
 ```ts
 export interface DesktopCapability {
   state(): Promise<ComputerState>;                       // stopped / starting / ready / busy / owner_control
   screenshot(opts?: { scale?: number }): Promise<Image>;
   act(action: ComputerAction, signal: AbortSignal): Promise<ActionResult>;
+  inspect(request: TreeQuery, signal?: AbortSignal): Promise<Tree>;   // S54
+  find(request: FindQuery, signal?: AbortSignal): Promise<Tree>;      // S54
+  actOnElement(request: ActRequest, signal?: AbortSignal): Promise<ActResult>; // S54
+  accessibilityStatus(signal?: AbortSignal): Promise<A11yStatus>;     // S54
   liveView(): Promise<LiveViewTicket>;                   // short-lived, owner-scoped URL
   setControl(mode: 'agent' | 'owner' | 'shared'): Promise<void>;
 }
@@ -264,17 +297,21 @@ or macOS desktop (for example through cua's driver), or (much later, opt-in) you
 
 Two tools, matching the levels above:
 
-- `desktop.inspect({ window?, find?, depth? })` returns the AT-SPI tree or matching elements, with refs, and
-  `desktop.act({ snapshot, ref, action, text? })` acts on an element. After an action, the result holds the
-  changed part of the tree (and a small screenshot only if asked for).
+- `desktop.inspect({ window?, find?, depth? })` returns the AT-SPI tree or matching elements, with refs and
+  a snapshot id, and `desktop.act({ snapshot, ref, action, text? })` acts on an element. After an action,
+  the result holds a fresh tree and snapshot.
 - `computer.act` with actions `screenshot`, `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`,
   `type`, `key`, `wait`, `launch_app`, `ocr`. The result always includes a fresh scaled screenshot, so the
   model sees the effect.
 
-- Needs a **vision-capable model**; the router selects `purpose: vision` ([F03](F03-model-providers.md)).
-  DeepSeek V4.1 Flash accepts images, so computer use can run on the same model as chat. Keeping
-  `purpose: vision` separate still lets you point it at a stronger or local vision model later without
-  touching the chat setup.
+- **Tree registration:** `desktop.inspect` and `desktop.act` are registered only when the active driver
+  advertises `accessibility`, which means the helper answered; structure does not need a vision model.
+  `desktop.inspect` is `read`, `desktop.act` is `write_local`, and both mark their output untrusted. A ref
+  whose window changed is refused with "stale, take a new snapshot" rather than clicked.
+- Needs a **vision-capable model** for `computer.act`; the router selects `purpose: vision`
+  ([F03](F03-model-providers.md)). DeepSeek V4.1 Flash accepts images, so computer use can run on the same
+  model as chat. Keeping `purpose: vision` separate still lets you point it at a stronger or local vision
+  model later without touching the chat setup.
 - **Registration:** `computer.act` is registered only when the active driver advertises a desktop and
   the `vision` purpose has a model with vision. The input is validated with zod in `sandbox-protocol`;
   coordinate actions are bounded by the real screen, keys come from an allow-list, typed text is passed

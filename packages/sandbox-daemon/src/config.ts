@@ -36,6 +36,14 @@ export interface SandboxDaemonConfig {
   desktopMaxOutputBytes: number;
   /** The most bytes a binary screenshot may produce (S53). */
   desktopMaxBinaryBytes: number;
+  /** The Python 3 that runs the AT-SPI helper (S54). */
+  desktopA11yPython: string;
+  /** The helper script installed next to sandboxd (S54). */
+  desktopA11yHelper: string;
+  /** One helper request's deadline; a hung helper is killed (S54). */
+  desktopA11yTimeoutMs: number;
+  /** The longest line the helper may write; a larger line kills it (S54). */
+  desktopA11yMaxLineBytes: number;
 }
 
 /**
@@ -101,5 +109,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SandboxDaem
     desktopTimeoutMs: Number(env.SANDBOX_DESKTOP_TIMEOUT_MS ?? 5_000),
     desktopMaxOutputBytes: Number(env.SANDBOX_DESKTOP_MAX_OUTPUT_BYTES ?? 1024 * 1024),
     desktopMaxBinaryBytes: Number(env.SANDBOX_DESKTOP_MAX_BINARY_BYTES ?? 16 * 1024 * 1024),
+    desktopA11yPython: env.SANDBOX_DESKTOP_A11Y_PYTHON ?? '/usr/bin/python3',
+    desktopA11yHelper: env.SANDBOX_DESKTOP_A11Y_HELPER ?? '/app/a11y_helper.py',
+    desktopA11yTimeoutMs: Number(env.SANDBOX_DESKTOP_A11Y_TIMEOUT_MS ?? 10_000),
+    desktopA11yMaxLineBytes: Number(env.SANDBOX_DESKTOP_A11Y_MAX_LINE_BYTES ?? 2 * 1024 * 1024),
   };
 }

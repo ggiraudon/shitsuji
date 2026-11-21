@@ -42,6 +42,7 @@ async function setup(
     ) => Promise<'approve' | 'decline' | 'unclear'>;
     attachmentPath?: (hostPath: string) => Promise<string>;
     viewerUrl?: string;
+    accessibility?: () => Promise<{ helper: boolean; missing: readonly string[] } | undefined>;
   } = {},
 ) {
   const repos = new InMemoryRepositories();
@@ -100,6 +101,7 @@ async function setup(
     ...(options.readTypedApproval && { readTypedApproval: options.readTypedApproval }),
     ...(options.attachmentPath && { attachmentPath: options.attachmentPath }),
     ...(options.viewerUrl && { viewerUrl: options.viewerUrl }),
+    ...(options.accessibility && { accessibility: options.accessibility }),
     reply: async (channelId, chatId, text, intent) => {
       replies.push({ channel: channelId, chatId, text, intent });
     },
@@ -268,6 +270,26 @@ describe('ChannelGateway: commands (S31)', () => {
     await ctx.receive('/status');
 
     expect(ctx.replies.at(-1)!.text).toMatch(/idle/);
+  });
+
+  it('/status names the allowed apps that publish no tree (S54)', async () => {
+    const ctx = await setup({
+      accessibility: async () => ({ helper: true, missing: ['chromium', 'libreoffice'] }),
+    });
+    await pair(ctx);
+    await ctx.receive('/status');
+    expect(ctx.replies.at(-1)!.text).toContain(
+      'No accessibility tree from: chromium, libreoffice.',
+    );
+  });
+
+  it('/status says when the accessibility helper is down (S54)', async () => {
+    const ctx = await setup({
+      accessibility: async () => ({ helper: false, missing: [] }),
+    });
+    await pair(ctx);
+    await ctx.receive('/status');
+    expect(ctx.replies.at(-1)!.text).toContain('accessibility helper is not running');
   });
 
   it('/new asks to confirm, and /new confirm starts a session for the chat', async () => {

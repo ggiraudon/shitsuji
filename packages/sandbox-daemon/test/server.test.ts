@@ -4,6 +4,8 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SANDBOX_TOKEN_HEADER } from '@shitsuji/sandbox-protocol';
+import type { A11yService } from '../src/a11y.js';
+import type { DesktopService } from '../src/desktop.js';
 import { ExecSupervisor } from '../src/exec.js';
 import { SandboxFilesService } from '../src/files.js';
 import { SandboxPaths } from '../src/paths.js';
@@ -229,5 +231,50 @@ describe('sandboxd HTTP surface (F08, S45)', () => {
 
     const unknown = await call('/files/delete', { token: TOKEN, body: {} });
     expect(unknown.status).toBe(404);
+  });
+});
+
+describe('sandboxd accessibility capability (S54)', () => {
+  it('claims accessibility only while the helper has actually answered', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sandboxd-a11y-'));
+    const paths = new SandboxPaths({
+      workspace: { dir: path.join(dir, 'workspace') },
+      handoff: { dir: path.join(dir, 'handoff'), readOnly: true },
+    });
+    await paths.start();
+    const exec = new ExecSupervisor(paths, {
+      maxTimeoutMs: 60_000,
+      maxOutputBytes: 10_000,
+      env: { PATH: '/usr/bin:/bin', HOME: '/home/agent', LANG: 'C.UTF-8', USER: 'agent' },
+    });
+    let up = true;
+    const a11y = {
+      get available() {
+        return up;
+      },
+    } as unknown as A11yService;
+    const testServer = createSandboxServer({
+      token: TOKEN,
+      files: new SandboxFilesService(paths),
+      exec,
+      desktop: {} as DesktopService,
+      a11y,
+    });
+    await new Promise<void>((resolve) => testServer.listen(0, '127.0.0.1', resolve));
+    const testUrl = `http://127.0.0.1:${(testServer.address() as AddressInfo).port}`;
+    try {
+      const capabilities = () =>
+        fetch(`${testUrl}/capabilities`, { headers: { [SANDBOX_TOKEN_HEADER]: TOKEN } });
+      expect(await (await capabilities()).json()).toMatchObject({
+        desktop: { accessibility: true, screenshots: true },
+      });
+      up = false;
+      expect(await (await capabilities()).json()).toMatchObject({
+        desktop: { accessibility: false },
+      });
+    } finally {
+      await new Promise<void>((resolve) => testServer.close(() => resolve()));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

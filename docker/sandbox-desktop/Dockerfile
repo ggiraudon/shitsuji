@@ -14,7 +14,10 @@
 # VNC servers run as uid 1001 so they can read the 0400 password files; commands run as uid 1000
 # and cannot read them.
 
-FROM shitsuji/sandbox
+# The base image is the untagged local build by default, which is what Compose's `sandbox-base`
+# service tags. Integration builds pass the base tag explicitly so they never depend on `latest`.
+ARG SANDBOX_BASE=shitsuji/sandbox
+FROM ${SANDBOX_BASE}
 
 ENV DISPLAY=:0 \
     SANDBOX_DESKTOP=1 \
@@ -49,6 +52,7 @@ RUN apt-get update \
     libreoffice-gtk3 \
     libreoffice-writer \
     python3-gi \
+    python3-pyatspi \
     scrot \
     supervisor \
     tesseract-ocr-eng \
@@ -77,6 +81,7 @@ RUN find / -xdev -perm -4000 -exec chmod u-s {} +
 RUN mkdir -p /etc/supervisor/conf.d
 COPY --chmod=0755 docker/sandbox-desktop/sandbox-desktop /usr/local/bin/sandbox-desktop
 COPY --chmod=0755 docker/sandbox-desktop/start-sandboxd /usr/local/bin/start-sandboxd
+COPY --chmod=0755 docker/sandbox-desktop/a11y_helper.py /app/a11y_helper.py
 COPY --chmod=0644 docker/sandbox-desktop/supervisord.conf /etc/supervisor/supervisord.conf
 
 # The sandbox network only: no ports are published. websockify serves the raw WebSocket; core
