@@ -27,10 +27,13 @@ const webhookBody = z
     message: 'content or message is required',
   });
 
+/** How the webhook listens and who may post: everything with a safe default except the key check. */
 export interface WebhookChannelOptions {
   /** 127.0.0.1 by default, so only this machine can reach it; Compose sets 0.0.0.0 in the container. */
   host?: string;
+  /** The port to listen on; 3000 by default, 0 asks the OS for a free one. */
   port?: number;
+  /** The path a POST answers on; `/webhook` by default. */
   path?: string;
   /**
    * Checks the key from `Authorization: Bearer <key>`. Required: a POST talks to Shitsuji as the owner
@@ -41,10 +44,15 @@ export interface WebhookChannelOptions {
   replyTimeoutMs?: number;
 }
 
+/** One in-flight POST, waiting for the reply it should return. */
 interface PendingRequest {
+  /** The id the caller sent (or one we made), echoed in the response. */
   messageId: string;
+  /** The destination the request was queued under, until a turn takes it. */
   chatId: string;
+  /** The timeout that answers 202 when the reply takes too long. */
   timer: NodeJS.Timeout;
+  /** Writes the response once; later calls are ignored. */
   respond(body: unknown, status: number): void;
   /** The turn this request was steered into, once receive() returns it (#35). */
   turnId?: TurnId;
@@ -71,11 +79,17 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     maxMessageLength: 100_000,
   };
 
+  /** The interface to bind; `127.0.0.1` unless the config widens it. */
   private readonly host: string;
+  /** The configured port, before the OS picks one. */
   private readonly port: number;
+  /** The path a POST answers on. */
   private readonly path: string;
+  /** How long a POST waits for its reply before 202. */
   private readonly replyTimeoutMs: number;
+  /** The owner-key check; a POST without it is refused before its body is read. */
   private readonly authorize: (key: string | undefined) => boolean;
+  /** Degrades the reply to plain text, since the webhook client only reads text. */
   private readonly renderer = new PlainTextRenderer();
   /** Every in-flight request by its message id. */
   private readonly waiting = new Map<string, PendingRequest>();
@@ -83,11 +97,15 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
   private readonly byDestination = new Map<string, PendingRequest[]>();
   /** Requests waiting on a particular turn; steering puts several here (#35). */
   private readonly byTurn = new Map<TurnId, PendingRequest[]>();
+  /** The HTTP server while it runs; null before `start` and after `stop`. */
   private server: Server | null = null;
+  /** The port the OS actually bound, when `port` was 0. */
   private actualPort?: number;
 
   constructor(
+    /** Structured logger for startup, delivery misses and failed messages. */
     private readonly log: Logger,
+    /** The address, key check and timeout; the composition root builds them from config. */
     options: WebhookChannelOptions,
   ) {
     super();
@@ -98,6 +116,7 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     this.replyTimeoutMs = options.replyTimeoutMs ?? 60_000;
   }
 
+  /** Opens the HTTP server and records the port the OS bound. */
   override async start(sink: InboundSink): Promise<void> {
     await super.start(sink);
     this.server = createServer((req, res) => void this.handle(req, res));
@@ -116,6 +135,7 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     });
   }
 
+  /** Answers every in-flight POST with 503, closes the server, then clears the adapter's state. */
   override async stop(): Promise<void> {
     for (const pending of [...this.waiting.values()]) {
       clearTimeout(pending.timer);
@@ -175,10 +195,15 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     return this.host;
   }
 
+  /** The URL a POST goes to; `localhost` because the webhook is a local interface. */
   getUrl(): string {
     return `http://localhost:${this.getPort()}${this.path}`;
   }
 
+  /**
+   * The HTTP handler: health and info on GET, the message on POST. It checks the key before reading
+   * the body and holds the response until `deliver` answers it.
+   */
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url ?? '/';
     if (req.method === 'GET' && url === '/') {
@@ -268,6 +293,7 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     });
   }
 
+  /** Moves a request from the destination queue to its turn's queue, so the steer's reply answers it. */
   private attachToTurn(pending: PendingRequest, turnId: TurnId): void {
     pending.turnId = turnId;
     this.removeFromDestination(pending);
@@ -276,6 +302,7 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     this.byTurn.set(turnId, queue);
   }
 
+  /** Appends a request to its destination's queue, for a reply that carries no turn id. */
   private enqueue(chatId: string, pending: PendingRequest): void {
     const queue = this.byDestination.get(chatId) ?? [];
     queue.push(pending);
@@ -290,6 +317,7 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     return queue;
   }
 
+  /** Takes the oldest request waiting on a destination; a reply without a turn id answers one. */
   private takeDestination(chatId: string): PendingRequest[] {
     const queue = this.byDestination.get(chatId);
     if (!queue?.length) return [];
@@ -299,6 +327,7 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     return [pending];
   }
 
+  /** Forgets a request everywhere: the main map, its destination queue and its turn queue. */
   private remove(pending: PendingRequest): void {
     this.waiting.delete(pending.messageId);
     clearTimeout(pending.timer);
@@ -313,6 +342,7 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     }
   }
 
+  /** Removes a request from its destination queue, dropping the queue when it empties. */
   private removeFromDestination(pending: PendingRequest): void {
     const queue = this.byDestination.get(pending.chatId ?? '');
     if (!queue) return;
@@ -321,6 +351,7 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     if (!queue.length) this.byDestination.delete(pending.chatId ?? '');
   }
 
+  /** Reads the body as UTF-8, refusing anything over 1 MB. */
   private async readBody(req: IncomingMessage): Promise<string> {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -332,6 +363,7 @@ export class WebhookChannelAdapter extends BaseChannelAdapter {
     return Buffer.concat(chunks).toString('utf8');
   }
 
+  /** Writes a JSON response once; a response already ended is left alone. */
   private json(res: ServerResponse, status: number, body: unknown): void {
     if (res.writableEnded) return;
     res.writeHead(status, { 'Content-Type': 'application/json' });

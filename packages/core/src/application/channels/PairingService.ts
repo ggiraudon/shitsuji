@@ -2,8 +2,11 @@ import { randomBytes } from 'node:crypto';
 import type { OwnerId } from '../../domain/model/ids.js';
 import type { Clock } from '../../ports/Clock.js';
 
+/** A code to show the owner, and when it stops being accepted. */
 export interface PairingCode {
+  /** The code itself, already in the unambiguous alphabet. */
   code: string;
+  /** When `consume` will start refusing it. */
   expiresAt: Date;
 }
 
@@ -17,18 +20,32 @@ const DEFAULT_TTL_MS = 10 * 60_000;
  * always issue another. The owner id travels with the code, so a code cannot pair someone else's chat.
  */
 export class PairingService {
-  private readonly codes = new Map<string, { ownerId: OwnerId; expiresAt: Date }>();
+  /** The unspent codes: code → the owner it pairs with, and its expiry. */
+  private readonly codes = new Map<
+    string,
+    {
+      /** The owner the code pairs. */
+      ownerId: OwnerId;
+      /** When it stops being accepted. */
+      expiresAt: Date;
+    }
+  >();
+  /** How long a new code stays valid. */
   private readonly ttlMs: number;
+  /** Makes a new code; injectable so a test can force collisions. */
   private readonly newCode: () => string;
 
   constructor(
+    /** Injected clock: expiry is compared against it. */
     private readonly clock: Clock,
+    /** Overrides for the lifetime and the code generator, for tests. */
     options: { ttlMs?: number; code?: () => string } = {},
   ) {
     this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
     this.newCode = options.code ?? randomCode;
   }
 
+  /** Issues a code for the owner, first dropping the expired ones. */
   issue(ownerId: OwnerId): PairingCode {
     const now = this.clock.now();
     this.prune(now);
@@ -49,6 +66,7 @@ export class PairingService {
     return found.ownerId;
   }
 
+  /** Drops the expired codes, so the map cannot grow with codes nobody used. */
   private prune(now: Date): void {
     for (const [code, entry] of this.codes) {
       if (entry.expiresAt.getTime() <= now.getTime()) this.codes.delete(code);

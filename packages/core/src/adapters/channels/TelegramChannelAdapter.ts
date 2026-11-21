@@ -14,9 +14,11 @@ import type { HandoffStore } from '../files/HandoffStore.js';
 import type { TelegramIncoming, TelegramTransport } from './TelegramTransport.js';
 import { escapeHtml, TelegramRenderer } from './TelegramRenderer.js';
 
+/** What the adapter may be given at construction; both are optional. */
 export interface TelegramAdapterOptions {
   /** Where attachments are stored; without it, files are skipped with a warning. */
   handoff?: HandoffStore;
+  /** The renderer, so a test can pass one with different escaping. */
   renderer?: TelegramRenderer;
 }
 
@@ -39,13 +41,24 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
   };
 
   /** The "Working…" message per chat, removed when the turn's reply is delivered. */
-  private readonly working = new Map<string, { messageId?: number }>();
+  private readonly working = new Map<
+    string,
+    {
+      /** Set once Telegram answers with the message's id; unset while it is being sent. */
+      messageId?: number;
+    }
+  >();
+  /** Where inbound attachments are saved; absent means files are skipped. */
   private readonly handoff?: HandoffStore;
+  /** Turns Markdown into Telegram HTML and splits long replies into chunks. */
   private readonly renderer: TelegramRenderer;
 
   constructor(
+    /** Long polling and the Telegram API calls. */
     private readonly transport: TelegramTransport,
+    /** Structured logger; the token never reaches it. */
     private readonly log: Logger,
+    /** The optional handoff store and renderer. */
     options: TelegramAdapterOptions = {},
   ) {
     super();
@@ -53,6 +66,7 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
     this.renderer = options.renderer ?? new TelegramRenderer();
   }
 
+  /** Registers the sink, starts long polling through the transport and records the adapter as running. */
   override async start(sink: InboundSink): Promise<void> {
     await super.start(sink);
     await this.transport.start((message) => void this.onMessage(message));
@@ -147,6 +161,7 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
     }
   }
 
+  /** Routes one update: a button press, a voice note, or a message with an optional attachment. */
   private async onMessage(message: TelegramIncoming): Promise<void> {
     if (!this.sink) return;
     // Pairing binds a chat; on Telegram a group would let every member act as the owner (F06, #38).
@@ -266,6 +281,7 @@ export class TelegramChannelAdapter extends BaseChannelAdapter {
     }
   }
 
+  /** Removes the "Working…" message for a chat, once the reply is delivered. */
   private async clearWorking(chatId: string): Promise<void> {
     const marker = this.working.get(chatId);
     if (!marker) return;

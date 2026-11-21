@@ -3,6 +3,7 @@ import type { OutboundMessage, OutboundPart } from '../../ports/ChannelAdapter.j
 /** Telegram's limit is 4096 characters; stay well under it so rendered HTML also fits. */
 const DEFAULT_MAX_MARKDOWN = 3800;
 
+/** One message's worth of a long reply: the HTML Telegram renders and the Markdown it came from. */
 export interface TelegramChunk {
   /** The chunk as Telegram HTML. */
   html: string;
@@ -10,6 +11,7 @@ export interface TelegramChunk {
   plain: string;
 }
 
+/** A rendered outbound message: the chunks to send in order, and what was degraded to text. */
 export interface RenderedTelegram {
   /** One chunk per message to send, in order. */
   chunks: TelegramChunk[];
@@ -23,8 +25,12 @@ export interface RenderedTelegram {
  * happens on the Markdown *before* rendering, so a chunk never ends inside an HTML tag or a code fence.
  */
 export class TelegramRenderer {
-  constructor(private readonly maxMarkdown = DEFAULT_MAX_MARKDOWN) {}
+  constructor(
+    /** The Markdown length a chunk may reach; the HTML it renders to stays under Telegram's 4096. */
+    private readonly maxMarkdown = DEFAULT_MAX_MARKDOWN,
+  ) {}
 
+  /** Renders every part into Markdown, then into chunks of Telegram HTML. */
   render(message: OutboundMessage): RenderedTelegram {
     const degraded: OutboundPart['kind'][] = [];
     const markdown = message.parts
@@ -40,6 +46,7 @@ export class TelegramRenderer {
     };
   }
 
+  /** Turns one part into Markdown, recording the kinds it can only show as text. */
   private markdownOf(part: OutboundPart, degraded: OutboundPart['kind'][]): string {
     switch (part.kind) {
       case 'text':
