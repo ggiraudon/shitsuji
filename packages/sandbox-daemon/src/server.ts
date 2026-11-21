@@ -6,6 +6,12 @@ import {
   SANDBOX_ROUTES,
   SANDBOX_TOKEN_HEADER,
   capabilitiesReplySchema,
+  desktopA11yActReplySchema,
+  desktopA11yActRequestSchema,
+  desktopA11yFindQuerySchema,
+  desktopA11yStatusReplySchema,
+  desktopA11yTreeQuerySchema,
+  desktopA11yTreeReplySchema,
   desktopClipboardReplySchema,
   desktopClipboardRequestSchema,
   desktopKeyboardRequestSchema,
@@ -46,7 +52,8 @@ import {
   type SandboxRoot,
   type ViewerCredentialsReply,
 } from '@shitsuji/sandbox-protocol';
-import { z, type ZodTypeAny } from 'zod';
+import { z, type ZodIssue, type ZodTypeAny } from 'zod';
+import type { A11yService } from './a11y.js';
 import { tokenMatches } from './auth.js';
 import type { DesktopService } from './desktop.js';
 import type { ExecSupervisor } from './exec.js';
@@ -65,6 +72,8 @@ export interface SandboxServerDeps {
   vncPasswordsFile?: string;
   /** The desktop tools (S53); absent on the base image, so capabilities omit desktop. */
   desktop?: DesktopService;
+  /** The AT-SPI helper and its startup check (S54); absent when the desktop is off. */
+  a11y?: A11yService;
 }
 
 /**
@@ -93,7 +102,11 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
             files: { roots: ['workspace', 'handoff'] },
             exec: { maxTimeoutMs: deps.exec.maxTimeoutMs },
             ...(deps.desktop && {
-              desktop: { accessibility: false, screenshots: true, takeControl: false },
+              desktop: {
+                accessibility: deps.a11y?.available ?? false,
+                screenshots: true,
+                takeControl: false,
+              },
             }),
           }),
         );
@@ -104,6 +117,10 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
       const desktop = (): DesktopService => {
         if (!deps.desktop) throw notFound('The desktop is not available in this sandbox.');
         return deps.desktop;
+      };
+      const a11y = (): A11yService => {
+        if (!deps.a11y) throw notFound('The accessibility tree is not available in this sandbox.');
+        return deps.a11y;
       };
       if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.desktopState) {
         return send(res, 200, desktopStateReplySchema.parse(await desktop().state()));
@@ -125,6 +142,23 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
       }
       if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.desktopClipboard) {
         return send(res, 200, desktopClipboardReplySchema.parse(await desktop().readClipboard()));
+      }
+      if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.desktopA11yStatus) {
+        return send(res, 200, desktopA11yStatusReplySchema.parse(await a11y().status()));
+      }
+      if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.desktopA11yTree) {
+        const query = desktopA11yTreeQuerySchema.safeParse(
+          Object.fromEntries(url.searchParams.entries()),
+        );
+        if (!query.success) throw invalidRequest(queryMessage(query.error.issues[0]));
+        return send(res, 200, desktopA11yTreeReplySchema.parse(await a11y().tree(query.data)));
+      }
+      if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.desktopA11yFind) {
+        const query = desktopA11yFindQuerySchema.safeParse(
+          Object.fromEntries(url.searchParams.entries()),
+        );
+        if (!query.success) throw invalidRequest(queryMessage(query.error.issues[0]));
+        return send(res, 200, desktopA11yTreeReplySchema.parse(await a11y().find(query.data)));
       }
       if (req.method !== 'POST') throw notFound(`No route for ${req.method} ${url.pathname}.`);
       const body = await readJson(req, maxBodyBytes);
@@ -201,6 +235,10 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
           const request = parse(desktopOcrRequestSchema, body);
           return send(res, 200, desktopOcrReplySchema.parse(await desktop().ocr(request)));
         }
+        case SANDBOX_ROUTES.desktopA11yAct: {
+          const request = parse(desktopA11yActRequestSchema, body);
+          return send(res, 200, desktopA11yActReplySchema.parse(await a11y().act(request)));
+        }
         default:
           throw notFound(`No route for POST ${url.pathname}.`);
       }
@@ -221,6 +259,11 @@ function parse<S extends ZodTypeAny>(schema: S, body: unknown): z.infer<S> {
     throw invalidRequest(issue ? `${issue.path.join('.')}: ${issue.message}` : 'Invalid request.');
   }
   return parsed.data;
+}
+
+function queryMessage(issue: ZodIssue | undefined): string {
+  if (!issue) return 'The query is invalid.';
+  return issue.path.length ? `${issue.path.join('.')}: ${issue.message}` : issue.message;
 }
 
 const vncPasswordsFileSchema = z
