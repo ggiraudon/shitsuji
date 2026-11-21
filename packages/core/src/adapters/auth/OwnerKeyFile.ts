@@ -10,16 +10,24 @@ const hash = (key: string) => createHash('sha256').update(key).digest('hex');
  * on the same machine, and shown in the log at creation. Delete both files to rotate.
  */
 export class OwnerKeyFile {
+  /** The key's hash, loaded by `ensure`; `verify` compares against it in constant time. */
   private expected?: Buffer;
 
-  constructor(private readonly dataDir: string) {}
+  constructor(
+    /** The data folder that holds `owner.key` and `owner-key.sha256`. */
+    private readonly dataDir: string,
+  ) {}
 
+  /** Where the readable key is written for the TUI; the hash lives beside it. */
   get keyPath(): string {
     return path.join(this.dataDir, 'owner.key');
   }
 
   /** Loads the key hash, creating a key first if there is none. Returns the new key when it made one. */
-  async ensure(): Promise<{ created: string | undefined }> {
+  async ensure(): Promise<{
+    /** The key it just generated, so the caller can show it once; undefined when one already existed. */
+    created: string | undefined;
+  }> {
     const hashPath = path.join(this.dataDir, 'owner-key.sha256');
     try {
       this.expected = Buffer.from((await fs.readFile(hashPath, 'utf8')).trim(), 'hex');

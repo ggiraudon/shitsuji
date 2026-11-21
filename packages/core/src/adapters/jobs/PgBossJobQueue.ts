@@ -11,12 +11,15 @@ import { kyselyOf } from '../postgres/PostgresRepositories.js';
  * Transaction from PostgresRepositories to insert the job in that same transaction.
  */
 export class PgBossJobQueue implements JobQueue {
+  /** The pg-boss client, with its own schema and error event. */
   private readonly boss: PgBoss;
   /** Queue name -> whether its jobs use singletonKey. */
   private readonly queues = new Map<string, boolean>();
 
   constructor(
+    /** The Postgres connection string core already uses; pg-boss keeps its tables in `pgboss`. */
     connectionString: string,
+    /** Logger for pg-boss's own error events. */
     private readonly log: Logger,
   ) {
     this.boss = new PgBoss({ connectionString, schema: 'pgboss' });
@@ -25,14 +28,17 @@ export class PgBossJobQueue implements JobQueue {
     );
   }
 
+  /** Starts pg-boss: its schema, its maintenance and the polling loop. */
   async start(): Promise<void> {
     await this.boss.start();
   }
 
+  /** Stops gracefully, giving a running job up to ten seconds to finish. */
   async stop(): Promise<void> {
     await this.boss.stop({ graceful: true, timeout: 10_000 });
   }
 
+  /** Queues a job, in the caller's transaction when one is given, or returns null for a duplicate key. */
   async enqueue<T extends object>(
     name: string,
     data: T,
@@ -57,6 +63,7 @@ export class PgBossJobQueue implements JobQueue {
     });
   }
 
+  /** Registers `concurrency` workers for a queue, each running one job at a time. */
   async work<T>(
     name: string,
     handler: JobHandler<T>,
