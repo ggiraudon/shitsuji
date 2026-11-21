@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import http from 'node:http';
 import {
   EXEC_SIGNAL_ROUTE,
@@ -23,14 +24,16 @@ import {
   signalExecRequestSchema,
   statFileReplySchema,
   statFileRequestSchema,
+  viewerCredentialsReplySchema,
   writeFileReplySchema,
   writeFileRequestSchema,
   type ErrorReply,
   type ExecEvent,
   type ExecRequest,
   type SandboxRoot,
+  type ViewerCredentialsReply,
 } from '@shitsuji/sandbox-protocol';
-import type { ZodTypeAny, z } from 'zod';
+import { z, type ZodTypeAny } from 'zod';
 import { tokenMatches } from './auth.js';
 import type { ExecSupervisor } from './exec.js';
 import { invalidRequest, notFound, SandboxHttpError, tooLarge } from './errors.js';
@@ -44,6 +47,8 @@ export interface SandboxServerDeps {
   maxBodyBytes?: number;
   /** The protocol version reported on /health and /capabilities. */
   version?: number;
+  /** The JSON file the desktop launcher writes (S50); the viewer route reads it (S51). */
+  vncPasswordsFile?: string;
 }
 
 /**
@@ -73,6 +78,9 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
             exec: { maxTimeoutMs: deps.exec.maxTimeoutMs },
           }),
         );
+      }
+      if (req.method === 'GET' && url.pathname === SANDBOX_ROUTES.viewerCredentials) {
+        return send(res, 200, await readViewerCredentials(deps.vncPasswordsFile));
       }
       if (req.method !== 'POST') throw notFound(`No route for ${req.method} ${url.pathname}.`);
       const body = await readJson(req, maxBodyBytes);
@@ -145,6 +153,27 @@ function parse<S extends ZodTypeAny>(schema: S, body: unknown): z.infer<S> {
     throw invalidRequest(issue ? `${issue.path.join('.')}: ${issue.message}` : 'Invalid request.');
   }
   return parsed.data;
+}
+
+const vncPasswordsFileSchema = z
+  .object({ viewOnly: z.string().min(1), full: z.string().min(1) })
+  .strict();
+
+/**
+ * The view-only password for the owner's viewer (S51). The file also holds the full-control
+ * password, which must never leave the sandbox; only the view-only field is returned. A missing or
+ * malformed file is an internal error with no path in the message.
+ */
+async function readViewerCredentials(file: string | undefined): Promise<ViewerCredentialsReply> {
+  if (!file) throw new SandboxHttpError(404, 'not_found', 'The desktop viewer is not available.');
+  try {
+    const text = await fs.readFile(file, 'utf8');
+    const parsed = vncPasswordsFileSchema.safeParse(JSON.parse(text));
+    if (!parsed.success) throw new Error('malformed');
+    return viewerCredentialsReplySchema.parse({ viewOnly: parsed.data.viewOnly });
+  } catch {
+    throw new SandboxHttpError(500, 'internal', 'The desktop credentials are not available.');
+  }
 }
 
 function header(req: http.IncomingMessage, name: string): string | undefined {

@@ -55,6 +55,7 @@ import { WebToolsPlugin } from '../plugins/webToolsPlugin.js';
 import { AnthropicPlugin, OpenAICompatiblePlugin } from '../plugins/modelPlugins.js';
 import type { ShitsujiConfig } from './config/schema.js';
 import { expandConfigPaths } from './config/loadConfig.js';
+import { publicUrlOf } from './config/publicUrl.js';
 import { startApiServer } from './apiServer.js';
 import { loadPluginsFromDirectory } from './loadPluginsFromDirectory.js';
 import { createCoreServices, type CoreServices } from './services.js';
@@ -99,7 +100,7 @@ export function egressTargetsOf(config: ShitsujiConfig): EgressTarget[] {
   targets.push({
     label: "core's API",
     // In Compose the API listens on 0.0.0.0 and the sandbox would reach it as the core service.
-    host: config.api.host === '0.0.0.0' ? 'core' : config.api.host,
+    host: config.api.listen === '0.0.0.0' ? 'core' : config.api.listen,
     port: config.api.port,
   });
   targets.push(postgresTarget(config.database.url?.reveal()));
@@ -124,6 +125,20 @@ function postgresTarget(url: string | undefined): EgressTarget {
 /** Decision Q1: the tools stay in `<dataDir>/workspace` unless the config names another folder. */
 export function workspaceDirOf(config: ShitsujiConfig): string {
   return config.tools.workspaceDir ?? path.join(config.paths.dataDir, 'workspace');
+}
+
+/**
+ * Where core reaches the gateway's view-only stream (S51): the same host as the sandboxd relay,
+ * on websockify's 6081. Only the `shitsuji` driver has a desktop.
+ */
+export function viewerStreamOf(config: ShitsujiConfig): { host: string; port: number } | undefined {
+  if (config.sandbox.driver !== 'shitsuji') return undefined;
+  try {
+    const url = new URL(config.sandbox.url);
+    return url.hostname ? { host: url.hostname, port: 6081 } : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -372,6 +387,8 @@ export async function createShitsuji(
   for (const channel of plugins.channels()) channels.add(channel);
   const pairing = new PairingService(services.clock);
   const startsApi = options.api ?? config.api.enabled;
+  const viewerStream = viewerStreamOf(config);
+  const viewerUrl = viewerStream ? `${publicUrlOf(config)}/desktop` : undefined;
 
   return new Shitsuji({
     agent,
@@ -390,6 +407,7 @@ export async function createShitsuji(
     clock: services.clock,
     approvals,
     readTypedApproval: (text, approval) => typedApproval.read(text, approval),
+    viewerUrl,
     prepare:
       startsApi || channels.size > 0
         ? async () => {
@@ -414,8 +432,20 @@ export async function createShitsuji(
               pairing,
               approvals,
               verifyKey,
+              ...(viewerStream && {
+                viewer: {
+                  credentials: () => sandbox.viewerCredentials(),
+                  stream: viewerStream,
+                  cookieSecure: Boolean(config.api.tls),
+                },
+              }),
             },
-            config.api,
+            {
+              listen: config.api.listen,
+              port: config.api.port,
+              ...(config.api.publishedHost && { published: config.api.publishedHost }),
+              ...(config.api.tls && { tls: config.api.tls }),
+            },
           )
       : undefined,
     onStop,

@@ -107,6 +107,35 @@ matters: build and tag `shitsuji/sandbox` first, which Compose does with its `sa
   checks that the supervisor's children keep no capabilities and that a command cannot signal the
   stream servers, and the conformance suite and egress probes also run against the desktop image.
 
+### The S51 viewer
+
+`core` serves the viewer itself; the sandbox only exposes the raw view-only stream.
+
+- `GET /desktop/login` is a small form. `POST /desktop/login` takes the owner key in the body (never a
+  query string), checks it with the same verifier as the API, and sets `shitsuji_viewer`: an
+  `HttpOnly`, `SameSite=Strict`, `Path=/desktop` cookie, `Secure` when TLS is on, valid for one hour
+  and bound to the owner. `GET /desktop` and `GET /desktop/credentials` answer 401 without it;
+  `POST /desktop/logout` clears it.
+- The page uses the pinned `@novnc/novnc` client served by core (no CDN). After the cookie check it
+  fetches `GET /desktop/credentials`, which asks sandboxd's token-protected
+  `GET /desktop/viewer-credentials` for the view-only password. The full-control password never
+  leaves the sandbox.
+- `GET /desktop/stream` is a WebSocket, cookie-gated on the upgrade. Core connects to the
+  `sandboxd-gateway`'s view-only listener on 6081 as a WebSocket client and bridges the frames; the
+  gateway's second listener forwards to websockify's 6081 view-only stream. Core never joins the
+  sandbox network. 6080 (full control) is not exposed until S55.
+- `POST /desktop/login` is throttled: after five wrong keys from one address in five minutes it
+  answers 429 until the window ends and logs once. Login, logout and the stream upgrade also reject a
+  cross-origin `Origin` when one is present.
+- Config (Y2): `api.listen` is the in-container bind (`SHITSUJI_API_BIND`); `api.publishedHost` /
+  `api.publishedPort` describe what Docker publishes (`SHITSUJI_API_PUBLISH` /
+  `SHITSUJI_API_PUBLISHED`). The warning follows the published host, so the default Compose
+  `0.0.0.0` inside the container with a loopback published port stays quiet. `api.tls.cert` /
+  `api.tls.key` serve HTTPS when both are set.
+- `api.publicUrl` (`SHITSUJI_PUBLIC_URL`) is the base for every link core sends; it defaults to
+  `http(s)://127.0.0.1:<published port>`. `/desktop` on Telegram and in the TUI replies with
+  `api.publicUrl` + `/desktop`.
+
 ### Desktop endpoints of sandboxd
 
 | Endpoint | Action |

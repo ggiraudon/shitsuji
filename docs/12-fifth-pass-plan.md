@@ -1,6 +1,6 @@
 # Fifth pass plan: F10 desktop, then F09 browser
 
-> **Status:** in progress (S50 done; S51-S62 planned).
+> **Status:** in progress (S50-S51 done; S52-S62 planned).
 
 The fifth pass finishes most of Phase 2 ("its own computer"). The sandbox from the fourth pass gets a
 graphical desktop that you can watch, the agent learns to use it (structure first, pixels last), and its
@@ -107,12 +107,15 @@ packages/
   `SameSite=Strict` viewer cookie; the key itself is never put in a URL.
 - The page's WebSocket goes to `core`, which relays it to `sandboxd-gateway` and on to websockify on the
   sandbox network, using the view-only VNC password. `core` still never joins the sandbox network.
-- Config (Y2): `api.listen` (default `127.0.0.1` in the published Compose port, overridable with
-  `SHITSUJI_API_BIND`), and optional `api.tls.cert` / `api.tls.key` file paths. Binding beyond loopback
-  without TLS logs one warning.
+- Config (Y2): `api.listen` is the in-container bind (`SHITSUJI_API_BIND`); `api.publishedHost` /
+  `api.publishedPort` are what Docker publishes (`SHITSUJI_API_PUBLISH`, passed back as
+  `SHITSUJI_API_PUBLISHED`), and optional `api.tls.cert` / `api.tls.key` file paths serve HTTPS.
+  Publishing beyond loopback without TLS logs one warning. `api.publicUrl` / `SHITSUJI_PUBLIC_URL`
+  is the base for the links core sends, defaulting to `http(s)://127.0.0.1:<published port>`.
 - A `/desktop` command on Telegram and in the TUI replies with the viewer's URL.
 - *Check:* integration test: an unauthenticated request gets 401, a viewer cookie expires, the relay refuses
   without one; the viewer's input is ignored in watch-only mode (the VNC server enforces it, not the page).
+  Login is throttled and login/logout/stream refuse a cross-origin Origin.
 
 #### S52. Images the model can see in tool results
 - The capability lookup from [#106](https://github.com/ggiraudon/shitsuji/issues/106) part 1:

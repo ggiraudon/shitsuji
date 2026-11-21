@@ -253,7 +253,8 @@ processes, their uids and their ports belong to [F10](F10-desktop.md).
 Core is **not** on the `sandbox` network (S48): a small `sandboxd-gateway` relay, on `internal` and
 `sandbox` only, forwards core's control port to sandboxd. Without it the sandbox could dial core's
 admin API on the shared bridge, and the `lanBlocked` probe would rightly refuse the driver; Docker
-networks have no per-port isolation.
+networks have no per-port isolation. S51 adds an opt-in second listener for the view-only desktop
+stream (6081); it is still the only route, and core still never joins that network.
 
 **What S48 builds.** `packages/core/src/adapters/sandbox/shitsuji` is an HTTP client for sandboxd
 that validates every reply with `sandbox-protocol`; it reports `lanBlocked: true` and

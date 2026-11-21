@@ -165,9 +165,23 @@ export const shitsujiConfigSchema = z
     api: z
       .object({
         enabled: z.boolean().default(true),
-        /** 127.0.0.1 keeps it on this machine; Compose sets 0.0.0.0 inside the container. */
-        host: z.string().min(1).default('127.0.0.1'),
+        /** The interface core binds inside its container/process; 127.0.0.1 by default. */
+        listen: z.string().min(1).default('127.0.0.1'),
         port: z.number().int().min(0).max(65535).default(3001),
+        /** The host address Docker publishes: what the owner actually reaches (Y2). */
+        publishedHost: z.string().min(1).optional(),
+        /** The host port Docker publishes; defaults to `port`. */
+        publishedPort: z.number().int().min(1).max(65535).optional(),
+        /** Absolute link base for the viewer and other links core sends; overrides the defaults. */
+        publicUrl: z.string().url().optional(),
+        /** Optional TLS for the API and the viewer; both files must be set (Y2). */
+        tls: z
+          .object({
+            cert: z.string().min(1),
+            key: z.string().min(1),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .default({}),

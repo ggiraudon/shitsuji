@@ -36,8 +36,13 @@ const ENV_OVERRIDES: { vars: string[]; path: string[]; parse?: (v: string) => un
     parse: parseBool,
   },
   { vars: ['SHITSUJI_TELEGRAM_TOKEN'], path: ['channels', 'telegram', 'token'] },
-  { vars: ['SHITSUJI_API_HOST'], path: ['api', 'host'] },
+  { vars: ['SHITSUJI_API_BIND', 'SHITSUJI_API_HOST'], path: ['api', 'listen'] },
   { vars: ['SHITSUJI_API_PORT'], path: ['api', 'port'], parse: Number },
+  { vars: ['SHITSUJI_API_PUBLISHED'], path: ['api', 'publishedHost'] },
+  { vars: ['SHITSUJI_API_PUBLISHED_PORT'], path: ['api', 'publishedPort'], parse: Number },
+  { vars: ['SHITSUJI_PUBLIC_URL'], path: ['api', 'publicUrl'] },
+  { vars: ['SHITSUJI_API_TLS_CERT'], path: ['api', 'tls', 'cert'] },
+  { vars: ['SHITSUJI_API_TLS_KEY'], path: ['api', 'tls', 'key'] },
   { vars: ['SHITSUJI_SEARXNG_URL'], path: ['tools', 'web', 'searxngUrl'] },
   { vars: ['SHITSUJI_API_ENABLED'], path: ['api', 'enabled'], parse: parseBool },
   { vars: ['SHITSUJI_API_URL'], path: ['tui', 'apiUrl'] },
@@ -116,6 +121,10 @@ export function expandConfigPaths(config: ShitsujiConfig, homeDir: string = os.h
   );
   if (config.plugins.directory) {
     config.plugins.directory = expandHome(config.plugins.directory, homeDir);
+  }
+  if (config.api.tls) {
+    config.api.tls.cert = expandHome(config.api.tls.cert, homeDir);
+    config.api.tls.key = expandHome(config.api.tls.key, homeDir);
   }
 }
 

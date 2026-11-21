@@ -54,6 +54,38 @@ sandbox network: a small `sandboxd-gateway` relay is the only path to the daemon
 use a running sandbox from source, set `SHITSUJI_SANDBOX_DRIVER=shitsuji` and `SHITSUJI_SANDBOX_URL`, and
 point `SHITSUJI_SANDBOX_TOKEN_FILE` at its token.
 
+## Desktop viewer
+
+`core` serves the watch-only desktop at `http://127.0.0.1:3001/desktop`; sign in there with the owner
+key. The page and the noVNC client come from core, and the stream goes through core and
+`sandboxd-gateway`, never directly to the sandbox (F10, S51).
+
+To watch from another device on your LAN, publish the API beyond loopback and tell core the address
+the owner will use (Y2):
+
+```bash
+# .env
+SHITSUJI_API_PUBLISH=0.0.0.0
+SHITSUJI_PUBLIC_URL=http://192.168.1.20:3001
+```
+
+Then `docker compose up -d core`. `SHITSUJI_API_BIND` is only the in-container bind (Compose keeps it
+at `0.0.0.0`); `SHITSUJI_API_PUBLISH` is the host address Docker publishes and the one core checks
+when it warns that the API is exposed without TLS.
+
+TLS is optional but recommended on a LAN. Mount the certificate and key into core (a Compose override
+is the simplest way) and set their paths inside the container:
+
+```bash
+SHITSUJI_API_PUBLISH=0.0.0.0
+SHITSUJI_PUBLIC_URL=https://shitsuji.lan:3001
+SHITSUJI_API_TLS_CERT=/run/secrets/tls.crt
+SHITSUJI_API_TLS_KEY=/run/secrets/tls.key
+```
+
+If `SHITSUJI_PUBLIC_URL` is unset, links default to `http(s)://127.0.0.1:<published port>`; set it
+whenever the owner reaches core by another name.
+
 ## Telegram
 
 1. In `.env`, set `SHITSUJI_TELEGRAM_ENABLED=true` and `SHITSUJI_TELEGRAM_TOKEN` (from @BotFather).

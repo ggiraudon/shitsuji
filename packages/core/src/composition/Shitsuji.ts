@@ -63,6 +63,8 @@ export interface ShitsujiParts {
   prepare?: () => Promise<void>;
   /** Starts the HTTP API, if enabled; called once the agent runs. */
   startApi?: () => Promise<RunningApi>;
+  /** The desktop viewer's URL when the active sandbox has a desktop (S51); absent otherwise. */
+  viewerUrl?: string;
   /** Run last on stop(), e.g. closing the database pool. */
   onStop?: readonly (() => Promise<void>)[];
 }
@@ -125,6 +127,8 @@ export class Shitsuji {
   private readonly prepare?: () => Promise<void>;
   /** Optional API starter; awaited before the channels so the API is up before messages arrive. */
   private readonly startApi?: () => Promise<RunningApi>;
+  /** Whether the active sandbox has the desktop viewer (S51). */
+  private readonly viewerUrl?: string;
   /** The running API, if any; `apiUrl` reads it and `stop` closes it first. */
   private api?: RunningApi;
   /** Only the adapters this process actually started, in start order; `stop` reverses it. */
@@ -164,6 +168,7 @@ export class Shitsuji {
     this.recovery = parts.recovery;
     this.prepare = parts.prepare;
     this.startApi = parts.startApi;
+    this.viewerUrl = parts.viewerUrl;
     this.bindings = parts.bindings;
     this.pairing = parts.pairing;
     this.repos = parts.repos;
@@ -231,6 +236,7 @@ export class Shitsuji {
       version: this.version,
       ...(this.approvalsService && { approvals: this.approvalsService }),
       ...(this.readTypedApproval && { readTypedApproval: this.readTypedApproval }),
+      ...(this.viewerUrl && { viewerUrl: this.viewerUrl }),
       attachmentPath: async (hostPath) => this.sandbox?.attachmentPath(hostPath) ?? hostPath,
       reply: (channelId, chatId, text, intent) => this.deliverTo(channelId, chatId, text, intent),
     });

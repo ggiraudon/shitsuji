@@ -282,6 +282,9 @@ describe('shitsuji egress and client (F08, S48)', () => {
         });
       }
       if (url.endsWith('/health')) return Response.json({ ok: true, version: 3 });
+      if (url.endsWith('/desktop/viewer-credentials')) {
+        return Response.json({ viewOnly: 'view-only-pass' });
+      }
       return Response.json({ error: { code: 'not_found', message: 'no' } }, { status: 404 });
     }) as unknown as typeof fetch;
     const driver = new ShitsujiSandboxDriver({
@@ -297,6 +300,9 @@ describe('shitsuji egress and client (F08, S48)', () => {
       egress: { lanBlocked: true, credentialSwap: false },
     });
     await expect(driver.health()).resolves.toEqual({ ok: true });
+    await expect(driver.viewerCredentials()).resolves.toEqual({
+      viewOnlyPassword: 'view-only-pass',
+    });
     const sandbox = (await driver.open({ ownerId: 'owner' as never })) as ShitsujiSandbox;
     expect(sandbox.files).toBeDefined();
     expect(sandbox.exec?.maxTimeoutMs).toBe(60_000);

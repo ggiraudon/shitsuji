@@ -34,7 +34,16 @@ beforeEach(async () => {
       USER: 'agent',
     },
   });
-  server = createSandboxServer({ token: TOKEN, files: new SandboxFilesService(paths), exec });
+  server = createSandboxServer({
+    token: TOKEN,
+    files: new SandboxFilesService(paths),
+    exec,
+    vncPasswordsFile: path.join(base, 'vnc-passwords.json'),
+  });
+  fs.writeFileSync(
+    path.join(base, 'vnc-passwords.json'),
+    JSON.stringify({ viewOnly: 'view-only-pass', full: 'full-pass' }),
+  );
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -78,6 +87,15 @@ describe('sandboxd HTTP surface (F08, S45)', () => {
       expect(response.status, String(token)).toBe(401);
       expect(await response.json()).toMatchObject({ error: { code: 'unauthorized' } });
     }
+  });
+
+  it('gives the viewer only the view-only password, and only with the token (S51)', async () => {
+    const denied = await call('/desktop/viewer-credentials', { method: 'GET' });
+    expect(denied.status).toBe(401);
+
+    const reply = await call('/desktop/viewer-credentials', { method: 'GET', token: TOKEN });
+    expect(reply.status).toBe(200);
+    expect(await reply.json()).toEqual({ viewOnly: 'view-only-pass' });
   });
 
   it('writes, reads, lists, stats and moves through the routes', async () => {

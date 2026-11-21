@@ -76,4 +76,16 @@ describe('sandboxd config (F08, S45–S46)', () => {
     expect(config.commandPath.split(':')[0]).toBe('/home/agent/.venv/bin');
     expect(config.commandPath).toContain('/home/agent/.local/bin');
   });
+
+  it('knows where the desktop launcher writes the VNC passwords (S50–S51)', () => {
+    expect(configFromEnv({ SANDBOX_TOKEN: 'x' }).vncPasswordsFile).toBe(
+      '/run/sandbox/vnc-passwords.json',
+    );
+    expect(
+      configFromEnv({
+        SANDBOX_TOKEN: 'x',
+        SANDBOX_VNC_PASSWORDS_FILE: '/tmp/vnc.json',
+      }).vncPasswordsFile,
+    ).toBe('/tmp/vnc.json');
+  });
 });

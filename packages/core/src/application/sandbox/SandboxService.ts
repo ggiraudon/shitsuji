@@ -7,6 +7,7 @@ import type {
   Sandbox,
   SandboxCapabilities,
   SandboxDriver,
+  ViewerCredentials,
 } from '../../ports/SandboxDriver.js';
 import type { Tool } from '../../ports/Tool.js';
 import type { EgressProbe } from './EgressProbe.js';
@@ -135,6 +136,17 @@ export class SandboxService {
     } catch {
       return name;
     }
+  }
+
+  /** The view-only VNC password for the owner's viewer (S51); no desktop is an error, not a blank. */
+  async viewerCredentials(): Promise<ViewerCredentials> {
+    const driver = this.deps.driver;
+    if (!driver.viewerCredentials) {
+      throw new SandboxUnavailable(`The ${driver.id} sandbox has no desktop viewer.`, {
+        driver: driver.id,
+      });
+    }
+    return driver.viewerCredentials();
   }
 
   /** Driver health, then the egress claim again (S42); a broken claim throws `SandboxUnavailable`. */

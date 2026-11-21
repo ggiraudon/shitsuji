@@ -21,6 +21,8 @@ import type { InboundMessage, InboundResult } from '../../ports/ChannelAdapter.j
 import type { EventBus } from '../../ports/EventBus.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { Repositories, TurnEvent } from '../../ports/Repositories.js';
+import type { ViewerCredentials } from '../../ports/SandboxDriver.js';
+import { registerViewer, type ViewerStream } from './desktopViewer.js';
 import {
   LIVE_EVENT_TYPES,
   approvalDecisionBody,
@@ -61,6 +63,13 @@ export interface ApiDeps {
   receive?: (message: InboundMessage) => Promise<InboundResult>;
   /** Checks the owner key (decision Q3). */
   verifyKey: (key: string | undefined) => boolean;
+  /** The desktop viewer (S51); absent when the active driver has no desktop. */
+  viewer?: {
+    credentials(): Promise<ViewerCredentials>;
+    stream: ViewerStream;
+    cookieSecure: boolean;
+    cookieTtlMs?: number;
+  };
   /** Builds the WebSocket upgrade for this app (@hono/node-ws); omitted in tests that only use REST. */
   webSocket?: (app: Hono) => UpgradeWebSocket;
 }
@@ -75,6 +84,18 @@ const TICKET_TTL_MS = 30_000;
 export function createApi(deps: ApiDeps): Hono {
   const app = new Hono();
   const tickets = new Map<string, number>(); // ticket -> expiry
+  const upgradeWebSocket = deps.webSocket?.(app);
+
+  if (deps.viewer) {
+    registerViewer(app, {
+      ...deps.viewer,
+      verifyKey: deps.verifyKey,
+      ownerId: deps.ownerId,
+      clock: deps.clock,
+      log: deps.log,
+      ...(upgradeWebSocket && { upgradeWebSocket }),
+    });
+  }
 
   app.onError((error, c) => {
     deps.log.error('API error', { path: c.req.path, error: { message: error.message } });
@@ -264,7 +285,6 @@ export function createApi(deps: ApiDeps): Hono {
     return c.json({ ticket, expiresInSeconds: TICKET_TTL_MS / 1000 });
   });
 
-  const upgradeWebSocket = deps.webSocket?.(app);
   if (upgradeWebSocket) {
     app.get(
       '/api/events',

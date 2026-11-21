@@ -93,7 +93,7 @@ async function serve(replies: ConstructorParameters<typeof ScriptedProvider>[0])
       }),
       verifyKey: (k) => keys.verify(k),
     },
-    { host: '127.0.0.1', port: 0 },
+    { listen: '127.0.0.1', port: 0 },
   );
   return { client: new ApiClient(running.url, created!), url: running.url, keys, hang, dir };
 }
@@ -170,5 +170,12 @@ describe('API over a real server, with the TUI client', () => {
     await until(async () => (await client.history(other)).messages.length === 2, 5000);
     expect((await client.history(other)).messages.map((m) => m.text)).toEqual(['in other', 'two']);
     expect((await client.history('main')).messages[0]!.text).toBe('in main');
+  });
+
+  it('uses the public URL for the viewer link when one is configured (Y2)', () => {
+    const local = new ApiClient('http://127.0.0.1:3001', 'key');
+    expect(local.desktopUrl).toBe('http://127.0.0.1:3001/desktop');
+    const lan = new ApiClient('http://127.0.0.1:3001', 'key', fetch, 'https://shitsuji.example/');
+    expect(lan.desktopUrl).toBe('https://shitsuji.example/desktop');
   });
 });

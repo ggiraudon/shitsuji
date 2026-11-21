@@ -24,8 +24,15 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SHITSUJI_SEARXNG_URL: http://searxng:8080
       # The API and the webhook listen on all interfaces inside the container; the ports below keep
-      # them on this machine. Both need the owner key.
-      SHITSUJI_API_HOST: 0.0.0.0
+      # them on this machine by default. Set SHITSUJI_API_PUBLISH=0.0.0.0 to publish the API on the
+      # LAN (Y2); core reads it back as SHITSUJI_API_PUBLISHED so the warning follows the real
+      # exposure. SHITSUJI_PUBLIC_URL supplies the links core sends (Telegram, /desktop).
+      SHITSUJI_API_BIND: 0.0.0.0
+      SHITSUJI_API_PUBLISHED: ${SHITSUJI_API_PUBLISH:-127.0.0.1}
+      SHITSUJI_API_PUBLISHED_PORT: ${SHITSUJI_API_PORT:-3001}
+      SHITSUJI_PUBLIC_URL: ${SHITSUJI_PUBLIC_URL:-}
+      SHITSUJI_API_TLS_CERT: ${SHITSUJI_API_TLS_CERT:-}
+      SHITSUJI_API_TLS_KEY: ${SHITSUJI_API_TLS_KEY:-}
       SHITSUJI_WEBHOOK_HOST: 0.0.0.0
       # Telegram reaches out by long polling, so no port is published for it (F06, S32).
       SHITSUJI_TELEGRAM_ENABLED: ${SHITSUJI_TELEGRAM_ENABLED:-false}
@@ -46,8 +53,9 @@ services:
     ports:
       # The webhook, on this machine only. Remote access comes later (05-open-questions D2).
       - '127.0.0.1:${SHITSUJI_WEBHOOK_PORT:-3000}:3000'
-      # The HTTP API for the TUI (and later the web UI).
-      - '127.0.0.1:${SHITSUJI_API_PORT:-3001}:3001'
+      # The HTTP API for the TUI and the desktop viewer. Loopback by default; set
+      # SHITSUJI_API_PUBLISH=0.0.0.0 (with SHITSUJI_PUBLIC_URL and ideally TLS) for the LAN.
+      - '${SHITSUJI_API_PUBLISH:-127.0.0.1}:${SHITSUJI_API_PORT:-3001}:3001'
     volumes:
       - coredata:/data
       - sandbox-secret:/run/sandbox-secret
@@ -246,6 +254,10 @@ services:
     environment:
       SANDBOX_GATEWAY_PORT: 4555
       SANDBOX_GATEWAY_TARGET: sandbox:4555
+      # The view-only desktop stream (S51): core reaches websockify's 6081 through this relay and
+      # never joins the sandbox network. 6080 (full control) is not exposed until S55.
+      SANDBOX_GATEWAY_VIEWER_PORT: 6081
+      SANDBOX_GATEWAY_VIEWER_TARGET: sandbox:6081
     networks: [internal, sandbox]
     read_only: true
     tmpfs: [/tmp]
@@ -267,49 +279,6 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
-    restart: unless-stopped
-
-  # TEMPORARY (remove after S51, #110): raw VNC to the desktop for the owner, until core's /desktop
-  # viewer exists. Off unless you run with `--profile vnc`; then any VNC viewer on this PC connects to
-  # 127.0.0.1:5900 with the full-control password from /run/sandbox/vnc-passwords.json. x11vnc
-  # listens on the sandbox's loopback, so `vnc-tap` shares the sandbox's network namespace and
-  # forwards to it, and `vnc-relay` publishes it from a normal bridge (an internal network cannot
-  # publish ports). Both are the same plain TCP relay as sandboxd-gateway.
-  vnc-tap:
-    profiles: [vnc]
-    image: shitsuji/sandbox
-    entrypoint: ['node', '/app/dist/gateway-main.js']
-    environment:
-      SANDBOX_GATEWAY_PORT: 5910
-      SANDBOX_GATEWAY_TARGET: 127.0.0.1:5900
-    network_mode: 'service:sandbox'
-    read_only: true
-    tmpfs: [/tmp]
-    user: '1000:1000'
-    cap_drop: [ALL]
-    security_opt: ['no-new-privileges:true']
-    depends_on:
-      sandbox:
-        condition: service_healthy
-    restart: unless-stopped
-
-  vnc-relay:
-    profiles: [vnc]
-    image: shitsuji/sandbox
-    entrypoint: ['node', '/app/dist/gateway-main.js']
-    environment:
-      SANDBOX_GATEWAY_PORT: 5900
-      SANDBOX_GATEWAY_TARGET: sandbox:5910
-    networks: [sandbox, vnc]
-    ports:
-      - '127.0.0.1:${SHITSUJI_VNC_PORT:-5900}:5900'
-    read_only: true
-    tmpfs: [/tmp]
-    user: '1000:1000'
-    cap_drop: [ALL]
-    security_opt: ['no-new-privileges:true']
-    depends_on:
-      - vnc-tap
     restart: unless-stopped
 
   # The sandbox's only way out (F08, S47). On the `sandbox` network only; no published port, so only
@@ -381,8 +350,6 @@ networks:
   # and the relay are on it; core is not (S48), so the sandbox cannot reach core's API.
   sandbox:
     internal: true
-  # TEMPORARY (remove after S51): the bridge vnc-relay publishes the debug VNC port from.
-  vnc: {}
 
 volumes:
   pgdata:

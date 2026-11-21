@@ -24,6 +24,8 @@ export interface SandboxDaemonConfig {
   setprivPath: string;
   /** The egress proxy commands get in HTTP_PROXY/HTTPS_PROXY (S48); unset means no proxy. */
   commandProxy?: string;
+  /** The VNC passwords the desktop launcher writes (S50); read only for the viewer (S51). */
+  vncPasswordsFile: string;
 }
 
 /**
@@ -83,5 +85,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): SandboxDaem
       '/home/agent/.venv/bin:/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin',
     setprivPath: env.SANDBOX_SETPRIV ?? '/usr/bin/setpriv',
     ...(commandProxy && { commandProxy }),
+    vncPasswordsFile: env.SANDBOX_VNC_PASSWORDS_FILE ?? '/run/sandbox/vnc-passwords.json',
   };
 }

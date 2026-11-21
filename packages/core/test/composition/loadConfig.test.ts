@@ -164,6 +164,34 @@ describe('environment overrides', () => {
     expect(() => load({ SHITSUJI_API_ENABLED: 'maybe' })).toThrow(/api\.enabled/);
   });
 
+  it('reads api.listen from SHITSUJI_API_BIND and expands the TLS paths (Y2)', () => {
+    expect(load().config.api.listen).toBe('127.0.0.1');
+    expect(load({ SHITSUJI_API_BIND: '0.0.0.0' }).config.api.listen).toBe('0.0.0.0');
+    // The old variable still works for an existing .env.
+    expect(load({ SHITSUJI_API_HOST: '192.168.1.5' }).config.api.listen).toBe('192.168.1.5');
+
+    expect(
+      load({
+        SHITSUJI_API_PUBLISHED: '0.0.0.0',
+        SHITSUJI_API_PUBLISHED_PORT: '3100',
+        SHITSUJI_PUBLIC_URL: 'https://shitsuji.example',
+      }).config.api,
+    ).toMatchObject({
+      publishedHost: '0.0.0.0',
+      publishedPort: 3100,
+      publicUrl: 'https://shitsuji.example',
+    });
+
+    const config = shitsujiConfigSchema.parse({
+      api: { tls: { cert: '~/certs/cert.pem', key: '~/certs/key.pem' } },
+    });
+    expandConfigPaths(config, home);
+    expect(config.api.tls).toEqual({
+      cert: path.join(home, 'certs/cert.pem'),
+      key: path.join(home, 'certs/key.pem'),
+    });
+  });
+
   it('reads the sandbox driver, its URL and the egress lists from the environment (S48)', () => {
     const { config } = load({
       SHITSUJI_SANDBOX_DRIVER: 'shitsuji',
