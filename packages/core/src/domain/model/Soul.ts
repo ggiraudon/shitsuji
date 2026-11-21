@@ -22,10 +22,13 @@ export type SoulSource = 'initial' | 'owner' | 'assistant';
  * (`SoulStore.replaceFragments`); a revision records the assembled text they produced.
  */
 export interface SoulFragment {
+  /** Stable id, used to order fragments with the same position and to keep one across edits. */
   id: string;
+  /** Whether it is shared (`base`, `trait`) or limited to one session kind. */
   kind: SoulFragmentKind;
   /** For kind `session`: only that session kind sees this fragment. */
   sessionKind?: SessionKind;
+  /** The text as the owner wrote it; trimmed and joined when assembled. */
   body: string;
   /** Ascending within the assembled SOUL. */
   position: number;
@@ -36,12 +39,15 @@ export interface SoulFragment {
  * mid-turn waits for the next turn, and history can say what shaped an answer.
  */
 export interface SoulRevision {
+  /** The revision number, starting at 1 and increasing by one per publish. */
   revision: number;
   /** The assembled shared text (base and traits), for reading and diffing. */
   body: string;
   /** The fragments it was assembled from, so a session-kind part is re-assembled per turn. */
   fragments: readonly SoulFragment[];
+  /** Who published it: the first run, the owner, or a confirmed assistant proposal. */
   source: SoulSource;
+  /** When it was published, from the injected clock. */
   createdAt: Date;
 }
 

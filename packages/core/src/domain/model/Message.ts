@@ -6,8 +6,11 @@ import type { MessageId, SessionId, ThreadId, ToolCallId, TurnId } from './ids.j
  * the tool's schema validates before anything runs.
  */
 export interface ToolCall {
+  /** The call's id; the tool result quotes it so the pair can be matched. */
   id: ToolCallId;
+  /** The tool's dotted name, e.g. `workspace.exec`. */
   name: string;
+  /** The model's raw JSON arguments; the tool's schema validates them before it runs. */
   arguments: Record<string, unknown>;
 }
 
@@ -17,6 +20,7 @@ export interface ToolCall {
  * so jsonb never holds the bytes.
  */
 export interface ImageAttachment {
+  /** MIME type, e.g. `image/png`; the provider needs it to send the image. */
   mediaType: string;
   /** Base64 bytes, built per request by the ContextBuilder; never stored. */
   data?: string;
@@ -34,19 +38,40 @@ export interface ImageAttachment {
  * stored as `jsonb`, so every part must stay JSON-safe (see {@link sanitizeMessage}).
  */
 export type ContentPart =
-  | { type: 'text'; text: string }
-  | ({ type: 'image' } & ImageAttachment)
-  | { type: 'tool_call'; call: ToolCall }
   | {
+      /** A text part: the reply, a note, or a tool's output. */
+      type: 'text';
+      /** The text itself; `textOf` joins these and ignores reasoning. */
+      text: string;
+    }
+  | ({
+      /** An image the model can see. */
+      type: 'image';
+    } & ImageAttachment)
+  | {
+      /** A tool call the model emitted; its result comes back as a `tool_result` part. */
+      type: 'tool_call';
+      /** The call as the model emitted it, arguments included. */
+      call: ToolCall;
+    }
+  | {
+      /** What a tool returned, quoted to the call it answers. */
       type: 'tool_result';
+      /** The id of the call this result answers. */
       toolCallId: ToolCallId;
+      /** What the model is told; already redacted and wrapped where the pipeline decides to. */
       content: string;
+      /** True when the tool failed or refused, so the model knows the call did not succeed. */
       isError: boolean;
       /** Images the tool returned, by workspace reference; loaded when the context is built. */
       images?: ImageAttachment[];
     }
-  /** Model reasoning (e.g. DeepSeek): kept in the transcript, never shown as the reply. */
-  | { type: 'reasoning'; text: string };
+  | {
+      /** Model reasoning (e.g. DeepSeek): kept in the transcript, never shown as the reply. */
+      type: 'reasoning';
+      /** The reasoning text; never joined into `textOf` and never sent back to the model. */
+      text: string;
+    };
 
 /**
  * The role the model sees: `user` for the owner's words, `assistant` for the model's own output,
@@ -64,13 +89,19 @@ export type MessageAuthor = 'owner' | 'assistant' | 'system';
  * the transcript is also the audit trail of what the model was shown, minus the withdrawn rows.
  */
 export interface Message {
+  /** The row's id; referenced by channel deliveries and by a steered message's check. */
   id: MessageId;
+  /** The owner thread the message belongs to; every session of the thread shares it. */
   threadId: ThreadId;
+  /** The session whose transcript this is. */
   sessionId: SessionId;
   /** The turn that produced it; every message the runtime stores carries one. */
   turnId?: TurnId;
+  /** What the model sees; see {@link MessageRole}. */
   role: MessageRole;
+  /** Who wrote it; differs from `role` for tool results and injected notes. */
   author: MessageAuthor;
+  /** The content, in order; see {@link ContentPart}. */
   parts: ContentPart[];
   /** Which channel it came in on or went out through ("cli", "telegram", …). */
   channel?: string;
@@ -78,6 +109,7 @@ export interface Message {
   externalRef?: string;
   /** Withdrawn messages stay in the transcript but no longer feed the model or the budget check-in. */
   withdrawn: boolean;
+  /** When it was appended, from the injected clock; also orders the transcript. */
   createdAt: Date;
 }
 

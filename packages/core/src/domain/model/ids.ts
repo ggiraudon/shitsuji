@@ -7,21 +7,24 @@ declare const brand: unique symbol;
  * in the type system: at runtime an ID is a plain string, so a value read from the database or a
  * request must be marked with {@link asId}.
  */
-export type Id<Kind extends string> = string & { readonly [brand]: Kind };
+export type Id<Kind extends string> = string & {
+  /** The compile-time brand; no runtime value and never read. */
+  readonly [brand]: Kind;
+};
 
 /** The single owner this process serves; `createShitsuji` uses the fixed `owner` id. */
 export type OwnerId = Id<'owner'>;
 /** The owner's one conversation, shared by every channel. */
 export type ThreadId = Id<'thread'>;
-/** One line of work inside a thread (see {@link Session}). */
+/** One line of work inside a thread; see `Session`. */
 export type SessionId = Id<'session'>;
-/** One run of the agent in a session (see {@link Turn}). */
+/** One run of the agent in a session; see `Turn`. */
 export type TurnId = Id<'turn'>;
-/** One stored message (see {@link Message}). */
+/** One stored message; see `Message`. */
 export type MessageId = Id<'message'>;
 /** One tool call the model asked for; its result quotes the same id. */
 export type ToolCallId = Id<'tool_call'>;
-/** One approval card waiting for the owner (see {@link Approval}). */
+/** One approval card waiting for the owner; see `Approval`. */
 export type ApprovalId = Id<'approval'>;
 
 /** A new random ID (UUID v4). Entities get their id here before they are stored. */

@@ -34,10 +34,15 @@ export const TERMINAL_TURN_STATUSES: readonly TurnStatus[] = ['succeeded', 'fail
 
 /** A turn as stored: plain data, copied in and out of the entity by {@link Turn.toProps}. */
 export interface TurnProps {
+  /** The turn's id; jobs, events and Stop all name the turn by it. */
   id: TurnId;
+  /** The session that runs this turn; a turn never moves to another session. */
   sessionId: SessionId;
+  /** What started it; decides the background budget and whether an approval may wait. */
   source: TurnSource;
+  /** Where it is in the state machine; see {@link TurnStatus}. */
   status: TurnStatus;
+  /** When it was queued. */
   createdAt: Date;
   /** Reserved: the turn that caused this one. Persisted, but nothing sets it yet. */
   parentTurnId?: TurnId;
@@ -45,7 +50,9 @@ export interface TurnProps {
   startAfter?: Date;
   /** Where the reply goes, e.g. "telegram:12345". Absent for work with no chat to answer. */
   replyChannel?: string;
+  /** When a worker moved it to `running`; unset while queued. */
   startedAt?: Date;
+  /** When it reached a terminal status; unset while queued, running or waiting. */
   endedAt?: Date;
   /** Why it failed or was cancelled, e.g. "interrupted" or "stopped by owner". */
   error?: string;
@@ -65,7 +72,10 @@ export interface TurnProps {
  * `StartupRecovery` (fail with `interrupted`).
  */
 export class Turn {
-  private constructor(private props: TurnProps) {}
+  private constructor(
+    /** The mutable state; only this class changes it, and `toProps` hands out a copy. */
+    private props: TurnProps,
+  ) {}
 
   /**
    * A new `queued` turn. The caller supplies the id, so the same turn can be referenced before it is
@@ -85,15 +95,19 @@ export class Turn {
     return ALLOWED[from].includes(to);
   }
 
+  /** The turn's id; the same value as `toProps().id`. */
   get id(): TurnId {
     return this.props.id;
   }
+  /** The session the turn belongs to. */
   get sessionId(): SessionId {
     return this.props.sessionId;
   }
+  /** Where the turn is now; no getter mutates it. */
   get status(): TurnStatus {
     return this.props.status;
   }
+  /** What started the turn, which decides whether it counts as background work. */
   get source(): TurnSource {
     return this.props.source;
   }

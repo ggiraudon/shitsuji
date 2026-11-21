@@ -22,16 +22,21 @@ const ALLOWED: Record<ApprovalStatus, readonly ApprovalStatus[]> = {
 
 /** An approval as stored: plain data, copied in and out of the entity by {@link Approval.toProps}. */
 export interface ApprovalProps {
+  /** The card's id; the button payload and the API both name the approval by it. */
   id: ApprovalId;
+  /** The owner who must answer; one per install today. */
   ownerId: OwnerId;
   /** The turn that is blocked waiting for this answer; its reply channel gets the card. */
   turnId: TurnId;
+  /** The session whose pending cards a new message supersedes. */
   sessionId: SessionId;
   /** The exact action: tool, effect, target, arguments and the hash an approval is bound to. */
   tool: string;
   /** The tool's `ToolEffect`, as a string so the domain stays independent of the port. */
   effect: string;
+  /** Where the action runs: `core`, `workspace`, `desktop` or `mcp`. */
   target: string;
+  /** Binds the approval to one exact action; see {@link Approval.actionHash}. */
   actionHash: string;
   /**
    * Redacted, shortened arguments, for the card and the audit trail. They are a preview, not a copy
@@ -41,6 +46,7 @@ export interface ApprovalProps {
   arguments: Record<string, unknown>;
   /** One line the owner reads before deciding. */
   summary: string;
+  /** Where it is in the state machine; see {@link ApprovalStatus}. */
   status: ApprovalStatus;
   /** Why it was asked: the engine's reason, or the judge's. */
   reason?: string;
@@ -63,7 +69,10 @@ export interface ApprovalProps {
  * `ApprovalRepository.update`'s compare-and-set; an illegal move here throws `InvalidTransition`.
  */
 export class Approval {
-  private constructor(private props: ApprovalProps) {}
+  private constructor(
+    /** The mutable state; `toProps` hands out a copy. */
+    private props: ApprovalProps,
+  ) {}
 
   /** A new `pending` approval; the card is not published yet (the service does that after storing it). */
   static request(props: Omit<ApprovalProps, 'status'>): Approval {
@@ -80,9 +89,11 @@ export class Approval {
     return ALLOWED[from].includes(to);
   }
 
+  /** The approval's id, as the card and the resolve call use it. */
   get id(): ApprovalId {
     return this.props.id;
   }
+  /** Where the approval is in its state machine; see {@link ApprovalStatus}. */
   get status(): ApprovalStatus {
     return this.props.status;
   }
@@ -90,12 +101,15 @@ export class Approval {
   get actionHash(): string {
     return this.props.actionHash;
   }
+  /** The turn waiting for this answer. */
   get turnId(): TurnId {
     return this.props.turnId;
   }
+  /** The session whose new message supersedes the card. */
   get sessionId(): SessionId {
     return this.props.sessionId;
   }
+  /** The tool the action calls, for the card and the logs. */
   get tool(): string {
     return this.props.tool;
   }

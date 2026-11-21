@@ -27,10 +27,13 @@ export const SESSION_KINDS: readonly SessionKind[] = [
  */
 export class Session {
   constructor(
+    /** The session's id; a message, turn and approval all name it. */
     readonly id: SessionId,
+    /** The thread that owns it; a session never moves between threads. */
     readonly threadId: ThreadId,
     /** Decides the step limit and the session-kind SOUL fragments. */
     readonly kind: SessionKind,
+    /** When it was created, from the injected clock; the oldest `chat` session is the main one. */
     readonly createdAt: Date,
     /**
      * A rolling summary of older messages, once the transcript is compacted (F04). The messages
