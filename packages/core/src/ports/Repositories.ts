@@ -16,6 +16,7 @@ import type { SoulStore } from './SoulStore.js';
  * transaction; nothing outside an adapter can open or end one.
  */
 export interface Transaction {
+  /** A marker the adapter checks; it carries no data and cannot be inspected. */
   readonly isTransaction: true;
 }
 
@@ -30,9 +31,13 @@ export interface UnitOfWork {
 
 /** The single person this install serves; the profile is shown to the model as context. */
 export interface Owner {
+  /** The fixed owner id (`owner`), shared with every message and turn row. */
   id: OwnerId;
+  /** The name the assistant uses when it speaks about the owner. */
   displayName: string;
+  /** IANA zone, e.g. `Europe/Paris`; drives "today" and scheduling. */
   timezone: string;
+  /** BCP 47 language tag, e.g. `fr-FR`; the assistant's default reply language. */
   locale: string;
 }
 
@@ -51,6 +56,7 @@ export interface ThreadRepository {
    * insert relies on a partial unique index over active threads, so the loser reads the winner's row.
    */
   getOrCreateForOwner(ownerId: OwnerId, now: Date, tx?: Transaction): Promise<Thread>;
+  /** One thread by id, whatever its status; undefined when it never existed. */
   get(id: ThreadId, tx?: Transaction): Promise<Thread | undefined>;
 }
 
@@ -59,7 +65,9 @@ export interface ThreadRepository {
  * is no update path for its other fields.
  */
 export interface SessionRepository {
+  /** Stores a new session; the caller has already minted the id and kind. */
   insert(session: Session, tx?: Transaction): Promise<void>;
+  /** One session by id, or undefined when it was never created. */
   get(id: SessionId, tx?: Transaction): Promise<Session | undefined>;
   /** The thread's oldest `chat` session: where owner messages go unless another session is named. */
   findMainChat(threadId: ThreadId, tx?: Transaction): Promise<Session | undefined>;
@@ -77,7 +85,9 @@ export interface SessionRepository {
  * and processes share one database: the loser of a race gets `false` and must not report an outcome.
  */
 export interface TurnRepository {
+  /** Stores a new `queued` turn; the caller has already minted the id and source. */
   insert(turn: Turn, tx?: Transaction): Promise<void>;
+  /** One turn by id, or undefined when it was deleted or never stored. */
   get(id: TurnId, tx?: Transaction): Promise<Turn | undefined>;
   /** Like get, but locks the row until the transaction ends (SELECT … FOR UPDATE). Needs a tx. */
   getForUpdate(id: TurnId, tx: Transaction): Promise<Turn | undefined>;
@@ -103,7 +113,9 @@ export interface MessageQuery {
  * recorded on the row. Foreign keys put a message under its thread, session and turn.
  */
 export interface MessageRepository {
+  /** Appends one message; the caller has already set ids, role, author and timestamp. */
   append(message: Message, tx?: Transaction): Promise<void>;
+  /** One message by id, or undefined when it does not exist. */
   get(id: MessageId, tx?: Transaction): Promise<Message | undefined>;
   /** Marks the owner's messages of a turn as withdrawn (Stop): they no longer feed the model. */
   withdrawByTurn(turnId: TurnId, tx?: Transaction): Promise<number>;
@@ -124,14 +136,19 @@ export type TurnEventKind = 'model_call' | 'model_error' | 'tool_start' | 'tool_
 
 /** An append-only record of what happened during a turn, for receipts and debugging (redacted). */
 export interface TurnEvent {
+  /** The turn it belongs to; events are listed per turn. */
   turnId: TurnId;
+  /** What kind of step it records; see {@link TurnEventKind}. */
   kind: TurnEventKind;
+  /** The step's payload; redacted, and small enough for an activity view. */
   data: Record<string, unknown>;
+  /** When it happened, from the injected clock. */
   at: Date;
 }
 
 /** The per-turn event log. Append-only and redacted; it is the receipt behind an activity view. */
 export interface TurnEventRepository {
+  /** Appends one event; never updates an existing row. */
   append(event: TurnEvent, tx?: Transaction): Promise<void>;
   /** Every event of the turn, oldest first. */
   listByTurn(turnId: TurnId, tx?: Transaction): Promise<TurnEvent[]>;
@@ -151,7 +168,9 @@ export interface TurnEventQuery {
 
 /** An approval waiting for the owner, or what became of one (F11, S36). */
 export interface ApprovalQuery {
+  /** One status, or a set of them; every status when unset. */
   status?: ApprovalStatus | readonly ApprovalStatus[];
+  /** Only the cards of this turn. */
   turnId?: TurnId;
   /** Newest first, at most this many. */
   limit?: number;
@@ -159,7 +178,9 @@ export interface ApprovalQuery {
 
 /** Approval cards. Like turns, an approval changes only through a compare-and-set on its status. */
 export interface ApprovalRepository {
+  /** Stores a new pending card; the service publishes it after this returns. */
   insert(approval: Approval, tx?: Transaction): Promise<void>;
+  /** One approval by id, or undefined when it never existed. */
   get(id: ApprovalId, tx?: Transaction): Promise<Approval | undefined>;
   /** Compare-and-set on the status; false when someone else moved it first. */
   update(approval: Approval, expected: ApprovalStatus, tx?: Transaction): Promise<boolean>;
@@ -172,22 +193,31 @@ export interface ApprovalRepository {
  * after the response, never before, so the ledger only holds requests that were actually made.
  */
 export interface UsageRecord {
+  /** The owner the spend belongs to. */
   ownerId: OwnerId;
   /** The turn that made the request, when the call came from a turn. */
   turnId?: TurnId;
+  /** The session the request was made for, when it had one. */
   sessionId?: SessionId;
   /** The routing purpose ("chat", "summarize", "trust"…), for the per-purpose breakdown. */
   purpose?: string;
+  /** The provider id, e.g. `deepseek`. */
   provider: string;
+  /** The model id within that provider. */
   model: string;
+  /** Prompt tokens, including cached ones. */
   inputTokens: number;
+  /** Generated tokens, reasoning included when the provider counts them. */
   outputTokens: number;
+  /** Prompt tokens served from the provider's cache, when it reports them. */
   cachedInputTokens?: number;
+  /** Reasoning tokens inside `outputTokens`, when the provider reports them. */
   reasoningTokens?: number;
   /** True when no owner message started the work that caused this request. */
   background?: boolean;
   /** Undefined when the model has no configured price. */
   cost?: Money;
+  /** When the request completed, from the injected clock. */
   at: Date;
 }
 
@@ -197,6 +227,7 @@ export interface UsageRecord {
  * not lost to a ledger problem.
  */
 export interface UsageRepository {
+  /** Appends one completed request; the metering decorator calls it once per response. */
   append(record: UsageRecord, tx?: Transaction): Promise<void>;
   /** Records at or after `since`, oldest first. */
   listSince(ownerId: OwnerId, since: Date, tx?: Transaction): Promise<UsageRecord[]>;
@@ -208,16 +239,28 @@ export interface UsageRepository {
  * Services depend on this one object; they never reach for a connection or an adapter.
  */
 export interface Repositories {
+  /** Runs several writes in one transaction; see {@link UnitOfWork}. */
   uow: UnitOfWork;
+  /** The owner profile. */
   owners: OwnerRepository;
+  /** The owner's thread. */
   threads: ThreadRepository;
+  /** Sessions of that thread. */
   sessions: SessionRepository;
+  /** Turns, with compare-and-set writes. */
   turns: TurnRepository;
+  /** The transcript. */
   messages: MessageRepository;
+  /** The per-turn event log. */
   turnEvents: TurnEventRepository;
+  /** The spending ledger. */
   usage: UsageRepository;
+  /** SOUL fragments and revisions. */
   soul: SoulStore;
+  /** Holds and settled spend for the budget. */
   budget: BudgetStore;
+  /** Channel chat bindings. */
   bindings: ChannelBindingStore;
+  /** Approval cards. */
   approvals: ApprovalRepository;
 }

@@ -15,8 +15,11 @@ export interface EnqueueOptions {
 
 /** One stored job as the handler receives it: its queue name and the data it was enqueued with. */
 export interface Job<T> {
+  /** The queue's id for this job, unique among runs of the same queue. */
   id: string;
+  /** The queue name it was enqueued under, e.g. `session.drain`. */
   name: string;
+  /** The data passed to `enqueue`, parsed back as JSON. */
   data: T;
 }
 

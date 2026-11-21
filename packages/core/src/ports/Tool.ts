@@ -38,6 +38,7 @@ export type ToolTarget = 'core' | 'workspace' | 'desktop' | 'mcp';
 export interface TrustBasis {
   /** `policy` is the fixed rule (S16), `rule` a standing rule, `quote` the owner's words (F11). */
   kind: 'policy' | 'rule' | 'quote' | 'owner' | 'none';
+  /** The rule's id, the quoted words or the policy line, when there is one to show. */
   detail?: string;
 }
 
@@ -65,13 +66,17 @@ export interface TrustDecision {
  * a tool that needs the outside world uses its own adapter, injected when it was built.
  */
 export interface ToolContext {
+  /** The turn that made the call; the same id the events and receipts carry. */
   turnId: string;
+  /** The session the turn belongs to. */
   sessionId: string;
   /** Aborted on Stop. Long-running tools must listen to it. */
   signal: AbortSignal;
   /** True when no owner message started this turn: waiting for an approval must be bounded. */
   background?: boolean;
+  /** A logger bound with the tool's name, for the tool's own steps and failures. */
   log: Logger;
+  /** The bus, for progress a UI can show while the tool runs. */
   events: EventBus;
   /** Runs fn in a transaction only while the turn is still running (TurnLock, F02). */
   writeFenced<T>(fn: (tx: Transaction) => Promise<T>): Promise<T>;
@@ -79,6 +84,7 @@ export interface ToolContext {
 
 /** An image a tool produced: a workspace file the ContextBuilder loads later. Never the bytes. */
 export interface ToolImage {
+  /** MIME type, e.g. `image/png`; the provider needs it to send the image. */
   mediaType: string;
   /** Workspace-relative path, e.g. `sessions/<id>/images/chart.png`. */
   ref: string;
@@ -88,6 +94,7 @@ export interface ToolImage {
 
 /** What a tool's run() returns. `content` is what the model sees. */
 export interface ToolOutput {
+  /** The result text the model reads; keep it short and say what happened. */
   content: string;
   /** The tool ran, but did not do what was asked (e.g. a command exited non-zero). */
   isError?: boolean;
@@ -102,9 +109,20 @@ export interface ToolOutput {
  * model can react (`invalid_input`, `denied`…) and the loop can stop on `repeated_failure`.
  */
 export type ToolOutcome =
-  | { kind: 'ok'; content: string; data?: Record<string, unknown>; images?: ToolImage[] }
   | {
+      /** The tool ran and returned a result. */
+      kind: 'ok';
+      /** What the model is told. */
+      content: string;
+      /** Structured data for receipts and files; not sent to the model. */
+      data?: Record<string, unknown>;
+      /** Images for the model to see, by reference; never inline bytes. */
+      images?: ToolImage[];
+    }
+  | {
+      /** The call did not produce a usable result. */
       kind: 'error';
+      /** The class of failure, so the loop can react (e.g. stop on `repeated_failure`). */
       reason:
         | 'invalid_input'
         | 'not_found'
@@ -113,8 +131,11 @@ export type ToolOutcome =
         | 'failed'
         | 'tool_error'
         | 'repeated_failure';
+      /** What the model is told; names the cause in plain words. */
       content: string;
+      /** Structured data for receipts; not sent to the model. */
       data?: Record<string, unknown>;
+      /** Images the failed call still produced, when it produced any. */
       images?: ToolImage[];
     };
 
@@ -133,11 +154,13 @@ export interface Tool<I = any> {
   readonly input: z.ZodType;
   /** What it does, or a function of its arguments when that changes the answer. */
   readonly effect: ToolEffect | ((args: I) => ToolEffect);
+  /** Where it runs; the trust rules and receipts use it to say where an action happened. */
   readonly target: ToolTarget;
   /** Hidden from the prompt until found with tool_search (F05). */
   readonly deferred: boolean;
   /** Output comes from outside (web, email, browser) and is wrapped as untrusted data. */
   readonly untrustedOutput: boolean;
+  /** Runs the tool with validated arguments; return a `ToolOutput`, or throw for an unexpected bug. */
   run(args: I, ctx: ToolContext): Promise<ToolOutput>;
 }
 
@@ -150,9 +173,11 @@ export abstract class BaseTool<S extends z.ZodType> implements Tool<z.infer<S>> 
   abstract readonly description: string;
   abstract readonly input: S;
   abstract readonly effect: ToolEffect | ((args: z.infer<S>) => ToolEffect);
+  /** Core by default; a subclass that runs in the sandbox overrides it. */
   readonly target: ToolTarget = 'core';
   readonly deferred: boolean = false;
   readonly untrustedOutput: boolean = false;
+  /** Runs the tool with validated arguments; subclasses implement it. */
   abstract run(args: z.infer<S>, ctx: ToolContext): Promise<ToolOutput>;
 }
 
@@ -165,8 +190,11 @@ export function effectOf<I>(tool: Tool<I>, args: I): ToolEffect {
 export interface OutboundFile {
   /** Absolute path on the core machine; the channel adapter reads it. */
   path: string;
+  /** The file name the owner sees, including its extension. */
   name: string;
+  /** MIME type, when known; channels use it to pick photo or document. */
   mediaType?: string;
+  /** Text to show with the file. */
   caption?: string;
 }
 

@@ -12,10 +12,13 @@ export type PluginCapability = 'model' | 'channel' | 'tools' | 'context';
 export interface PluginManifest {
   /** Stable, unique id, e.g. "builtin.openai-compatible". */
   id: string;
+  /** A human name for status pages and logs. */
   name: string;
+  /** The plugin version, for the manifest and the `/status` report. */
   version: string;
   /** What the plugin may register. Registering anything else is an error. */
   provides: readonly PluginCapability[];
+  /** One line on what the plugin does, for a listing. */
   description?: string;
 }
 
@@ -30,7 +33,9 @@ export interface PluginManifest {
 export interface PluginRegistrationContext {
   /** This plugin's section of the configuration (plugins.settings.<id>), or {} if absent. */
   readonly config: Readonly<Record<string, unknown>>;
+  /** A logger already bound with the plugin's id. */
   readonly log: Logger;
+  /** The process bus, so the plugin can publish events the UI already understands. */
   readonly events: EventBus;
   /** Registers a model provider under its id, which model refs use ("deepseek" in "deepseek/…"). */
   addModelProvider(provider: ModelProvider): void;
@@ -47,7 +52,10 @@ export interface PluginRegistrationContext {
  * context; `dispose` runs on shutdown and should release timers, sockets and files it opened.
  */
 export interface ShitsujiPlugin {
+  /** What the plugin is and may register; read before `register` runs. */
   readonly manifest: PluginManifest;
+  /** Registers providers, channels, tools or injectables; may be async. Failures abort the load. */
   register(ctx: PluginRegistrationContext): Promise<void> | void;
+  /** Releases what `register` opened; failures are logged and do not block the shutdown. */
   dispose?(): Promise<void> | void;
 }

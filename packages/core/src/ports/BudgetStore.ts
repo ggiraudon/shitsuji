@@ -7,43 +7,68 @@ import type { Transaction } from './Repositories.js';
  * maximum, not the real cost: the usage ledger holds what was actually spent once the request settles.
  */
 export interface BudgetReservation {
+  /** The hold's id, chosen by the caller; settle and release name it. */
   id: string;
+  /** The owner whose month the hold counts against. */
   ownerId: OwnerId;
   /** A conservative maximum for the request. */
   amount: Money;
+  /** True when the request is background work, which draws on the background allowance. */
   background: boolean;
+  /** The session that made the request, when it came from a turn. */
   sessionId?: SessionId;
+  /** The turn that made the request, when it came from a turn. */
   turnId?: TurnId;
+  /** When the hold was placed, from the injected clock. */
   createdAt: Date;
 }
 
 /** The ceilings for one owner: the month's total spend, and how much of it background work may use. */
 export interface BudgetLimits {
+  /** Spend allowed in the period, settled plus held, in one currency. */
   monthly: Money;
+  /** The part of `monthly` that background work may use; owner messages are never refused. */
   background: Money;
 }
 
 /** Everything `reserve` needs: what to hold, for which owner and period, and the limits to check. */
 export interface ReserveInput {
+  /** The owner whose month is being charged. */
   ownerId: OwnerId;
   /** Made by the caller; unique. Settle and release only touch a held row, so repeating one is safe. */
   id: string;
+  /** The conservative maximum to hold, in the limits' currency. */
   amount: Money;
+  /** True for background work; the background allowance applies in addition to the monthly cap. */
   background: boolean;
   /** False for an owner-started request: never refused, but its hold still counts in the totals. */
   enforce: boolean;
   /** The start of the budget period. */
   since: Date;
+  /** The caps to check against, with their currency. */
   limits: BudgetLimits;
+  /** The instant the hold is placed, from the injected clock. */
   now: Date;
+  /** The session making the request, when there is one. */
   sessionId?: SessionId;
+  /** The turn making the request, when there is one. */
   turnId?: TurnId;
 }
 
 /** Either a hold, or the limit that refused it; the caller turns the reason into a `BudgetExceeded`. */
 export type ReserveOutcome =
-  | { reserved: true; reservation: BudgetReservation }
-  | { reserved: false; reason: 'monthly_limit' | 'background_allowance' };
+  | {
+      /** The hold was placed; `reservation` is stored and counts in the totals. */
+      reserved: true;
+      /** The stored hold, with the conservative amount. */
+      reservation: BudgetReservation;
+    }
+  | {
+      /** The request must not run; the caller decides whether to fail or skip it. */
+      reserved: false;
+      /** Which cap refused it: the monthly total, or the background allowance. */
+      reason: 'monthly_limit' | 'background_allowance';
+    };
 
 /**
  * A price in another currency cannot be compared without a rate we do not have. Called by both budget

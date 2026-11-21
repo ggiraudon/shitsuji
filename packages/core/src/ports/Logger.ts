@@ -13,9 +13,13 @@ export type LogContext = Record<string, unknown>;
  * pass a `Secret` (it prints as `[secret]`), never its `reveal()` result.
  */
 export interface Logger {
+  /** Diagnostic detail, normally off in production. */
   debug(message: string, context?: LogContext): void;
+  /** A lifecycle step or a notable state change. */
   info(message: string, context?: LogContext): void;
+  /** Something recovered from or degraded, worth a look but not a failure. */
   warn(message: string, context?: LogContext): void;
+  /** A failure; the message says what failed, the context says where. */
   error(message: string, context?: LogContext): void;
   /** A logger that adds `bindings` to every line, e.g. `log.child({ component: 'agent' })`. */
   child(bindings: LogContext): Logger;
