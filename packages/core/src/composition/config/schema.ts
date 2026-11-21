@@ -160,6 +160,12 @@ export const shitsujiConfigSchema = z
         stabilityCheck: z.boolean().optional(),
         /** How many of the newest images stay pixels; older ones become placeholders (S52). */
         imageHistoryLimit: z.number().int().min(0).default(3),
+        /** Raw bytes allowed per image; bigger files become a placeholder (default 5 MiB, S52). */
+        imageMaxBytes: z
+          .number()
+          .int()
+          .min(1)
+          .default(5 * 1024 * 1024),
       })
       .strict()
       .default({}),

@@ -52,6 +52,8 @@ async function fixture(
     kind?: SessionKind;
     historyLimit?: number;
     imageHistoryLimit?: number;
+    imageMaxBytes?: number;
+    visionAvailable?: boolean;
     images?: { read(ref: string): Promise<Uint8Array> };
   } = {},
 ) {
@@ -99,6 +101,8 @@ async function fixture(
     ...(options.imageHistoryLimit !== undefined && {
       imageHistoryLimit: options.imageHistoryLimit,
     }),
+    ...(options.imageMaxBytes !== undefined && { imageMaxBytes: options.imageMaxBytes }),
+    ...(options.visionAvailable !== undefined && { visionAvailable: options.visionAvailable }),
     ...(options.images && { images: options.images }),
   });
   return { builder, repos, session, turn, append, log, clock };
@@ -439,6 +443,7 @@ describe('ContextBuilder: images (S52)', () => {
     );
     const reads: string[] = [];
     const { builder, session, turn, append } = await fixture([], {
+      visionAvailable: true,
       images: {
         read: async (ref) => {
           reads.push(ref);
@@ -480,6 +485,7 @@ describe('ContextBuilder: images (S52)', () => {
       images: [{ mediaType: 'image/png', ref, name: 'chart.png' }],
     };
     const { builder, session, turn, append, repos } = await fixture([], {
+      visionAvailable: true,
       images: { read: async (value) => bytesOf(value) },
     });
     await append('assistant', [call]);
@@ -494,6 +500,7 @@ describe('ContextBuilder: images (S52)', () => {
       ownerId: OWNER,
       log: new MemoryLogger(),
       images: { read: async (value) => bytesOf(value) },
+      visionAvailable: true,
       imageHistoryLimit: 0,
     });
     const pruned = await prunedBuilder.build(session, turn);
@@ -503,5 +510,74 @@ describe('ContextBuilder: images (S52)', () => {
     >;
     expect(prunedPart.images).toBeUndefined();
     expect(prunedPart.content).toContain('[image: chart.png, sent earlier]');
+  });
+
+  it('does not read or send pixels when the chat model cannot see (S52)', async () => {
+    const ref = 'sessions/s1/images/a.png';
+    let reads = 0;
+    const { builder, session, turn, append } = await fixture([], {
+      visionAvailable: false,
+      images: {
+        read: async () => {
+          reads += 1;
+          return bytesOf(ref);
+        },
+      },
+    });
+    await append('user', [imagePart(ref)]);
+    await append('assistant', [
+      {
+        type: 'tool_call',
+        call: { id: asId<ToolCallId>('t1'), name: 'chart', arguments: {} },
+      },
+    ]);
+    await append('tool', [
+      {
+        type: 'tool_result',
+        toolCallId: asId<ToolCallId>('t1'),
+        content: 'Chart saved.',
+        isError: false,
+        images: [{ mediaType: 'image/png', ref, name: 'chart.png' }],
+      },
+    ]);
+
+    const built = await builder.build(session, turn);
+
+    expect(reads).toBe(0);
+    expect(
+      built.messages.flatMap((m) => m.parts.flatMap((p) => (p.type === 'image' ? [p] : []))),
+    ).toHaveLength(0);
+    const text = built.messages
+      .flatMap((m) =>
+        m.parts.flatMap((p) =>
+          p.type === 'text' ? [p.text] : p.type === 'tool_result' ? [p.content] : [],
+        ),
+      )
+      .join('\n');
+    expect(text).toContain('[image: a.png, cannot be viewed with the current model]');
+    expect(text).toContain('[image: chart.png, cannot be viewed with the current model]');
+  });
+
+  it('turns an oversized image into a placeholder and warns once (S52)', async () => {
+    const ref = 'sessions/s1/images/big.png';
+    const oversized = 1.5 * 1024 * 1024;
+    const { builder, session, turn, append, log } = await fixture([], {
+      visionAvailable: true,
+      imageMaxBytes: 1024 * 1024,
+      images: { read: async () => new Uint8Array(oversized) },
+    });
+    await append('user', [imagePart(ref)]);
+
+    const first = await builder.build(session, turn);
+    const second = await builder.build(session, turn);
+
+    const text = first.messages
+      .flatMap((m) => m.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])))
+      .join('\n');
+    expect(text).toContain('[image: big.png, too large to show (1.5 MB)]');
+    expect(JSON.stringify(second.messages)).toBe(JSON.stringify(first.messages));
+    expect(
+      log.records.filter((record) => record.message === 'Image is too large for the context'),
+    ).toHaveLength(1);
   });
 });

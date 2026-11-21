@@ -63,6 +63,10 @@ export interface AgentOptions {
   historyLimit?: number;
   /** How many of the newest images stay pixels; older ones become placeholders (default 3, S52). */
   imageHistoryLimit?: number;
+  /** Raw bytes allowed per image; bigger files become a placeholder (default 5 MiB, S52). */
+  imageMaxBytes?: number;
+  /** Whether any chat candidate has vision; false keeps every image as a placeholder (S52). */
+  visionAvailable?: boolean;
   /** Loads a stored image reference from the active sandbox at context-build time. */
   images?: ImageSource;
   /** Model calls per turn by session kind (decision Q5). */
@@ -156,6 +160,7 @@ export class Agent {
       }),
     });
     const contextWindow = contextWindowOf(options.models);
+    const visionAvailable = options.visionAvailable ?? options.models.anySupports('chat', 'vision');
     const context = new ContextBuilder({
       injectables: () => this.injectables,
       repos: options.repos,
@@ -165,6 +170,8 @@ export class Agent {
       ...(options.imageHistoryLimit !== undefined && {
         imageHistoryLimit: options.imageHistoryLimit,
       }),
+      ...(options.imageMaxBytes !== undefined && { imageMaxBytes: options.imageMaxBytes }),
+      visionAvailable,
       ...(options.images && { images: options.images }),
       stabilityCheck: options.stabilityCheck ?? true,
       compactor: new Compactor({

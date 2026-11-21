@@ -12,7 +12,7 @@ import type { Turn } from '../../domain/model/Turn.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { EventBus } from '../../ports/EventBus.js';
 import type { Logger } from '../../ports/Logger.js';
-import type { ModelRequest } from '../../ports/ModelProvider.js';
+import type { ModelMessage, ModelRequest } from '../../ports/ModelProvider.js';
 import type { Repositories, Transaction } from '../../ports/Repositories.js';
 import type { BuiltContext, ContextBuilder } from '../context/ContextBuilder.js';
 import type { ModelResponse } from '../modelCalls.js';
@@ -387,13 +387,15 @@ export class TurnRunner {
       metadata: { turnId: turn.id, sessionId: session.id, background: turn.isBackground },
     };
     if (!request.tools?.length) delete request.tools;
+    const needs = containsImages(context.messages) ? (['vision'] as const) : [];
     events.publish('llm.request', {
       agentId: agentName,
       sessionId: session.id,
-      model: models.select('chat').ref,
+      model: models.select('chat', needs).ref,
     });
     try {
       const { response, binding } = await models.complete('chat', request, {
+        needs,
         signal,
         onEvent: (e) => {
           if (e.type === 'text_delta') {
@@ -539,4 +541,13 @@ function lastOwnerAt(messages: readonly Message[], fallback: Date): Date {
     if (message.author === 'owner' && !message.withdrawn) return message.createdAt;
   }
   return fallback;
+}
+
+/** True when a request carries pixels, so the model call must ask for the vision capability. */
+function containsImages(messages: readonly ModelMessage[]): boolean {
+  return messages.some((message) =>
+    message.parts.some(
+      (part) => part.type === 'image' || (part.type === 'tool_result' && !!part.images?.length),
+    ),
+  );
 }

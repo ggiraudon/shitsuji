@@ -183,7 +183,12 @@ result, so every provider receives a valid history (#64).
 never return image bytes: each entry is `{ mediaType, ref, name? }`, a workspace-relative file under
 `sessions/<sessionId>/images/`. `ContextBuilder` loads the file through the active sandbox's files
 port and base64-encodes it when the request is built; the transcript keeps only the reference, so
-jsonb stays small and a history read does not carry megabytes. It keeps the newest N images as pixels
+jsonb stays small and a history read does not carry megabytes. Images are only read when any chat
+candidate declares `vision`; otherwise every image becomes
+`[image: name, cannot be viewed with the current model]` and no bytes are read. When pixels do go out,
+the model call asks for the `vision` capability, so a fallback without vision is skipped. Files over
+`context.imageMaxBytes` (default 5 MiB of raw bytes, checked before base64) become
+`[image: name, too large to show (N MB)]` and log once. It keeps the newest N images as pixels
 (`context.imageHistoryLimit`, default 3) and replaces older ones with a deterministic
 `[image: name, sent earlier]` placeholder (for a tool result, appended to its text), so two builds of
 the same transcript produce a byte-identical cached prefix (Q7). Anthropic sends image blocks inside

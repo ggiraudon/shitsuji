@@ -310,8 +310,10 @@ export async function createShitsuji(
   const models = new ModelRouter(providers, config.models, catalog, log);
   const chat = selectChat(models);
   log.info('Using chat model', { model: chat.ref });
-  if (!models.supports('chat', 'vision')) {
-    log.warn('Chat model cannot see images; image parts will not be sent', { model: chat.ref });
+  if (!models.anySupports('chat', 'vision')) {
+    log.warn('No chat model declares vision; images will be shown as placeholders', {
+      model: chat.ref,
+    });
   }
   // Cards are durable in the repository before they are shown; answering wakes the waiting turn (S36).
   const approvals = new ApprovalService({
@@ -377,6 +379,7 @@ export async function createShitsuji(
     budget,
     approvals,
     imageHistoryLimit: config.context.imageHistoryLimit,
+    imageMaxBytes: config.context.imageMaxBytes,
     images: { read: (ref) => sandbox.readBytes(ref) },
     stabilityCheck: config.context.stabilityCheck ?? true,
   });

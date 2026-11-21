@@ -238,6 +238,7 @@ describe('environment overrides', () => {
         .stabilityCheck,
     ).toBe(true);
     expect(load({}).config.context.imageHistoryLimit).toBe(3);
+    expect(load({}).config.context.imageMaxBytes).toBe(5 * 1024 * 1024);
   });
 
   it('reads the TUI connection from the environment, keeping the key secret', () => {

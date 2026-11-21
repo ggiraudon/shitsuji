@@ -41,6 +41,10 @@ export interface ContextBuilderDeps {
   historyLimit?: number;
   /** How many of the newest images stay pixels; older ones become placeholders (default 3, S52). */
   imageHistoryLimit?: number;
+  /** Raw bytes allowed per image; bigger files become a placeholder (default 5 MiB, S52). */
+  imageMaxBytes?: number;
+  /** Whether the active chat purpose has any model with vision; false means placeholders, no reads. */
+  visionAvailable?: boolean;
   /** Loads a stored image reference (workspace-relative) at build time. */
   images?: ImageSource;
   /**
@@ -59,6 +63,8 @@ export interface ImageSource {
   read(ref: string): Promise<Uint8Array>;
 }
 
+type ResolvedImage = { image: ImageAttachment } | { placeholder: string };
+
 const PLACEMENT_RANK: Record<InjectionPlacement, number> = { header: 0, context: 1, tail: 2 };
 
 /**
@@ -66,6 +72,9 @@ const PLACEMENT_RANK: Record<InjectionPlacement, number> = { header: 0, context:
  * the clock as something the owner typed, or repeat it back (#66).
  */
 export const TAIL_MARKER = "[Context from Shitsuji, not the owner's words]";
+
+/** 5 MiB of raw bytes; base64 adds a third on top, so this bounds the request too. */
+const DEFAULT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
  * Turns a session's transcript plus every `ContextInjectable` into one model call's context (F04).
@@ -83,6 +92,8 @@ export class ContextBuilder {
     SessionId,
     { turnId: Turn['id']; text: string | undefined }
   >();
+  /** Image references already reported as too large, so one bad file logs once. */
+  private readonly warnedOversize = new Set<string>();
 
   constructor(private readonly deps: ContextBuilderDeps) {}
 
@@ -153,11 +164,13 @@ export class ContextBuilder {
 
     const visible = trimToWholeExchanges(sources).filter((message) => !message.withdrawn);
     const ordered = normaliseToolOrder(visible);
+    const vision = this.deps.visionAvailable === true;
     const pruned = pruneImages(
       ordered.map((m) => ({ role: m.role, parts: m.parts })),
-      this.deps.imageHistoryLimit ?? 3,
+      vision ? (this.deps.imageHistoryLimit ?? 3) : 0,
+      vision ? imagePlaceholder : cannotViewPlaceholder,
     );
-    const messages = await this.loadImages(pruned);
+    const messages = vision ? await this.loadImages(pruned) : pruned;
     const notes: ModelMessage[] = rendered.context.map((note) => ({
       role: 'system',
       parts: [{ type: 'text', text: note.text }],
@@ -198,27 +211,28 @@ export class ContextBuilder {
       const parts: ContentPart[] = [];
       for (const part of message.parts) {
         if (part.type === 'image') {
-          const image = await this.resolveImage(part);
-          parts.push(
-            image
-              ? { type: 'image', ...image }
-              : { type: 'text', text: unavailablePlaceholder(part) },
-          );
+          const resolved = await this.resolveImage(part);
+          if (resolved && 'image' in resolved) {
+            parts.push({ type: 'image', ...resolved.image });
+          } else {
+            parts.push({
+              type: 'text',
+              text: resolved?.placeholder ?? unavailablePlaceholder(part),
+            });
+          }
           continue;
         }
         if (part.type === 'tool_result' && part.images?.length) {
           const kept: ImageAttachment[] = [];
-          const failed: ImageAttachment[] = [];
+          const placeholders: string[] = [];
           for (const image of part.images) {
-            const loaded = await this.resolveImage(image);
-            if (loaded) kept.push(loaded);
-            else failed.push(image);
+            const resolved = await this.resolveImage(image);
+            if (resolved && 'image' in resolved) kept.push(resolved.image);
+            else placeholders.push(resolved?.placeholder ?? unavailablePlaceholder(image));
           }
           parts.push({
             ...part,
-            content: [part.content, ...failed.map(unavailablePlaceholder)]
-              .filter(Boolean)
-              .join('\n'),
+            content: [part.content, ...placeholders].filter(Boolean).join('\n'),
             ...(kept.length && { images: kept }),
           });
           continue;
@@ -230,12 +244,25 @@ export class ContextBuilder {
     return out;
   }
 
-  private async resolveImage(image: ImageAttachment): Promise<ImageAttachment | undefined> {
-    if (image.data || image.url) return image;
+  private async resolveImage(image: ImageAttachment): Promise<ResolvedImage | undefined> {
+    if (image.data || image.url) return { image };
     if (!image.ref || !this.deps.images) return undefined;
     try {
       const bytes = await this.deps.images.read(image.ref);
-      return { ...image, data: Buffer.from(bytes).toString('base64') };
+      const maxBytes = this.deps.imageMaxBytes ?? DEFAULT_IMAGE_MAX_BYTES;
+      if (bytes.length > maxBytes) {
+        const key = `${image.ref}:${bytes.length}`;
+        if (!this.warnedOversize.has(key)) {
+          this.warnedOversize.add(key);
+          this.deps.log.warn('Image is too large for the context', {
+            ref: image.ref,
+            bytes: bytes.length,
+            maxBytes,
+          });
+        }
+        return { placeholder: tooLargePlaceholder(image, bytes.length) };
+      }
+      return { image: { ...image, data: Buffer.from(bytes).toString('base64') } };
     } catch (error) {
       this.deps.log.warn('Could not load an image for the context', {
         ref: image.ref,
@@ -318,7 +345,11 @@ const MAX_TRACKED_SESSIONS = 256;
  * from the end makes the result deterministic per message, so a re-build keeps the cached prefix
  * byte-identical (Q7). A tool result's images become text appended to its content.
  */
-function pruneImages(messages: ModelMessage[], keep: number): ModelMessage[] {
+function pruneImages(
+  messages: ModelMessage[],
+  keep: number,
+  placeholder: (image: ImageAttachment) => string = imagePlaceholder,
+): ModelMessage[] {
   let remaining = Math.max(0, keep);
   return messages
     .slice()
@@ -333,7 +364,7 @@ function pruneImages(messages: ModelMessage[], keep: number): ModelMessage[] {
               remaining -= 1;
               return part;
             }
-            return { type: 'text', text: imagePlaceholder(part) };
+            return { type: 'text', text: placeholder(part) };
           }
           if (part.type === 'tool_result' && part.images?.length) {
             const kept: ImageAttachment[] = [];
@@ -350,7 +381,7 @@ function pruneImages(messages: ModelMessage[], keep: number): ModelMessage[] {
             const { images: _images, ...rest } = part;
             return {
               ...rest,
-              content: [part.content, ...dropped.map(imagePlaceholder)].filter(Boolean).join('\n'),
+              content: [part.content, ...dropped.map(placeholder)].filter(Boolean).join('\n'),
               ...(kept.length ? { images: kept } : {}),
             };
           }
@@ -367,6 +398,12 @@ const imageLabel = (image: ImageAttachment): string =>
 
 const imagePlaceholder = (image: ImageAttachment): string =>
   `[image: ${imageLabel(image)}, sent earlier]`;
+
+const cannotViewPlaceholder = (image: ImageAttachment): string =>
+  `[image: ${imageLabel(image)}, cannot be viewed with the current model]`;
+
+const tooLargePlaceholder = (image: ImageAttachment, bytes: number): string =>
+  `[image: ${imageLabel(image)}, too large to show (${(bytes / 1024 / 1024).toFixed(1)} MB)]`;
 
 const unavailablePlaceholder = (image: ImageAttachment): string =>
   `[image: ${imageLabel(image)}, unavailable]`;
