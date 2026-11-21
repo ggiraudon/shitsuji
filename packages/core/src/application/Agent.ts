@@ -18,6 +18,7 @@ import {
   ToolIndexInjectable,
 } from './context/index.js';
 import { ContextBuilder } from './context/ContextBuilder.js';
+import type { ImageSource } from './context/ContextBuilder.js';
 import type { ModelRouter } from './models/ModelRouter.js';
 import type { BudgetService } from './budget/BudgetService.js';
 import type { SoulSource } from './soul/SoulService.js';
@@ -60,6 +61,10 @@ export interface AgentOptions {
   approvals?: ApprovalService;
   /** How many recent messages are sent to the model (default 40). */
   historyLimit?: number;
+  /** How many of the newest images stay pixels; older ones become placeholders (default 3, S52). */
+  imageHistoryLimit?: number;
+  /** Loads a stored image reference from the active sandbox at context-build time. */
+  images?: ImageSource;
   /** Model calls per turn by session kind (decision Q5). */
   limits?: Partial<StepLimits>;
   /** Warn when a header injectable changes on every call (default on: tests and development). */
@@ -157,6 +162,10 @@ export class Agent {
       ownerId: options.ownerId,
       log: options.log,
       historyLimit: options.historyLimit ?? 40,
+      ...(options.imageHistoryLimit !== undefined && {
+        imageHistoryLimit: options.imageHistoryLimit,
+      }),
+      ...(options.images && { images: options.images }),
       stabilityCheck: options.stabilityCheck ?? true,
       compactor: new Compactor({
         models: options.models,

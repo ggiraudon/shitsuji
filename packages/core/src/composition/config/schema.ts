@@ -158,6 +158,8 @@ export const shitsujiConfigSchema = z
          * production (decided in loadConfig).
          */
         stabilityCheck: z.boolean().optional(),
+        /** How many of the newest images stay pixels; older ones become placeholders (S52). */
+        imageHistoryLimit: z.number().int().min(0).default(3),
       })
       .strict()
       .default({}),

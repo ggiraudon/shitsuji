@@ -179,6 +179,17 @@ immediately by its `tool_result`s. A message the owner steered in while the tool
 those results, an orphan result is dropped, and a call with no result (a crash) gets a synthetic error
 result, so every provider receives a valid history (#64).
 
+**Images in tool results (S52).** A `tool_result` can carry an `images` list next to `content`. Tools
+never return image bytes: each entry is `{ mediaType, ref, name? }`, a workspace-relative file under
+`sessions/<sessionId>/images/`. `ContextBuilder` loads the file through the active sandbox's files
+port and base64-encodes it when the request is built; the transcript keeps only the reference, so
+jsonb stays small and a history read does not carry megabytes. It keeps the newest N images as pixels
+(`context.imageHistoryLimit`, default 3) and replaces older ones with a deterministic
+`[image: name, sent earlier]` placeholder (for a tool result, appended to its text), so two builds of
+the same transcript produce a byte-identical cached prefix (Q7). Anthropic sends image blocks inside
+the `tool_result`; OpenAI-compatible providers keep the tool messages contiguous and follow them with
+one user message clearly marked as tool output.
+
 **Conditions** are fixed and extended:
 - `tool_used` reads the turn's tool calls (bug 8, fixed in S8);
 - `once` is tracked per session;

@@ -21,7 +21,7 @@ import type { BudgetService } from '../budget/BudgetService.js';
 import type { SoulSource } from '../soul/SoulService.js';
 import type { ToolCatalog } from '../tools/ToolCatalog.js';
 import { outcomeText, type ToolPipeline } from '../tools/ToolPipeline.js';
-import type { OutboundFile } from '../../ports/Tool.js';
+import type { OutboundFile, ToolImage } from '../../ports/Tool.js';
 import { outboundFiles } from '../../ports/Tool.js';
 import { TurnLock } from '../TurnLock.js';
 import { DEFAULT_STEP_LIMITS, StallDetector, type StepLimits } from './limits.js';
@@ -278,6 +278,7 @@ export class TurnRunner {
             toolCallId: call.id,
             content: result.content,
             isError: result.isError,
+            ...(result.images?.length && { images: result.images }),
           },
         ]);
       }
@@ -448,7 +449,7 @@ export class TurnRunner {
     turn: Turn,
     call: ToolCall,
     signal: AbortSignal,
-  ): Promise<{ content: string; isError: boolean; files: OutboundFile[] }> {
+  ): Promise<{ content: string; isError: boolean; files: OutboundFile[]; images?: ToolImage[] }> {
     const { events, log } = this.deps;
     const meta = {
       turnId: turn.id,
@@ -475,7 +476,12 @@ export class TurnRunner {
     if (outcome.kind === 'error' && outcome.reason === 'repeated_failure') {
       throw new TurnEnded(outcome.content); // ends the turn instead of looping (F05)
     }
-    return { content: outcomeText(outcome), isError: !ok, files: outboundFiles(outcome) };
+    return {
+      content: outcomeText(outcome),
+      isError: !ok,
+      files: outboundFiles(outcome),
+      ...(outcome.images?.length && { images: outcome.images }),
+    };
   }
 
   /**

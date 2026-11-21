@@ -77,6 +77,15 @@ export interface ToolContext {
   writeFenced<T>(fn: (tx: Transaction) => Promise<T>): Promise<T>;
 }
 
+/** An image a tool produced: a workspace file the ContextBuilder loads later. Never the bytes. */
+export interface ToolImage {
+  mediaType: string;
+  /** Workspace-relative path, e.g. `sessions/<id>/images/chart.png`. */
+  ref: string;
+  /** A name for the placeholder when the image is pruned from the context. */
+  name?: string;
+}
+
 /** What a tool's run() returns. `content` is what the model sees. */
 export interface ToolOutput {
   content: string;
@@ -84,6 +93,8 @@ export interface ToolOutput {
   isError?: boolean;
   /** Structured result for receipts and UIs; not sent to the model. */
   data?: Record<string, unknown>;
+  /** Images the model should see, by reference; never inline bytes. */
+  images?: ToolImage[];
 }
 
 /**
@@ -91,7 +102,7 @@ export interface ToolOutput {
  * model can react (`invalid_input`, `denied`…) and the loop can stop on `repeated_failure`.
  */
 export type ToolOutcome =
-  | { kind: 'ok'; content: string; data?: Record<string, unknown> }
+  | { kind: 'ok'; content: string; data?: Record<string, unknown>; images?: ToolImage[] }
   | {
       kind: 'error';
       reason:
@@ -104,6 +115,7 @@ export type ToolOutcome =
         | 'repeated_failure';
       content: string;
       data?: Record<string, unknown>;
+      images?: ToolImage[];
     };
 
 /**

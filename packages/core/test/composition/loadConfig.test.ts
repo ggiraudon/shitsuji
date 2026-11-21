@@ -237,6 +237,7 @@ describe('environment overrides', () => {
       load({ NODE_ENV: 'production', SHITSUJI_STABILITY_CHECK: 'true' }).config.context
         .stabilityCheck,
     ).toBe(true);
+    expect(load({}).config.context.imageHistoryLimit).toBe(3);
   });
 
   it('reads the TUI connection from the environment, keeping the key secret', () => {

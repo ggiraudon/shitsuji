@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod/v4';
 import { InMemoryJobQueue } from '../../src/adapters/jobs/InMemoryJobQueue.js';
 import { InMemoryRepositories } from '../../src/adapters/memory/InMemoryRepositories.js';
 import { MathEvaluateTool } from '../../src/adapters/tools/MathEvaluateTool.js';
@@ -22,6 +23,7 @@ import type {
   ModelRequest,
   ModelStreamEvent,
 } from '../../src/ports/ModelProvider.js';
+import type { Tool } from '../../src/ports/Tool.js';
 import {
   routerFor,
   ScriptedProvider,
@@ -39,6 +41,8 @@ const setup = async (
     provider?: ModelProvider & { requests: ModelRequest[] };
     sendTimeoutMs?: number;
     beforeAgent?: (services: ReturnType<typeof testServices>) => void;
+    images?: { read(ref: string): Promise<Uint8Array> };
+    imageHistoryLimit?: number;
   } = {},
 ) => {
   const { provider, beforeAgent, ...agentOptions } = extra;
@@ -195,6 +199,69 @@ describe('Agent', () => {
       ['assistant', 'assistant', 'text'],
     ]);
     expect(seen).toEqual(expect.arrayContaining(['tool.called', 'tool.result']));
+  });
+
+  it('stores a tool image as a reference and loads it only in the next request (S52)', async () => {
+    const chart: Tool = {
+      name: 'test.chart',
+      description: 'Draw a chart',
+      input: z.object({}),
+      effect: 'read',
+      target: 'core',
+      deferred: false,
+      untrustedOutput: false,
+      run: async (_args, ctx) => ({
+        content: 'Chart saved.',
+        images: [
+          {
+            mediaType: 'image/png',
+            ref: `sessions/${ctx.sessionId}/images/chart.png`,
+            name: 'chart.png',
+          },
+        ],
+      }),
+    };
+    const reads: string[] = [];
+    const { agent, llm, repos } = await setup(
+      [
+        { toolCalls: [{ id: 'c1', name: 'test.chart', arguments: {} }] },
+        { content: 'Here it is.' },
+      ],
+      {
+        images: {
+          read: async (ref) => {
+            reads.push(ref);
+            return new TextEncoder().encode('PNG');
+          },
+        },
+      },
+    );
+    agent.registerTool(chart);
+
+    const { sessionId } = await agent.send('Draw a chart');
+
+    const stored = await repos.messages.listBySession(sessionId);
+    const tool = stored.find((m) => m.role === 'tool')!;
+    const part = tool.parts[0] as Extract<(typeof tool.parts)[number], { type: 'tool_result' }>;
+    expect(part.images).toEqual([
+      {
+        mediaType: 'image/png',
+        ref: `sessions/${sessionId}/images/chart.png`,
+        name: 'chart.png',
+      },
+    ]);
+    expect(JSON.stringify(tool)).not.toContain('base64');
+
+    const request = llm.requests[1]!.messages.find((m) => m.role === 'tool')!;
+    const requestPart = request.parts[0] as Extract<
+      (typeof request.parts)[number],
+      { type: 'tool_result' }
+    >;
+    expect(requestPart.images?.[0]).toMatchObject({
+      mediaType: 'image/png',
+      data: Buffer.from('PNG').toString('base64'),
+    });
+    expect(reads).toEqual([`sessions/${sessionId}/images/chart.png`]);
   });
 
   it('records the turn as succeeded, with model and tool events', async () => {

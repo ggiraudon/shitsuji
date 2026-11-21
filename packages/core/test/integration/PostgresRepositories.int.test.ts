@@ -3,7 +3,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { PostgresRepositories } from '../../src/adapters/postgres/PostgresRepositories.js';
 import type { Database } from '../../src/adapters/postgres/schema.js';
 import { TurnLock, TurnNoLongerActive } from '../../src/application/TurnLock.js';
-import { asId, newId, type OwnerId } from '../../src/domain/model/ids.js';
+import { asId, newId, type OwnerId, type ToolCallId } from '../../src/domain/model/ids.js';
+import type { ContentPart } from '../../src/domain/model/Message.js';
 import { Session } from '../../src/domain/model/Session.js';
 import { Turn } from '../../src/domain/model/Turn.js';
 import { describeRepositoryContract } from '../contracts/repositories.contract.js';
@@ -128,6 +129,46 @@ describe('Postgres-only guarantees', () => {
       expect(rows.length, table).toBeGreaterThan(0);
       expect(new Set(rows.map((r) => r.owner_id)), table).toEqual(new Set(['owner']));
     }
+  });
+
+  it('stores an image reference in a tool result without its bytes (S52)', async () => {
+    const { repos, session, turn } = await seeded();
+    await repos.messages.append({
+      id: newId(),
+      threadId: session.threadId,
+      sessionId: session.id,
+      turnId: turn.id,
+      role: 'tool',
+      author: 'system',
+      parts: [
+        {
+          type: 'tool_result',
+          toolCallId: asId<ToolCallId>('t1'),
+          content: 'Chart saved.',
+          isError: false,
+          images: [
+            {
+              mediaType: 'image/png',
+              ref: `sessions/${session.id}/images/chart.png`,
+              name: 'chart.png',
+            },
+          ],
+        },
+      ],
+      withdrawn: false,
+      createdAt: new Date(),
+    });
+
+    const [stored] = await repos.messages.listBySession(session.id);
+    const part = stored!.parts[0] as Extract<ContentPart, { type: 'tool_result' }>;
+    expect(part.images).toEqual([
+      {
+        mediaType: 'image/png',
+        ref: `sessions/${session.id}/images/chart.png`,
+        name: 'chart.png',
+      },
+    ]);
+    expect(JSON.stringify(part)).not.toContain('base64');
   });
 
   it('matches the migrated schema: every typed table and column exists', async () => {

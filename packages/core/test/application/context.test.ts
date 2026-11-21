@@ -48,7 +48,12 @@ class Note extends BaseContextInjectable {
 
 async function fixture(
   injectables: ContextInjectable[],
-  options: { kind?: SessionKind; historyLimit?: number } = {},
+  options: {
+    kind?: SessionKind;
+    historyLimit?: number;
+    imageHistoryLimit?: number;
+    images?: { read(ref: string): Promise<Uint8Array> };
+  } = {},
 ) {
   const repos = new InMemoryRepositories();
   const log = new MemoryLogger();
@@ -91,6 +96,10 @@ async function fixture(
     ownerId: OWNER,
     log,
     historyLimit: options.historyLimit,
+    ...(options.imageHistoryLimit !== undefined && {
+      imageHistoryLimit: options.imageHistoryLimit,
+    }),
+    ...(options.images && { images: options.images }),
   });
   return { builder, repos, session, turn, append, log, clock };
 }
@@ -411,5 +420,88 @@ describe('ContextBuilder: the tail says where it comes from (#66)', () => {
       type: 'text',
       text: "[Context from Shitsuji, not the owner's words]\nCurrent local date and time for your owner: 2:43 PM (UTC).",
     });
+  });
+});
+
+describe('ContextBuilder: images (S52)', () => {
+  const bytesOf = (ref: string) => new TextEncoder().encode(ref);
+  const base64Of = (ref: string) => Buffer.from(ref).toString('base64');
+  const imagePart = (ref: string): ContentPart => ({
+    type: 'image',
+    mediaType: 'image/png',
+    ref,
+    name: ref.split('/').pop(),
+  });
+
+  it('loads stored refs and keeps the newest three as pixels, deterministically', async () => {
+    const refs = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png'].map(
+      (name) => `sessions/s1/images/${name}`,
+    );
+    const reads: string[] = [];
+    const { builder, session, turn, append } = await fixture([], {
+      images: {
+        read: async (ref) => {
+          reads.push(ref);
+          return bytesOf(ref);
+        },
+      },
+    });
+    for (const ref of refs) await append('user', [imagePart(ref)]);
+
+    const first = await builder.build(session, turn);
+    reads.length = 0;
+    const second = await builder.build(session, turn);
+
+    expect(JSON.stringify(first.messages)).toBe(JSON.stringify(second.messages));
+    expect(reads).toEqual(refs.slice(-3));
+    const images = first.messages.flatMap((m) =>
+      m.parts.flatMap((p) => (p.type === 'image' ? [p] : [])),
+    );
+    expect(images).toHaveLength(3);
+    expect(images.map((p) => p.data)).toEqual(refs.slice(-3).map(base64Of));
+    const placeholders = first.messages.flatMap((m) =>
+      m.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])),
+    );
+    expect(placeholders).toContain('[image: a.png, sent earlier]');
+    expect(placeholders).toContain('[image: b.png, sent earlier]');
+  });
+
+  it('loads a tool result image, then prunes it to one placeholder when it is old', async () => {
+    const ref = 'sessions/s1/images/chart.png';
+    const call = {
+      type: 'tool_call' as const,
+      call: { id: asId<ToolCallId>('t1'), name: 'chart', arguments: {} },
+    };
+    const toolResult: ContentPart = {
+      type: 'tool_result',
+      toolCallId: asId<ToolCallId>('t1'),
+      content: 'Chart saved.',
+      isError: false,
+      images: [{ mediaType: 'image/png', ref, name: 'chart.png' }],
+    };
+    const { builder, session, turn, append, repos } = await fixture([], {
+      images: { read: async (value) => bytesOf(value) },
+    });
+    await append('assistant', [call]);
+    await append('tool', [toolResult]);
+    const loaded = await builder.build(session, turn);
+    const part = loaded.messages[1]!.parts[0] as Extract<ContentPart, { type: 'tool_result' }>;
+    expect(part.images?.[0]).toMatchObject({ mediaType: 'image/png', data: base64Of(ref) });
+
+    const prunedBuilder = new ContextBuilder({
+      injectables: () => [],
+      repos,
+      ownerId: OWNER,
+      log: new MemoryLogger(),
+      images: { read: async (value) => bytesOf(value) },
+      imageHistoryLimit: 0,
+    });
+    const pruned = await prunedBuilder.build(session, turn);
+    const prunedPart = pruned.messages[1]!.parts[0] as Extract<
+      ContentPart,
+      { type: 'tool_result' }
+    >;
+    expect(prunedPart.images).toBeUndefined();
+    expect(prunedPart.content).toContain('[image: chart.png, sent earlier]');
   });
 });

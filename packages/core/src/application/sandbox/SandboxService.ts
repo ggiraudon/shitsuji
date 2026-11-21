@@ -149,6 +149,16 @@ export class SandboxService {
     return driver.viewerCredentials();
   }
 
+  /**
+   * Reads a workspace-relative image reference for the context builder (S52). The bytes go through
+   * the same driver files port as every other workspace read; core never touches the folder itself.
+   */
+  async readBytes(path: string): Promise<Uint8Array> {
+    const files = this.opened?.sandbox.files;
+    if (!files) throw new SandboxUnavailable('The sandbox is not open.');
+    return files.readBytes(await files.resolveRead(path));
+  }
+
   /** Driver health, then the egress claim again (S42); a broken claim throws `SandboxUnavailable`. */
   async health(): Promise<DriverHealth> {
     const health = await this.deps.driver.health();
