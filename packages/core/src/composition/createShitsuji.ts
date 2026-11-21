@@ -347,6 +347,7 @@ export async function createShitsuji(
       timeoutMs: config.sandbox.probes.timeoutMs,
       log,
     }),
+    vision: models.anySupports('vision', 'vision'),
     log,
     ...(options.sandboxRetry && { retry: options.sandboxRetry }),
   });

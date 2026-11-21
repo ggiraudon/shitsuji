@@ -5,6 +5,7 @@ import { SandboxService } from '../../../src/application/sandbox/SandboxService.
 import { SandboxUnavailable } from '../../../src/domain/errors.js';
 import { asId, type OwnerId } from '../../../src/domain/model/ids.js';
 import type {
+  DesktopCapability,
   ExecEvent,
   LeaseRequest,
   Sandbox,
@@ -24,6 +25,7 @@ const fakeFiles = (mkdirs: string[] = []): SandboxFiles => ({
   display: (absolute) => absolute.replace('/workspace/', ''),
   read: async () => '',
   readBytes: async () => new Uint8Array(),
+  writeBytes: async () => undefined,
   stat: async () => undefined,
   write: async () => undefined,
   mkdir: async (absolute) => {
@@ -68,7 +70,7 @@ const fakeTool = (name: string) => ({
   run: async () => ({ content: '' }),
 });
 
-const build = (d: SandboxDriver, retry = { attempts: 1, delayMs: 0 }) => {
+const build = (d: SandboxDriver, retry = { attempts: 1, delayMs: 0 }, vision = false) => {
   const services = testServices();
   const sandbox = new SandboxService({
     driver: d,
@@ -76,6 +78,7 @@ const build = (d: SandboxDriver, retry = { attempts: 1, delayMs: 0 }) => {
     exec: EXEC,
     outbound: { stage: async (name) => `/outbox/${name}` },
     egress: new EgressProbe({ targets: [LAN], timeoutMs: 10, log: services.log }),
+    vision,
     log: services.log,
     retry,
   });
@@ -304,6 +307,44 @@ describe('SandboxService (F08, S40)', () => {
     const { sandbox } = build(never, { attempts: 3, delayMs: 1 });
 
     await expect(sandbox.start()).rejects.toThrow(/still starting/);
+  });
+
+  it('registers computer.act only with a desktop and vision (S53)', async () => {
+    const desktop = {
+      accessibility: false,
+      screenshots: true,
+      state: async () => ({ display: ':0', width: 1440, height: 900 }),
+      screenshot: async () => ({
+        mediaType: 'image/png' as const,
+        data: new Uint8Array(),
+        width: 1280,
+        height: 800,
+        originalWidth: 1440,
+        originalHeight: 900,
+        scale: 0.5,
+      }),
+      windows: async () => [],
+      act: async () => undefined,
+      ocr: async () => ({ text: '' }),
+      readClipboard: async () => '',
+      writeClipboard: async () => undefined,
+    } satisfies DesktopCapability;
+    const withDesktop = driver(
+      {
+        files: { roots: ['/workspace'] },
+        desktop: { accessibility: false, screenshots: true, takeControl: false },
+        egress: { lanBlocked: true, credentialSwap: false },
+      },
+      { files: fakeFiles(), desktop },
+    );
+
+    const vision = build(withDesktop, { attempts: 1, delayMs: 0 }, true);
+    await vision.sandbox.start();
+    expect(names(vision.sandbox)).toContain('computer.act');
+
+    const noVision = build(withDesktop, { attempts: 1, delayMs: 0 }, false);
+    await noVision.sandbox.start();
+    expect(names(noVision.sandbox)).not.toContain('computer.act');
   });
 
   it('asks the driver for the view-only password, and refuses without a desktop (S51)', async () => {

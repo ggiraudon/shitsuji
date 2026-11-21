@@ -12,6 +12,7 @@ import type {
 import type { Tool } from '../../ports/Tool.js';
 import type { EgressProbe } from './EgressProbe.js';
 import { workspaceTools, type ExecOptions } from './tools/index.js';
+import { computerActTools } from '../desktop/ComputerActTool.js';
 
 export interface SandboxServiceDeps {
   driver: SandboxDriver;
@@ -23,6 +24,8 @@ export interface SandboxServiceDeps {
   outbound: OutboundFiles;
   /** Checks the driver's egress claim at startup and on health() (S42). */
   egress: EgressProbe;
+  /** Whether the vision purpose's model can see images; gates computer.act (S53). */
+  vision?: boolean;
   log: Logger;
   /**
    * How long a cold start waits for the driver's health check (S49). Compose starts core after the
@@ -87,6 +90,9 @@ export class SandboxService {
     const tools = [
       ...(sandbox.files
         ? workspaceTools(sandbox.files, sandbox.exec, this.deps.exec, this.deps.outbound)
+        : []),
+      ...(sandbox.files && sandbox.desktop && this.deps.vision
+        ? computerActTools(sandbox.files, sandbox.desktop)
         : []),
       ...this.extraToolsOf(driver),
     ];
