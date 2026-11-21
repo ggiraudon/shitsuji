@@ -15,7 +15,9 @@ import type { Compactor } from './Compactor.js';
 
 /** One injectable's text, with the id that produced it (for tests and the stability check). */
 export interface RenderedNote {
+  /** The injectable that rendered it. */
   id: string;
+  /** The text it added, already trimmed of empty renderings. */
   text: string;
 }
 
@@ -27,15 +29,23 @@ export interface BuiltContext {
   messages: ModelMessage[];
   /** The stored messages the request was built from (for steering checks and receipts). */
   sources: Message[];
+  /** What went into the system prompt, per injectable, in order. */
   header: RenderedNote[];
+  /** The system notes placed before the history, per injectable, in order. */
   context: RenderedNote[];
+  /** The text attached to the opening owner message for this turn, when a tail injectable rendered. */
   tail?: string;
 }
 
+/** What the builder needs: the injectables, storage, the limits, and the optional parts. */
 export interface ContextBuilderDeps {
+  /** The live injectables; a function because plugins may add more after the agent is built. */
   injectables: () => readonly ContextInjectable[];
+  /** Reads the transcript, the session and the owner. */
   repos: Repositories;
+  /** The owner whose profile the render context carries. */
   ownerId: OwnerId;
+  /** Structured logger; oversize images and an unstable header are reported here. */
   log: Logger;
   /** The most recent messages sent to the model; the open request is always kept. */
   historyLimit?: number;
@@ -60,6 +70,7 @@ export interface ContextBuilderDeps {
 
 /** Reads the bytes behind a stored image reference; the sandbox driver supplies it in core. */
 export interface ImageSource {
+  /** The bytes of a workspace-relative image, or a rejection the builder turns into a placeholder. */
   read(ref: string): Promise<Uint8Array>;
 }
 
@@ -81,6 +92,55 @@ const DEFAULT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
  * Each injectable declares a placement and an order, so where its text lands is a property of the
  * code, not a convention: the header starts the cached prefix, context notes sit at the start of the
  * history, and the tail changes every call without touching either (decision Q7).
+ *
+ * **How one request is built**, in order:
+ *
+ * 1. Read the transcript and re-read the session, because a compaction earlier in the turn may have
+ *    moved its summary and watermark. Compact first when the transcript nears the window.
+ * 2. Keep at most `historyLimit` messages, extended back to the owner message that opened this turn,
+ *    so a long tool loop cannot push the open request out of view.
+ * 3. Sort the injectables by placement (`header`, `context`, `tail`), then `order`, then id; evaluate
+ *    their conditions and render them. An empty rendering adds nothing.
+ * 4. The header becomes `system`, the stable prefix of the request. Context notes become system-role
+ *    messages placed before the history. The tail is appended to the turn's opening owner message,
+ *    behind {@link TAIL_MARKER}, and is frozen for every step of that turn.
+ * 5. Trim the history to whole exchanges (never start on a tool result), drop withdrawn messages and
+ *    re-order tool results directly after the call they answer; a call with no result gets a
+ *    synthetic error result so the history stays valid.
+ * 6. Prune and load images under the S52 rules below, then return the parts.
+ *
+ * ```mermaid
+ * flowchart TD
+ *   store[(transcript)] --> compact{over the window?}
+ *   compact -- yes --> summary[summarise the covered prefix]
+ *   compact -- no --> window
+ *   summary --> window[keep historyLimit, back to the open request]
+ *   window --> render[render injectables by placement, then order]
+ *   render --> header[header]
+ *   render --> notes[context notes]
+ *   render --> tail[tail, frozen per turn]
+ *   window --> order[whole exchanges + tool results reordered]
+ *   order --> images[prune images, load the kept ones]
+ *   header --> request[["system + notes + history + tail"]]
+ *   notes --> request
+ *   images --> request
+ *   tail --> request
+ * ```
+ *
+ * **The cache split (Q7).** Providers cache a prefix of the request, and anything that changes early
+ * invalidates everything after it. So the stable work comes first and the volatile text last: the
+ * header changes almost never, the context notes only when a compaction summary changes, and the tail
+ * is re-rendered once per turn and frozen for all its steps. `stabilityCheck` warns when a header
+ * injectable changes on two consecutive calls, which costs a cache miss per call.
+ *
+ * **Images (S52).** The transcript stores only `ref`, a workspace path; bytes are never in jsonb.
+ * `visionAvailable` is the gate: without a vision model, every image becomes a "cannot be viewed"
+ * placeholder and no file is read. With vision, only the newest `imageHistoryLimit` (3) images stay
+ * pixels — counted from the end, so the result is deterministic and a re-build is byte-identical —
+ * and an image over `imageMaxBytes` (5 MiB) becomes a "too large" placeholder, logged once per file.
+ * Kept images are read through {@link ImageSource} and sent as base64 for this request only; a file
+ * that cannot be read leaves an "unavailable" placeholder. An image dropped from a tool result is
+ * appended to that result's text, so the model still knows it existed.
  */
 export class ContextBuilder {
   /** Injectable ids that already rendered once in a session (`once` condition). */
@@ -90,13 +150,26 @@ export class ContextBuilder {
   /** The tail of each session's current turn, rendered once so every step of the turn reuses it. */
   private readonly turnTails = new Map<
     SessionId,
-    { turnId: Turn['id']; text: string | undefined }
+    {
+      /** The turn the frozen tail belongs to; a new turn renders a fresh one. */
+      turnId: Turn['id'];
+      /** The tail text, or undefined when no tail injectable rendered for that turn. */
+      text: string | undefined;
+    }
   >();
   /** Image references already reported as too large, so one bad file logs once. */
   private readonly warnedOversize = new Set<string>();
 
-  constructor(private readonly deps: ContextBuilderDeps) {}
+  constructor(
+    /** Storage, the injectables, the limits and the optional compaction and image reader. */
+    private readonly deps: ContextBuilderDeps,
+  ) {}
 
+  /**
+   * Builds one request: compact if needed, window the history, render the injectables by placement,
+   * re-order the tool results, prune/load images and attach the turn's frozen tail. Called once per
+   * model step, so everything it reads is the state as of that step.
+   */
   async build(
     session: Session,
     turn: Turn,
@@ -244,6 +317,7 @@ export class ContextBuilder {
     return out;
   }
 
+  /** Loads and checks one image reference: bytes, a placeholder, or undefined for "unavailable". */
   private async resolveImage(image: ImageAttachment): Promise<ResolvedImage | undefined> {
     if (image.data || image.url) return { image };
     if (!image.ref || !this.deps.images) return undefined;
@@ -297,6 +371,7 @@ export class ContextBuilder {
     }
   }
 
+  /** Records that a `once` injectable has rendered for a session, so it never does again there. */
   private markRendered(sessionId: SessionId, injectableId: string): void {
     const seen = this.renderedOnce.get(sessionId) ?? new Set<string>();
     seen.add(injectableId);

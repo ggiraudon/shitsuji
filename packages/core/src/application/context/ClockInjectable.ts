@@ -12,10 +12,14 @@ export class ClockInjectable extends BaseContextInjectable {
   override placement = 'tail' as const;
   override order = 2;
 
-  constructor(private readonly clock: Clock) {
+  constructor(
+    /** The injected clock; reading it here is what makes the tail change per turn. */
+    private readonly clock: Clock,
+  ) {
     super();
   }
 
+  /** The owner's local date and time, falling back to UTC when the zone or locale is unknown. */
   render(context: AgentRenderContext): string {
     const now = this.clock.now();
     const timeZone = context.owner?.timezone ?? 'UTC';

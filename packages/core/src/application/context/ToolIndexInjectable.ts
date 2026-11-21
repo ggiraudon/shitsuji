@@ -12,10 +12,14 @@ export class ToolIndexInjectable extends BaseContextInjectable {
   override placement = 'header' as const;
   override order = 1;
 
-  constructor(private readonly tools: () => readonly Tool[]) {
+  constructor(
+    /** The live catalog; read on every build so a tool registered later appears next time. */
+    private readonly tools: () => readonly Tool[],
+  ) {
     super();
   }
 
+  /** One line per deferred tool, or null when every tool is sent as a schema anyway. */
   render(_context: AgentRenderContext): string | null {
     const deferred = this.tools().filter((t) => t.deferred);
     if (!deferred.length) return null;
