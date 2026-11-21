@@ -46,7 +46,7 @@ const ctx = {
   writeFenced: async <T>(fn: () => Promise<T>) => fn(),
 } as unknown as ToolContext;
 
-function setup(options: { stale?: boolean; failInspect?: boolean } = {}) {
+function setup(options: { stale?: boolean; failInspect?: boolean; owner?: boolean } = {}) {
   const calls: { kind: string; request: unknown }[] = [];
   const desktop = {
     accessibility: true,
@@ -76,8 +76,8 @@ function setup(options: { stale?: boolean; failInspect?: boolean } = {}) {
   return {
     calls,
     inspect: new DesktopInspectTool(desktop),
-    act: new DesktopActTool(desktop),
-    tools: desktopA11yTools(desktop),
+    act: new DesktopActTool(desktop, () => options.owner ?? false),
+    tools: desktopA11yTools(desktop, () => options.owner ?? false),
   };
 }
 
@@ -147,6 +147,16 @@ describe('desktop.inspect (S54)', () => {
 });
 
 describe('desktop.act (S54)', () => {
+  it('refuses an action while the owner has control, while inspect still reads (S55)', async () => {
+    const { act, inspect, calls } = setup({ owner: true });
+    const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);
+    expect(output.isError).toBe(true);
+    expect(output.content).toContain('owner has control');
+    expect(calls).toEqual([]);
+
+    const tree = await inspect.run({ window: 'Thunar' }, ctx);
+    expect(tree.content).toContain('snapshot s4');
+  });
   it('clicks a ref, then returns a fresh tree and snapshot', async () => {
     const { act, calls } = setup();
     expect(act.target).toBe('desktop');

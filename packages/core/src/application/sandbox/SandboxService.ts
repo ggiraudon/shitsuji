@@ -1,4 +1,10 @@
 import { SandboxUnavailable } from '../../domain/errors.js';
+import type { SessionId, TurnId } from '../../domain/model/ids.js';
+import type {
+  DesktopControlMode,
+  DesktopControlStatus,
+  TakeControlPort,
+} from '../../ports/DesktopControl.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { OutboundFiles } from '../../ports/OutboundFiles.js';
 import type {
@@ -11,11 +17,12 @@ import type {
   SandboxDriver,
   ViewerCredentials,
 } from '../../ports/SandboxDriver.js';
-import type { Tool } from '../../ports/Tool.js';
+import type { Tool, ToolImage } from '../../ports/Tool.js';
 import type { EgressProbe } from './EgressProbe.js';
 import { workspaceTools, type ExecOptions } from './tools/index.js';
 import { computerActTools } from '../desktop/ComputerActTool.js';
 import { desktopA11yTools } from '../desktop/DesktopA11yTools.js';
+import { takeControlTools } from '../desktop/TakeControlTool.js';
 
 export interface SandboxServiceDeps {
   driver: SandboxDriver;
@@ -52,8 +59,73 @@ export class SandboxService {
     capabilities: SandboxCapabilities;
     tools: readonly Tool[];
   };
+  /** `owner` while the owner has the desktop; starts as `agent` in every process (S55). */
+  private ownerControl = false;
+  private controlInfo?: { requestedBy: 'agent' | 'owner'; reason?: string; since: Date };
+  private readonly controlListeners = new Set<(mode: DesktopControlMode) => void>();
+  private takeControl?: TakeControlPort;
 
   constructor(private readonly deps: SandboxServiceDeps) {}
+
+  /** The takeover service, set by composition before start so the tool can be registered. */
+  setTakeControl(control: TakeControlPort): void {
+    this.takeControl = control;
+  }
+
+  /** Who may write to the desktop now; reads are still allowed in owner mode. */
+  get desktopMode(): DesktopControlMode {
+    return this.ownerControl ? 'owner' : 'agent';
+  }
+
+  /** The mode plus who asked and why; no expiry or viewer URL (the control service adds those). */
+  get desktopControlStatus(): DesktopControlStatus {
+    return {
+      mode: this.desktopMode,
+      ...(this.controlInfo?.requestedBy && { requestedBy: this.controlInfo.requestedBy }),
+      ...(this.controlInfo?.reason && { reason: this.controlInfo.reason }),
+      ...(this.controlInfo?.since && { since: this.controlInfo.since.toISOString() }),
+    };
+  }
+
+  /** Enters owner mode; the control service calls this only for a real desktop (S55). */
+  enterOwnerControl(input: { requestedBy: 'agent' | 'owner'; reason?: string; since: Date }): void {
+    if (!this.opened?.sandbox.desktop) {
+      throw new SandboxUnavailable('This sandbox has no desktop to take control of.');
+    }
+    const changed = !this.ownerControl;
+    this.ownerControl = true;
+    this.controlInfo = {
+      requestedBy: input.requestedBy,
+      ...(input.reason && { reason: input.reason }),
+      since: input.since,
+    };
+    if (changed) this.notifyControl();
+  }
+
+  /** Returns to agent mode; idempotent, and notifies the viewer so full streams close. */
+  leaveOwnerControl(): void {
+    if (!this.ownerControl) return;
+    this.ownerControl = false;
+    this.controlInfo = undefined;
+    this.notifyControl();
+  }
+
+  /** Subscribes to mode changes (the viewer closes every full-control stream on `agent`). */
+  onDesktopModeChange(listener: (mode: DesktopControlMode) => void): () => void {
+    this.controlListeners.add(listener);
+    return () => this.controlListeners.delete(listener);
+  }
+
+  private notifyControl(): void {
+    const mode = this.desktopMode;
+    for (const listener of this.controlListeners) {
+      try {
+        listener(mode);
+      } catch {
+        // A viewer listener that throws must not break the mode change.
+      }
+    }
+  }
 
   get driverId(): string {
     return this.deps.driver.id;
@@ -95,10 +167,11 @@ export class SandboxService {
         ? workspaceTools(sandbox.files, sandbox.exec, this.deps.exec, this.deps.outbound)
         : []),
       ...(sandbox.desktop && sandbox.desktop.accessibility
-        ? desktopA11yTools(sandbox.desktop)
+        ? desktopA11yTools(sandbox.desktop, () => this.ownerControl)
         : []),
+      ...(sandbox.desktop && this.takeControl ? takeControlTools(this.takeControl) : []),
       ...(sandbox.files && sandbox.desktop && this.deps.vision
-        ? computerActTools(sandbox.files, sandbox.desktop)
+        ? computerActTools(sandbox.files, sandbox.desktop, () => this.ownerControl)
         : []),
       ...this.extraToolsOf(driver),
     ];
@@ -161,8 +234,11 @@ export class SandboxService {
     return driver.viewerCredentials();
   }
 
-  /** The full-control VNC password (S55); the caller must have checked the owner's control mode. */
+  /** The full-control VNC password (S55); only in owner mode, so a bug cannot hand it out early. */
   async fullViewerCredentials(): Promise<FullViewerCredentials> {
+    if (this.desktopMode !== 'owner') {
+      throw new SandboxUnavailable('The owner does not have control of the desktop.');
+    }
     const driver = this.deps.driver;
     if (!driver.fullViewerCredentials) {
       throw new SandboxUnavailable(`The ${driver.id} sandbox has no full-control viewer.`, {
@@ -170,6 +246,30 @@ export class SandboxService {
       });
     }
     return driver.fullViewerCredentials();
+  }
+
+  /**
+   * A fresh screenshot for the note a resumed turn sees (S55), saved under the session's images.
+   * Returns undefined when the sandbox has no desktop or the capture fails; the note still says the
+   * screen may have changed.
+   */
+  async captureScreenshot(sessionId: SessionId, turnId: TurnId): Promise<ToolImage | undefined> {
+    const desktop = this.opened?.sandbox.desktop;
+    const files = this.opened?.sandbox.files;
+    if (!desktop || !files) return undefined;
+    try {
+      const shot = await desktop.screenshot();
+      const name = `take-control-${turnId}.png`;
+      const ref = `sessions/${sessionId}/images/${name}`;
+      await files.writeBytes(await files.resolve(ref), shot.data);
+      return { mediaType: 'image/png', ref, name };
+    } catch (error) {
+      this.deps.log.warn('Could not capture the desktop after control', {
+        sessionId,
+        error: { message: error instanceof Error ? error.message : 'unknown' },
+      });
+      return undefined;
+    }
   }
 
   /** Which allowed apps publish a tree (S54); undefined when the sandbox has no accessibility. */

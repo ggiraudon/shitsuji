@@ -15,7 +15,7 @@ import type {
   ModelRequest,
   ModelStreamEvent,
 } from '../../src/ports/ModelProvider.js';
-import { BaseTool, type ToolOutput } from '../../src/ports/Tool.js';
+import { BaseTool, type ToolContext, type ToolOutput } from '../../src/ports/Tool.js';
 import { routerFor, testServices, transcript, until } from '../helpers.js';
 
 type Step = {
@@ -115,6 +115,20 @@ class FileTool extends BaseTool<z.ZodObject<Record<string, never>>> {
   }
 }
 
+/** Asks the runner to pause the turn, as computer.request_takeover does (S55). */
+class PauseTool extends BaseTool<z.ZodObject<Record<string, never>>> {
+  readonly name = 'test.pause';
+  readonly description = 'Pauses the turn for the owner';
+  readonly input = z.object({});
+  readonly effect = 'write_local' as const;
+  runs = 0;
+  async run(_args: Record<string, never>, ctx: ToolContext): Promise<ToolOutput> {
+    this.runs += 1;
+    ctx.requestPause?.('The agent asked for control.');
+    return { content: 'Asked the owner.' };
+  }
+}
+
 async function setup(steps: Step[]) {
   const services = testServices();
   const events: string[] = [];
@@ -130,7 +144,8 @@ async function setup(steps: Step[]) {
   const repos = new InMemoryRepositories();
   const jobs = new InMemoryJobQueue(services.log, services.clock);
   const hang = new HangTool();
-  const tools = new ToolCatalog([hang, new FailTool(), new FileTool()]);
+  const pause = new PauseTool();
+  const tools = new ToolCatalog([hang, new FailTool(), new FileTool(), pause]);
   const model = new ControlledModel(steps);
   const agent = new Agent({
     name: 'Test',
@@ -147,7 +162,7 @@ async function setup(steps: Step[]) {
   });
   await jobs.start();
   await agent.start();
-  return { agent, model, repos, events, hang, services };
+  return { agent, model, repos, events, hang, pause, tools, services };
 }
 
 describe('runtime: intake, scheduling and streaming (S20, S21)', () => {
@@ -330,5 +345,29 @@ describe('runtime: replies go back where the message came from', () => {
     });
     await agent.send('Ping', { replyChannel: 'webhook:client-7' });
     expect(seen).toEqual([{ replyChannel: 'webhook:client-7', reply: 'Pong.' }]);
+  });
+});
+
+describe('runtime: a tool can pause the turn for the owner (S55)', () => {
+  it('ends the turn as waiting with the question and makes no further model call', async () => {
+    const { agent, repos, model, events, pause, tools } = await setup([
+      { tool: { name: 'test.pause' } },
+      { text: 'This must not be reached.' },
+    ]);
+    expect(tools.get('test.pause')).toBe(pause);
+    const result = await agent.send('Take over please');
+    expect(pause.runs).toBe(1);
+    expect(result.status).toBe('waiting');
+    expect(result.reply).toBe('The agent asked for control.');
+
+    const turn = await repos.turns.get(result.turnId);
+    expect(turn?.status).toBe('waiting');
+    expect(model.requests).toHaveLength(1);
+    expect(events).toContain('turn.waiting');
+    const question = (await repos.messages.listBySession(turn!.sessionId))
+      .filter((message) => message.turnId === result.turnId)
+      .map(textOf)
+      .join('\n');
+    expect(question).toContain('The agent asked for control.');
   });
 });

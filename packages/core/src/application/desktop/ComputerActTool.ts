@@ -81,6 +81,7 @@ export class ComputerActTool extends BaseTool<typeof actionSchema> {
   constructor(
     private readonly files: SandboxFiles,
     private readonly desktop: DesktopCapability,
+    private readonly isOwner: () => boolean = () => false,
   ) {
     super();
   }
@@ -89,6 +90,14 @@ export class ComputerActTool extends BaseTool<typeof actionSchema> {
     READ_ACTIONS.has(args.action) ? 'read' : 'write_local';
 
   async run(args: ComputerAction, ctx: ToolContext): Promise<ToolOutput> {
+    if (this.isOwner() && args.action !== 'screenshot' && args.action !== 'ocr') {
+      return {
+        content:
+          'The owner has control of the desktop. Screenshots and OCR still work, but the agent ' +
+          'cannot move, click, type or launch until the owner gives it back.',
+        isError: true,
+      };
+    }
     let ocr: string | undefined;
     let scale = this.screenshotScales.get(ctx.sessionId);
     if (needsCoordinates(args.action) && scale === undefined) {
@@ -153,8 +162,12 @@ export class ComputerActTool extends BaseTool<typeof actionSchema> {
   }
 }
 
-export function computerActTools(files: SandboxFiles, desktop: DesktopCapability): Tool[] {
-  return [new ComputerActTool(files, desktop)];
+export function computerActTools(
+  files: SandboxFiles,
+  desktop: DesktopCapability,
+  isOwner: () => boolean = () => false,
+): Tool[] {
+  return [new ComputerActTool(files, desktop, isOwner)];
 }
 
 function toDesktopAction(
