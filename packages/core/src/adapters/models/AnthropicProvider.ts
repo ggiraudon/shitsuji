@@ -15,10 +15,15 @@ import { TEXT_PART_SEPARATOR, joinTextParts } from './textParts.js';
 import { ToolNameMap } from './toolNames.js';
 import { ToolCallAccumulator, ToolCallArgumentsError } from './ToolCallAccumulator.js';
 
+/** How to reach one Anthropic endpoint: its id, key, base URL and default output budget. */
 export interface AnthropicOptions {
+  /** The provider id from the model ref, e.g. `anthropic`. */
   id: string;
+  /** The `x-api-key` value; stays in this adapter. */
   apiKey: string;
+  /** The API root; `https://api.anthropic.com/v1` by default. */
   baseUrl?: string;
+  /** Structured logger for stream errors. */
   log: Logger;
   /** Required by the API; used when the request does not set maxOutputTokens. */
   defaultMaxTokens?: number;
@@ -79,13 +84,23 @@ interface AnthropicUsage {
 /**
  * Claude via the Messages API, streamed. Tool calls are real tool_use / tool_result blocks (bug 2),
  * the system prompt is sent separately with a prompt-cache breakpoint, and history is never cut here.
+ *
+ * S52 images: an `image` part becomes an `image` block (URL or base64); a tool result's images become
+ * `image` blocks inside that same `tool_result` block, after the text, which is where the Messages API
+ * accepts them, so a tool's screenshot stays attached to the call that produced it.
  */
 export class AnthropicProvider implements ModelProvider {
+  /** The provider id from the options, used in errors and usage rows. */
   readonly id: string;
+  /** The API root without a trailing slash. */
   private readonly baseUrl: string;
+  /** The fetch used for every call, injectable for recorded fixtures. */
   private readonly fetchImpl: typeof fetch;
 
-  constructor(private readonly options: AnthropicOptions) {
+  constructor(
+    /** The key, base URL and default output budget. */
+    private readonly options: AnthropicOptions,
+  ) {
     this.id = options.id;
     this.baseUrl = (options.baseUrl ?? 'https://api.anthropic.com/v1').replace(/\/+$/, '');
     this.fetchImpl = options.fetch ?? fetch;
@@ -173,6 +188,7 @@ export class AnthropicProvider implements ModelProvider {
     yield { type: 'done', finishReason };
   }
 
+  /** The request body: system as its own cached block, tools with their schemas, messages mapped. */
   private buildBody(request: ModelRequest): Record<string, unknown> {
     const body: Record<string, unknown> = {
       model: request.model,
@@ -195,6 +211,7 @@ export class AnthropicProvider implements ModelProvider {
     return body;
   }
 
+  /** Sends one request with the API key and version headers; a network failure is retryable. */
   private async request(
     method: 'GET' | 'POST',
     path: string,

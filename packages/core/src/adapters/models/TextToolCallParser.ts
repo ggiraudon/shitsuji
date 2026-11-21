@@ -25,10 +25,18 @@ export class TextToolCallParser {
     ].join('\n');
   }
 
-  constructor(private readonly tools: readonly ToolSpec[]) {}
+  constructor(
+    /** The tools offered with the request; only their names are accepted from the reply. */
+    private readonly tools: readonly ToolSpec[],
+  ) {}
 
   /** Splits a reply into its text (without the blocks) and the tool calls it contains. */
-  parse(reply: string): { text: string; calls: ToolCall[] } {
+  parse(reply: string): {
+    /** The reply with the accepted tool-call blocks removed and trimmed. */
+    text: string;
+    /** The calls found, in order; a block that is not a valid call stays in the text. */
+    calls: ToolCall[];
+  } {
     const calls: ToolCall[] = [];
     const block = /```(?:tool_call|json)\s*\n([\s\S]*?)\n?```/g;
     const text = reply.replace(block, (whole, body: string) => {
@@ -40,6 +48,7 @@ export class TextToolCallParser {
     return { text: text.trim(), calls };
   }
 
+  /** Reads one block's JSON into a call, accepting `name`/`tool` and `arguments`/`args` spellings. */
   private toCall(body: string): ToolCall | undefined {
     let value: unknown;
     try {
