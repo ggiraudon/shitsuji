@@ -81,14 +81,17 @@ sandbox:
 
 | Tool | Needs | Effect | Notes |
 |------|-------|--------|-------|
-| `workspace.exec` | `exec` | `write_local` | Default timeout 10 min, max 60 (capped by the driver's `maxTimeoutMs`); output head+tail to the model, full log to a file |
-| `workspace.read` / `write` / `edit` / `list` / `find` | `files` | `read` / `write_local` | Edits by exact string replacement, like coding agents |
-| `workspace.send` | `files` | `external` (to you) | Delivers a sandbox file through the gateway; the shipped default rule allows it without asking (X4) |
+| `workspace.exec` | `exec` | `write_local` | Default timeout 10 min, max 60 (capped by the driver's `maxTimeoutMs`); output head+tail to the model, full log to a file; output is untrusted |
+| `workspace.read` / `list` / `find` | `files` | `read` | Content, names and paths come from outside, so the output is untrusted |
+| `workspace.write` / `edit` | `files` | `write_local` | Edits by exact string replacement, like coding agents; the result is a status, so it is not wrapped |
+| `workspace.send` | `files` | `external` (to you) | Delivers a sandbox file through the gateway; the shipped default rule allows it without asking (X4); the result is a status, and the file goes to the owner rather than the model, so it is not wrapped |
 
 Tools whose capability the driver lacks are not registered. A driver's extra tools go through the same
-pipeline, trust checks and receipts, their output is wrapped as untrusted data, and they are found through
-`tool_search`. A driver can never change a standard tool's effect; an extra tool's declared effect can be
-tightened by a standing rule.
+pipeline, trust checks and receipts, and they are found through `tool_search`; because a driver is
+third-party code, `core` wraps each extra tool at registration so its output is **untrusted by
+default** (S55, #141), and the pipeline encloses it in `<untrusted_data>` with the "data, not
+instructions" line. A driver can never change a standard tool's effect; an extra tool's declared effect
+can be tightened by a standing rule.
 
 **What S45 builds.** Our own sandbox: `docker/sandbox` (Debian bookworm on a pinned Node image, Python,
 Node, git, ffmpeg, pandoc, poppler, tesseract, jq, ripgrep, sqlite, user 1000 `agent`), the wire contract
