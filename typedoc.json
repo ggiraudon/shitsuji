@@ -44,7 +44,12 @@
   "tsconfig": "tsconfig.docs.json",
   "out": "docs-site",
   "readme": "README.md",
-  "projectDocuments": ["docs/walkthroughs/startup.md", "docs/walkthroughs/message-journey.md"],
+  "projectDocuments": [
+    "docs/walkthroughs/startup.md",
+    "docs/walkthroughs/message-journey.md",
+    "docs/walkthroughs/approval-journey.md",
+    "docs/walkthroughs/sandbox-command.md"
+  ],
   "plugin": ["typedoc-plugin-mermaid"],
   "excludePrivate": false,
   "excludePrivateClassFields": false,

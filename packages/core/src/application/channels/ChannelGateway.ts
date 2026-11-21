@@ -62,7 +62,15 @@ export interface ChannelGatewayDeps {
   /** The viewer's URL when the active sandbox has a desktop (S51); absent otherwise. */
   viewerUrl?: string;
   /** Which allowed apps publish an accessibility tree, for `/status` (S54); absent without one. */
-  accessibility?: () => Promise<{ helper: boolean; missing: readonly string[] } | undefined>;
+  accessibility?: () => Promise<
+    | {
+        /** True when the helper process answers. */
+        helper: boolean;
+        /** Allowed apps that published no tree. */
+        missing: readonly string[];
+      }
+    | undefined
+  >;
   /** Answers directly through the channel adapter that received the message. */
   reply: (channel: string, chatId: string, text: string, intent: OutboundIntent) => Promise<void>;
 }

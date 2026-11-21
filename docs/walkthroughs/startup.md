@@ -42,7 +42,8 @@ The module keeps the running [Shitsuji](../../packages/core/src/composition/Shit
    event bus);
 2. opens the database when `database.url` is set (migrations run here) or uses in-memory
    repositories;
-3. builds the plugin manager, the model router and the sandbox service, and opens the sandbox;
+3. builds the plugin manager, the model router and the sandbox service, and opens the sandbox
+   ([one command in the sandbox](./sandbox-command.md) follows that path);
 4. builds the tool catalog and the tool pipeline, the context builder, the agent, the trust and
    budget services, the channels and the optional API, and returns a [Shitsuji](../../packages/core/src/composition/Shitsuji.ts) with all of them
    as [ShitsujiParts](../../packages/core/src/composition/Shitsuji.ts).
