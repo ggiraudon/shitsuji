@@ -2,7 +2,9 @@
 
 This page follows one owner message from a channel to the reply. It assumes the stack is running
 (see [Startup](./startup.md)); the interesting guarantees are one turn per session, steering and the
-compare-and-set that makes a duplicate start harmless.
+compare-and-set that makes a duplicate start harmless. The two paths out of the loop have their own
+pages: [a tool call that needs your approval](./approval-journey.md) and
+[one command in the sandbox](./sandbox-command.md).
 
 ```mermaid
 sequenceDiagram
@@ -71,7 +73,10 @@ loops:
    parts and, when there are no tool calls, publishes `message.sent` and ends `succeeded`;
 4. when there are tool calls it runs each through the tool pipeline (validation, trust, receipts,
    the turn write fence), stores the results, and starts the next step. A repeated failing tool or
-   a stall ends the turn as failed; the step limit ends it with a clear message.
+   a stall ends the turn as failed; the step limit ends it with a clear message. A call that needs
+   your approval blocks here until you answer — see
+   [a tool call that needs your approval](./approval-journey.md) — and a command in the workspace
+   runs in the sandbox, as [one command in the sandbox](./sandbox-command.md) follows.
 
 A running turn reloads its row before each step after the first, so a turn cancelled by another
 process, or by recovery, stops here instead of spending more tokens. Stop aborts the model call and
