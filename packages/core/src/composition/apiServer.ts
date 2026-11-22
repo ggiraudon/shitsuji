@@ -5,14 +5,19 @@ import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { createApi, type ApiDeps } from '../interfaces/http/createApi.js';
 
+/** A listening API server: where it can be reached and how to stop it. */
 export interface RunningApi {
+  /** The URL to reach it at, with the port the OS actually bound (useful when it was 0). */
   url: string;
+  /** Stops accepting connections and ends open WebSockets; resolves once closed. */
   close(): Promise<void>;
 }
 
+/** What `startApiServer` needs: the bind address, the port and the optional TLS files. */
 export interface ApiServerOptions {
   /** The interface to bind; 127.0.0.1 by default (Y2). */
   listen: string;
+  /** The port to bind; 0 asks the OS for a free one. */
   port: number;
   /**
    * The address Docker publishes, when it differs from the bind. The warning follows what the
@@ -21,7 +26,12 @@ export interface ApiServerOptions {
    */
   published?: string;
   /** Both files, or neither; when set the API is served over HTTPS. */
-  tls?: { cert: string; key: string };
+  tls?: {
+    /** Path to the certificate chain, PEM. */
+    cert: string;
+    /** Path to the private key, PEM. */
+    key: string;
+  };
 }
 
 /** True for the binds that stay on this machine, where plain HTTP is not exposed. */
