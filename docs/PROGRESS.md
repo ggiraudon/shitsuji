@@ -134,7 +134,7 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       servers are 1001 so commands cannot read the generated view-only/full passwords, signal them or
       bind their ports. The image exposes the raw WebSocket only; core serves the viewer page and its
       noVNC client. Compose uses the desktop image with `shm_size: 1g`, `mem_limit: 6g`,
-      `pids_limit: 2048` and `SCREEN=1440x900x24`; no port is published. The CI image job waits for
+      `pids_limit: 2048` and `SCREEN=1920x1080x24`; no port is published. The CI image job waits for
       `:0`, lists XFCE windows, starts Chromium, checks no setuid file and that 5900/6080/6081 are
       unreachable from the host, checks the supervisor's children have no capabilities while sandboxd
       keeps its four, and checks a command cannot signal the stream servers. The conformance suite and

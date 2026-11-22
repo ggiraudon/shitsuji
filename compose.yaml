@@ -221,7 +221,7 @@ services:
     environment:
       SANDBOX_TOKEN_SEED: /run/sandbox-seed/token
       SANDBOX_TOKEN_FILE: /run/sandbox/token
-      SCREEN: 1440x900x24
+      SCREEN: 1920x1080x24
       # Commands get this as HTTP(S)_PROXY and the lowercase forms (S48).
       SANDBOX_EGRESS_PROXY: http://egress-proxy:3128
     depends_on:

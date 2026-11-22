@@ -94,7 +94,7 @@ packages/
   control. websockify exposes only the raw WebSocket on the sandbox network; `core` serves the viewer page
   and its noVNC client (S51). No port is published.
 - Compose: `sandbox` uses the desktop image, `shm_size: 1g`, `mem_limit: 6g`, `pids_limit: 2048`,
-  `SCREEN=1440x900x24`.
+  `SCREEN=1920x1080x24`.
 - *Check:* the `sandbox-image` CI job builds the desktop image, waits for `:0`, lists an XFCE window with
   `wmctrl`, starts Chromium, finds no setuid file, and probes that 5900/6080/6081 are not reachable from
   outside the sandbox network. It also checks that the supervisor's children have no capabilities, that
@@ -191,6 +191,10 @@ without a vision model. The helper caps a huge Calc grid, includes `file chooser
 file chooser and reads `/workspace/calc.csv` with `workspace.exec`. The offline eval reports 3,600/360
 tokens for structure-only (context 2,268) and 3,200/320 for screenshots (context 3,177); the structure
 run starts with Calc closed, launches it through `desktop.act`, and sends zero images.
+The default screen is now 1920x1080: the Save dialog is 888 px tall, which put its buttons below a
+1440x900 screen. A `fit-windows` watcher (uid 1000) moves and shrinks a window that an app still opens
+past an edge, because xfwm4 has no setting that fits an oversized window; on the real image the Save
+dialog lands at (403,150) 1124x888, and a forced 2600x2300 window is clamped to the work area.
 
 ### The browser
 

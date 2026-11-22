@@ -52,7 +52,7 @@ sandbox:
   mem_limit: 6g                      # workspace and desktop together
   pids_limit: 2048
   environment:
-    SCREEN: 1440x900x24
+    SCREEN: 1920x1080x24
 ```
 
 Processes inside, started by **supervisord** (Debian's `supervisor`; s6-overlay would add a tarball and a
@@ -63,6 +63,7 @@ root init for no extra benefit, and Compose's `init: true` already reaps zombies
 | `dbus-daemon --session` + `at-spi2-registryd` | 1000 | — (in-container only) | Accessibility bus the apps publish their trees on |
 | `Xvfb :0` | 1000 | — | Virtual display `:0` |
 | `xfce4-session` | 1000 | — | Window manager and desktop |
+| `fit-windows` | 1000 | — | Moves and shrinks a window that opens past the screen edge (S56) |
 | `x11vnc` (full) | 1001 | `127.0.0.1:5900` | VNC with the full-control password |
 | `x11vnc -viewonly` | 1001 | `127.0.0.1:5901` | VNC with the view-only password |
 | `websockify` | 1001 | sandbox network 6080 | Raw WebSocket for full control |
@@ -78,6 +79,14 @@ two `websockify` instances run as uid 1001: the passwords are generated at start
 them, signal the stream servers or bind their ports. `sandboxd` (1001) reads the passwords for the viewer.
 The VNC servers bind loopback; websockify is the only network-facing part. The passwords are new on every
 container start.
+
+The display is 1920×1080 by default (`SCREEN`), which is what the Calc dialogs need: the Save dialog is
+888 px tall, so on a 1440×900 screen its buttons sat below the bottom edge. A **watcher** then keeps
+every window on the screen: `fit-windows.py` polls `wmctrl` and, when a window extends past an edge,
+moves it back and shrinks it to fit. This is a watcher rather than an xfwm4 setting because xfwm4's
+placement and wrap options only act while the user drags a window, and it has no option to fit an
+oversized one. A window that already fits is never touched, so the watcher cannot fight an app that
+resizes itself.
 
 No desktop port is published to the host. You watch through `core`'s authenticated viewer page at
 `/desktop` (decision Y1; the web UI of [F07](F07-web-ui.md) absorbs it later): `core` serves the page and
@@ -104,7 +113,7 @@ matters: build and tag `shitsuji/sandbox` first, which Compose does with its `sa
   plus CHOWN/FOWNER/SETUID/SETGID/SETPCAP/KILL, `no-new-privileges`, a read-only root with `/tmp` and
   `/run/sandbox` as tmpfs, and no published port.
 - Compose gives the service `shm_size: 1g`, `mem_limit: 6g`, `pids_limit: 2048` and
-  `SCREEN=1440x900x24`. The `sandbox-image` CI job waits for `:0`, lists an XFCE window, starts
+  `SCREEN=1920x1080x24`. The `sandbox-image` CI job waits for `:0`, lists an XFCE window, starts
   Chromium, checks that no setuid file remains and that 5900/6080/6081 are unreachable from the host,
   checks that the supervisor's children keep no capabilities and that a command cannot signal the
   stream servers, and the conformance suite and egress probes also run against the desktop image.
