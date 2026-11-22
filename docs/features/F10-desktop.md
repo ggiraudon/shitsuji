@@ -302,8 +302,11 @@ or macOS desktop (for example through cua's driver), or (much later, opt-in) you
 Two tools, matching the levels above:
 
 - `desktop.inspect({ window?, find?, depth? })` returns the AT-SPI tree or matching elements, with refs and
-  a snapshot id, and `desktop.act({ snapshot, ref, action, text? })` acts on an element. After an action,
-  the result holds a fresh tree and snapshot.
+  a snapshot id, and `desktop.act({ snapshot, ref, action, text?, key? })` clicks an element, sets its
+  text, types into it, or presses a key. After an action, the result holds a fresh tree and snapshot.
+  `type` focuses the ref and sends the characters with the desktop keyboard; `key` presses one of the
+  allow-listed chords. This is what commits a Calc cell: the cell itself is not an editable-text
+  object, but it accepts typing once focused.
 - `computer.act` with actions `screenshot`, `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`,
   `type`, `key`, `wait`, `launch_app`, `ocr`. The result always includes a fresh scaled screenshot, so the
   model sees the effect.
@@ -336,6 +339,28 @@ Two tools, matching the levels above:
   [F09](F09-browser.md).
 - **Screenshot pruning:** the context keeps the newest N images as pixels
   (`context.imageHistoryLimit`, default 3); older screenshots become deterministic placeholders.
+
+#### The Calc task (S56)
+
+The end-to-end Calc task uses the tree, not pixels:
+
+1. Launch LibreOffice, find "Calc Spreadsheet" and click it.
+2. `desktop.inspect({ window: "Calc", find: { name: "A1" } })` (or a sub-tree ref) returns the cell
+   ref; `desktop.act({ action: "type", ref, text: "42" })`, then `key: "Return"` commits it. Repeat for
+   B1, then `key: "ctrl+s"`.
+3. The Save dialog is a `file chooser`; its accessible name can be "Question" or "Export Text File"
+   while `desktop.windows` shows the WM title. Inspecting the application (`soffice`) picks the active
+   dialog. Set the name to `/workspace/calc.csv`, click Save, choose "Use Text CSV Format", then OK in
+   the export options.
+4. `workspace.exec` reads `/workspace/calc.csv`.
+
+A Calc sheet publishes tens of thousands of cells, so the helper's traversal is capped (3,000 visits,
+1,500 nodes); a cut tree says how to ask for a sub-tree. Use `find` by cell name or role for the grid
+rather than reading the whole sheet. The integration test drives exactly this flow; the offline eval
+runs a structure-only and a screenshot-only variant and reports them side by side.
+
+The prompt includes a short computer-use section: `desktop.inspect` first, pixels last, use
+`computer.request_takeover` for sign-ins and CAPTCHAs, and never type a secret the owner did not give.
 
 ### Take control
 
@@ -385,16 +410,16 @@ in Chromium can be processed by a script and opened in LibreOffice without movin
 
 ## Acceptance criteria
 
-- `docker compose up` starts the desktop; the web UI shows it live.
-- The agent opens LibreOffice Calc, types numbers, saves a file to `/workspace`, and `workspace.exec` can read it.
-- The same Calc task completes **using only `desktop.inspect` / `desktop.act`**, with no screenshot sent to
+- [x] `docker compose up` starts the desktop; the web UI shows it live.
+- [x] The agent opens LibreOffice Calc, types numbers, saves a file to `/workspace`, and `workspace.exec` can read it.
+- [x] The same Calc task completes **using only `desktop.inspect` / `desktop.act`**, with no screenshot sent to
   the model; an eval ([F22](F22-observability-and-cost.md)) compares its tokens and success rate with the
   screenshot-only run.
-- `desktop.inspect` on Thunar, the XFCE terminal and Chromium returns named elements; the startup check
+- [x] `desktop.inspect` on Thunar, the XFCE terminal and Chromium returns named elements; the startup check
   reports any allowed app that publishes no tree.
-- Acting on a ref after the window changed returns "stale" instead of clicking the wrong thing.
-- Take control / Give back works and the agent continues.
-- No desktop port is reachable from the host or LAN without going through `core`.
+- [x] Acting on a ref after the window changed returns "stale" instead of clicking the wrong thing.
+- [x] Take control / Give back works and the agent continues.
+- [x] No desktop port is reachable from the host or LAN without going through `core`.
 
 ## Risks and open questions
 

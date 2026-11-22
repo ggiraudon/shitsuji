@@ -1,6 +1,6 @@
 # Fifth pass plan: F10 desktop, then F09 browser
 
-> **Status:** in progress (S50-S55 done; S56-S62 planned).
+> **Status:** in progress (S50-S56 done; S57-S62 planned).
 
 The fifth pass finishes most of Phase 2 ("its own computer"). The sandbox from the fourth pass gets a
 graphical desktop that you can watch, the agent learns to use it (structure first, pixels last), and its
@@ -183,6 +183,13 @@ packages/
 - F10's acceptance criteria are ticked, F10 and the class map are updated with what was built, and the
   prompt gets a short computer-use section (or a note in #105's charter if that has landed).
 - *Check:* the offline eval passes; you watch a live run in the viewer.
+
+Implemented: `desktop.act` gained `type` and `key` (focus the ref, then the desktop keyboard), because a
+Calc cell is not an AT-SPI editable-text object; the helper caps a huge Calc grid, includes
+`file chooser`/`alert` windows, and `ctrl+s` is in the key allow-list. The real integration test opens
+Calc, fills A1/B1, saves through the file chooser and reads `/workspace/calc.csv` with `workspace.exec`.
+The offline eval reports 3,200/320 tokens for both variants (structure context 2,238; screenshots 3,147)
+and the structure run sends zero images.
 
 ### The browser
 
