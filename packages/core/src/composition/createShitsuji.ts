@@ -410,6 +410,7 @@ export async function createShitsuji(
     imageHistoryLimit: config.context.imageHistoryLimit,
     imageMaxBytes: config.context.imageMaxBytes,
     images: { read: (ref) => sandbox.readBytes(ref) },
+    computerUse: Boolean(sandbox.capabilities?.desktop),
     stabilityCheck: config.context.stabilityCheck ?? true,
   });
   Object.assign(facts, {

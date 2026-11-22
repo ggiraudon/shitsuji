@@ -16,6 +16,7 @@ export { IdentityInjectable, type IdentityConfig } from './IdentityInjectable.js
 export { SoulInjectable } from './SoulInjectable.js';
 export { RulesInjectable, type Rule } from './RulesInjectable.js';
 export { ToolIndexInjectable } from './ToolIndexInjectable.js';
+export { ComputerUseInjectable } from './ComputerUseInjectable.js';
 export { OwnerProfileInjectable } from './OwnerProfileInjectable.js';
 export { ClockInjectable } from './ClockInjectable.js';
 export { CompactionSummaryInjectable } from './CompactionSummaryInjectable.js';
