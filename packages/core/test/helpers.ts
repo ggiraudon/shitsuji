@@ -19,6 +19,7 @@ import type {
   ModelProvider,
   ModelRequest,
   ModelStreamEvent,
+  TokenUsage,
 } from '../src/ports/ModelProvider.js';
 
 export function testServices(): CoreServices & { log: MemoryLogger; clock: ManualClock } {
@@ -33,6 +34,8 @@ export interface ScriptedReply {
   toolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[];
   /** Defaults to `tool_calls` when calls are scripted, `stop` otherwise; `length` simulates a cutoff. */
   finishReason?: FinishReason;
+  /** The usage to report; defaults to 10 in and 5 out. */
+  usage?: TokenUsage;
 }
 
 /** A model that replies with the scripted responses in order, recording every request. */
@@ -51,7 +54,7 @@ export class ScriptedProvider implements ModelProvider {
     for (const c of reply.toolCalls ?? []) {
       yield { type: 'tool_call', call: { ...c, id: c.id as ToolCallId } };
     }
-    yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } };
+    yield { type: 'usage', usage: reply.usage ?? { inputTokens: 10, outputTokens: 5 } };
     yield {
       type: 'done',
       finishReason: reply.finishReason ?? (reply.toolCalls?.length ? 'tool_calls' : 'stop'),

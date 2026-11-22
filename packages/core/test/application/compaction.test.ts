@@ -333,6 +333,183 @@ describe('Compactor: budgets and chunks (review fixes)', () => {
   });
 });
 
+describe('Compactor: a reasoning model that answers nothing (#150)', () => {
+  /** A compactor over a model that answers the summarize requests with the scripted replies. */
+  function compactorWithModel(
+    repos: InMemoryRepositories,
+    model: ScriptedProvider,
+    log: MemoryLogger,
+  ) {
+    return new Compactor({
+      models: new ModelRouter(
+        new Map([[model.id, model]]),
+        { purposes: { chat: 'scripted/m' }, fallbacks: {} },
+        new ModelCatalog(),
+        log,
+      ),
+      sessions: repos.sessions,
+      clock,
+      log,
+    });
+  }
+
+  it('asks for no reasoning and room for a summary, not just the reasoning', async () => {
+    const { repos, session } = await seed();
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'An old request. '.repeat(20), newId<TurnId>());
+    await append(repos, session, 'user', 'The open request.', openTurn);
+    const model = new ScriptedProvider([{ content: 'SUMMARY' }]);
+    const compactor = compactorWithModel(repos, model, new MemoryLogger());
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+
+    await compactor.compactIfNeeded(
+      session,
+      turn,
+      await repos.messages.listBySession(session.id),
+      30,
+    );
+
+    expect(model.requests[0]!.reasoning).toBe('off');
+    expect(model.requests[0]!.maxOutputTokens).toBeGreaterThanOrEqual(2048);
+  });
+
+  it('warns with the finish reason and the token split when the summary is empty', async () => {
+    const { repos, session } = await seed();
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'An old request. '.repeat(20), newId<TurnId>());
+    await append(repos, session, 'user', 'The open request.', openTurn);
+    const model = new ScriptedProvider([
+      {
+        reasoning: 'Let me think about how to summarise this.',
+        finishReason: 'length',
+        usage: { inputTokens: 6535, outputTokens: 600, reasoningTokens: 600 },
+      },
+    ]);
+    const log = new MemoryLogger();
+    const compactor = compactorWithModel(repos, model, log);
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+
+    const result = await compactor.compactIfNeeded(
+      session,
+      turn,
+      await repos.messages.listBySession(session.id),
+      30,
+    );
+
+    expect(result).toBeUndefined();
+    const warnings = log.records.filter((r) => r.level === 'warn');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.message).toMatch(/empty/i);
+    expect(warnings[0]!.context).toMatchObject({
+      sessionId: session.id,
+      finishReason: 'length',
+      outputTokens: 600,
+      reasoningTokens: 600,
+    });
+    expect((await repos.sessions.get(session.id))!.summary).toBeUndefined();
+  });
+
+  it('does not call the summarize model again in the same turn, step after step', async () => {
+    const { repos, session } = await seed();
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'An old request. '.repeat(20), newId<TurnId>());
+    await append(repos, session, 'user', 'The open request.', openTurn);
+    const model = new ScriptedProvider([
+      { reasoning: 'Thinking only.', finishReason: 'length' },
+      { content: 'A summary from the next turn.' },
+    ]);
+    const compactor = compactorWithModel(repos, model, new MemoryLogger());
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+    const transcript = await repos.messages.listBySession(session.id);
+
+    // Each model step of a turn builds the context again.
+    expect(await compactor.compactIfNeeded(session, turn, transcript, 30)).toBeUndefined();
+    expect(await compactor.compactIfNeeded(session, turn, transcript, 30)).toBeUndefined();
+    expect(model.requests).toHaveLength(1);
+
+    // A later turn tries once more, so a fixed model starts compacting again.
+    const nextTurn = Turn.create({
+      id: newId<TurnId>(),
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+    expect(await compactor.compactIfNeeded(session, nextTurn, transcript, 30)).toEqual({
+      summary: 'A summary from the next turn.',
+      count: 2,
+    });
+    expect(model.requests).toHaveLength(2);
+  });
+
+  it('does not retry in the same turn after a failed request either', async () => {
+    const { repos, session } = await seed();
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'An old request. '.repeat(20), newId<TurnId>());
+    await append(repos, session, 'user', 'The open request.', openTurn);
+    // No reply, so the provider throws: the summary request fails.
+    const model = new ScriptedProvider([]);
+    const log = new MemoryLogger();
+    const compactor = compactorWithModel(repos, model, log);
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+    const transcript = await repos.messages.listBySession(session.id);
+
+    expect(await compactor.compactIfNeeded(session, turn, transcript, 30)).toBeUndefined();
+    expect(await compactor.compactIfNeeded(session, turn, transcript, 30)).toBeUndefined();
+
+    expect(model.requests).toHaveLength(1);
+    expect(log.records.filter((r) => r.level === 'warn')).toHaveLength(1);
+  });
+
+  it('is not called again for each step of a turn through the ContextBuilder', async () => {
+    const { repos, session } = await seed();
+    const openTurn = newId<TurnId>();
+    await append(repos, session, 'user', 'An old request. '.repeat(20), newId<TurnId>());
+    await append(repos, session, 'user', 'The open request.', openTurn);
+    const model = new ScriptedProvider([{ reasoning: 'Thinking only.', finishReason: 'length' }]);
+    const log = new MemoryLogger();
+    const builder = new ContextBuilder({
+      injectables: () => [],
+      repos,
+      ownerId: OWNER,
+      log,
+      contextWindow: 30,
+      compactor: compactorWithModel(repos, model, log),
+    });
+    const turn = Turn.create({
+      id: openTurn,
+      sessionId: session.id,
+      source: 'user',
+      createdAt: clock.now(),
+    });
+    const stored = (await repos.sessions.get(session.id))!;
+
+    await builder.build(stored, turn);
+    await builder.build(stored, turn);
+
+    expect(model.requests).toHaveLength(1);
+  });
+});
+
 describe('ContextBuilder: the compaction summary replaces older messages (S23)', () => {
   it('puts the summary at the start of the history and leaves covered messages out', async () => {
     const { repos, session } = await seed();
