@@ -62,6 +62,7 @@ import { loadPluginsFromDirectory } from './loadPluginsFromDirectory.js';
 import { createCoreServices, type CoreServices } from './services.js';
 import { Shitsuji } from './Shitsuji.js';
 
+/** The version the API and `/status` report; keep it in step with `package.json`. */
 export const VERSION = '0.1.0';
 
 /** Shitsuji has one owner (05-open-questions P1); every row still carries owner_id. */
@@ -133,9 +134,24 @@ export function workspaceDirOf(config: ShitsujiConfig): string {
  * on websockify's 6081 (watch-only) and 6080 (full control). Only the `shitsuji` driver has a
  * desktop.
  */
-export function viewerStreamOf(
-  config: ShitsujiConfig,
-): { viewOnly: { host: string; port: number }; full: { host: string; port: number } } | undefined {
+export function viewerStreamOf(config: ShitsujiConfig):
+  | {
+      /** Watch-only websockify, every signed-in viewer's stream. */
+      viewOnly: {
+        /** The sandboxd host; the gateway relays from it. */
+        host: string;
+        /** websockify's watch-only port, 6081. */
+        port: number;
+      };
+      /** Full control, relayed only while the owner has the desktop. */
+      full: {
+        /** The same host as `viewOnly`, since both streams sit in the gateway container. */
+        host: string;
+        /** websockify's full-control port, 6080. */
+        port: number;
+      };
+    }
+  | undefined {
   if (config.sandbox.driver !== 'shitsuji') return undefined;
   try {
     const url = new URL(config.sandbox.url);
@@ -182,6 +198,7 @@ function sandboxDriverOf(config: ShitsujiConfig, log: Logger): SandboxDriver {
   }
 }
 
+/** The seams `createShitsuji` accepts, so tests can swap storage, jobs, plugins and the API out. */
 export interface CreateShitsujiOptions {
   /** Defaults to services built from config.logging. */
   services?: CoreServices;
@@ -198,7 +215,12 @@ export interface CreateShitsujiOptions {
   /**
    * A shorter cold-start wait for tests (S49); production uses ten attempts two seconds apart.
    */
-  sandboxRetry?: { attempts: number; delayMs: number };
+  sandboxRetry?: {
+    /** How many health checks to try before giving up. */
+    attempts: number;
+    /** How long to wait between them. */
+    delayMs: number;
+  };
 }
 
 /**

@@ -14,7 +14,10 @@ import { Secret } from '../../../domain/Secret.js';
  * and a rename would leave it holding the old, empty inode.
  */
 export class SandboxTokenFile {
-  constructor(readonly file: string) {}
+  constructor(
+    /** Where the token lives; its directory's mode is what keeps commands out, not the file's. */
+    readonly file: string,
+  ) {}
 
   /** The token, read from the file or made (32 random bytes as hex) when the file is empty. */
   readOrCreate(): Secret {
@@ -30,6 +33,7 @@ export class SandboxTokenFile {
     return new Secret(token);
   }
 
+  /** The token already in the file, or undefined when the file is absent or empty. */
   private read(): string | undefined {
     let raw: string;
     try {

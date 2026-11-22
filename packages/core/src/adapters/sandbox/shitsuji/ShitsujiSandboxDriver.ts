@@ -21,11 +21,13 @@ import {
   ShitsujiFiles,
 } from './ShitsujiSandbox.js';
 
+/** How to reach the shitsuji sandbox: the daemon's URL, the shared token and the logger. */
 export interface ShitsujiDriverOptions {
   /** The sandboxd service, e.g. http://sandbox:4555. */
   baseUrl: string;
   /** The generated token, from `<dataDir>/sandbox.token`; never logged. */
   token: string;
+  /** Structured logger; driver failures are reported by the service that owns it. */
   log: Logger;
   /** Injected in tests. */
   fetch?: typeof fetch;
@@ -38,9 +40,13 @@ export interface ShitsujiDriverOptions {
  */
 export class ShitsujiSandboxDriver implements SandboxDriver {
   readonly id = 'shitsuji';
+  /** The HTTP client shared by every port this driver hands out. */
   private readonly client: SandboxClient;
 
-  constructor(private readonly options: ShitsujiDriverOptions) {
+  constructor(
+    /** The daemon URL, token and fetch seam. */
+    private readonly options: ShitsujiDriverOptions,
+  ) {
     this.client = new SandboxClient({
       baseUrl: options.baseUrl,
       token: options.token,

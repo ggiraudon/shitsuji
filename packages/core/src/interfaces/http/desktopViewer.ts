@@ -27,8 +27,11 @@ export interface ViewerStream {
   port: number;
 }
 
+/** The gateway's two desktop streams: the watch-only one and, when owner mode allows, full control. */
 export interface ViewerStreams {
+  /** The view-only stream every signed-in viewer gets. */
   viewOnly: ViewerStream;
+  /** The full-control stream, relayed only while the owner has control (S55). */
   full: ViewerStream;
 }
 
