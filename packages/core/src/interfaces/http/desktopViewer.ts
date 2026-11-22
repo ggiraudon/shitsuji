@@ -313,6 +313,12 @@ export function registerViewer(app: Hono, deps: ViewerDeps): void {
           { ws: { close(code?: number, reason?: string): void }; upstream?: WebSocket } | undefined;
         return {
           onOpen(_event, ws) {
+            if (full && deps.control.status().mode !== 'owner') {
+              // Give back can land between the upgrade check and this callback. Never open the
+              // upstream or track the socket; close it before it can carry a single frame.
+              ws.close(1008, 'the owner has not taken control');
+              return;
+            }
             const socket = new WebSocket(`ws://${target.host}:${target.port}/`, {
               perMessageDeflate: false,
             });

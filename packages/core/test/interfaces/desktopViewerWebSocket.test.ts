@@ -18,10 +18,18 @@ let upstreamPort: number;
 let connections = 0;
 let api: RunningApi;
 let controlMode: 'agent' | 'owner' = 'agent';
+/** Lets one status check see owner, so the upgrade passes and onOpen sees agent. */
+let ownerOnce = false;
 const controlListeners = new Set<(mode: 'agent' | 'owner') => void>();
 
 const control = {
-  status: () => ({ mode: controlMode }),
+  status: () => {
+    if (ownerOnce) {
+      ownerOnce = false;
+      return { mode: 'owner' as const };
+    }
+    return { mode: controlMode };
+  },
   take: async () => {
     controlMode = 'owner';
     for (const listener of controlListeners) listener(controlMode);
@@ -142,6 +150,7 @@ const closed = (ws: WebSocket): Promise<number> =>
 beforeEach(async () => {
   connections = 0;
   controlMode = 'agent';
+  ownerOnce = false;
   controlListeners.clear();
   upstream = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   upstream.on('connection', (socket) => {
@@ -208,6 +217,22 @@ describe('desktop viewer WebSocket relay (S51)', () => {
     await control.giveBack();
     expect(await closedCode).toBe(1000);
     await expect(upgradeStatus({ cookie, control: 'full' })).resolves.toBe(403);
+  });
+
+  it('closes a full stream with 1008 when owner mode ends before onOpen (S55)', async () => {
+    const cookie = await signIn();
+    // The upgrade check sees owner, then the mode flips to agent before onOpen runs.
+    ownerOnce = true;
+    const ws = new WebSocket(`${api.url.replace('http', 'ws')}/desktop/stream?control=full`, {
+      headers: { cookie },
+    });
+    const closeCode = new Promise<number>((resolve) => ws.once('close', (code) => resolve(code)));
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', () => resolve());
+      ws.once('error', reject);
+    });
+    expect(await closeCode).toBe(1008);
+    expect(connections).toBe(0);
   });
 
   it('warns once when bound beyond loopback without TLS (Y2)', async () => {
