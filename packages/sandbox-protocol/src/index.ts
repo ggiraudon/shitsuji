@@ -275,6 +275,7 @@ export const DESKTOP_KEYS = [
   'ctrl+a',
   'ctrl+c',
   'ctrl+l',
+  'ctrl+s',
   'ctrl+v',
   'ctrl+x',
   'ctrl+z',

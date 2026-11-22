@@ -710,3 +710,153 @@ describe('desktop accessibility (S54)', () => {
     90_000,
   );
 });
+
+describe('desktop Calc end to end (S56)', () => {
+  it.runIf(available)(
+    'opens Calc, types numbers, saves /workspace/calc.csv and reads it back with workspace.exec',
+    async () => {
+      const signal = AbortSignal.timeout(180_000);
+      const findOne = async (
+        window: string,
+        query: { name?: string; role?: string },
+        match: (node: { name?: string; role: string; value?: string }) => boolean,
+      ) => {
+        let found: { tree: DesktopA11yTree; ref: string } | undefined;
+        await waitFor(
+          async () => {
+            try {
+              const tree = await desktop.find(
+                {
+                  window,
+                  ...(query.name && { name: query.name }),
+                  ...(query.role && { role: query.role }),
+                },
+                signal,
+              );
+              const node = tree.nodes.find(match);
+              if (node) found = { tree, ref: node.ref };
+              return Boolean(node);
+            } catch {
+              return false;
+            }
+          },
+          `${query.name ?? query.role ?? 'the element'} in ${window}`,
+          20_000,
+        );
+        return found!;
+      };
+
+      await desktop.act({ kind: 'launch_app', app: 'libreoffice' }, signal);
+      await waitFor(async () => {
+        const list = await desktop.windows(signal);
+        return list.some((window) => /libreoffice/i.test(window.title));
+      }, 'the LibreOffice window');
+
+      const calc = await findOne(
+        'LibreOffice',
+        { name: 'Calc Spreadsheet' },
+        (node) => node.name === 'Calc Spreadsheet',
+      );
+      await desktop.actOnElement(
+        { snapshot: calc.tree.snapshot, ref: calc.ref, action: 'click' },
+        signal,
+      );
+      await waitFor(async () => {
+        const list = await desktop.windows(signal);
+        return list.some((window) => /LibreOffice Calc/i.test(window.title));
+      }, 'the Calc window');
+
+      // The Tip of the Day dialog appears once; close it if it is there.
+      try {
+        const tip = await findOne('Tip', { name: 'OK' }, (node) => node.name === 'OK');
+        await desktop.actOnElement(
+          { snapshot: tip.tree.snapshot, ref: tip.ref, action: 'click' },
+          signal,
+        );
+      } catch {
+        // A later run may not show it.
+      }
+
+      for (const [cell, value] of [
+        ['A1', '42'],
+        ['B1', '7'],
+      ] as const) {
+        const target = await findOne('Calc', { name: cell }, (node) => node.name === cell);
+        await desktop.actOnElement(
+          { snapshot: target.tree.snapshot, ref: target.ref, action: 'click' },
+          signal,
+        );
+        await desktop.act({ kind: 'type', text: value }, signal);
+        await desktop.act({ kind: 'key', key: 'Return' }, signal);
+      }
+      await desktop.act({ kind: 'key', key: 'ctrl+s' }, signal);
+
+      await waitFor(async () => {
+        const list = await desktop.windows(signal);
+        return list.some((window) => /^Save$|Save As|Confirm File Format/i.test(window.title));
+      }, 'the Save dialog');
+
+      const nameField = await findOne(
+        'soffice',
+        { role: 'text' },
+        (node) => node.value === 'Untitled 1' || node.value === 'Untitled 1.csv',
+      );
+      await desktop.actOnElement(
+        {
+          snapshot: nameField.tree.snapshot,
+          ref: nameField.ref,
+          action: 'set_text',
+          text: '/workspace/calc.csv',
+        },
+        signal,
+      );
+      const saveButton = await findOne(
+        'soffice',
+        { role: 'push button' },
+        (node) => node.name === 'Save',
+      );
+      await desktop.actOnElement(
+        { snapshot: saveButton.tree.snapshot, ref: saveButton.ref, action: 'click' },
+        signal,
+      );
+
+      const csvButton = await findOne(
+        'soffice',
+        { name: 'Use Text CSV' },
+        (node) => node.name === 'Use Text CSV Format',
+      );
+      await desktop.actOnElement(
+        { snapshot: csvButton.tree.snapshot, ref: csvButton.ref, action: 'click' },
+        signal,
+      );
+
+      await retryOnStale(async () => {
+        const exportOk = await findOne('soffice', { name: 'OK' }, (node) => node.name === 'OK');
+        await desktop.actOnElement(
+          { snapshot: exportOk.tree.snapshot, ref: exportOk.ref, action: 'click' },
+          signal,
+        );
+      });
+
+      let content = '';
+      await waitFor(
+        async () => {
+          content = '';
+          for await (const event of exec.run({
+            program: 'cat',
+            args: ['calc.csv'],
+            cwd: '/workspace',
+            timeoutMs: 10_000,
+          })) {
+            if (event.type === 'stdout') content += event.text;
+          }
+          return content.includes('42') && content.includes('7');
+        },
+        'the saved calc.csv',
+        20_000,
+      );
+      expect(content).toMatch(/42.*7|7.*42/s);
+    },
+    240_000,
+  );
+});

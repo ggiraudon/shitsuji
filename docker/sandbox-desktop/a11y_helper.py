@@ -32,9 +32,10 @@ from gi.repository import GLib
 
 VERSION = 1
 
-# The node and text caps keep one reply inside what sandboxd will accept (S54).
-MAX_NODES = 2000
-MAX_VISITED = 8000
+# The node and text caps keep one reply inside what sandboxd will accept (S54). A Calc sheet can
+# publish tens of thousands of cells; a lower visit cap keeps one window's tree inside the deadline.
+MAX_NODES = 1500
+MAX_VISITED = 3000
 MAX_NAME = 160
 MAX_VALUE = 240
 MAX_SNAPSHOTS = 32
@@ -166,6 +167,7 @@ def actions_of(accessible):
 ROLE_KEEP = {
     "application",
     "dialog",
+    "file chooser",
     "document",
     "document frame",
     "frame",
@@ -313,6 +315,9 @@ def clean_node(node):
     return result
 
 
+WINDOW_ROLES = ("frame", "dialog", "window", "file chooser", "color chooser", "alert")
+
+
 def windows():
     """The top-level frames of every application, with their private index paths."""
     try:
@@ -323,7 +328,7 @@ def windows():
     for app_index, application in enumerate(children(desktop)):
         app_name = name_of(application)
         for index, frame in enumerate(children(application)):
-            if role_of(frame) not in ("frame", "dialog", "window"):
+            if role_of(frame) not in WINDOW_ROLES:
                 continue
             active = False
             try:

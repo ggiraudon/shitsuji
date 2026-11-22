@@ -71,6 +71,9 @@ function setup(options: { stale?: boolean; failInspect?: boolean; owner?: boolea
         app: 'thunar',
       };
     },
+    act: async (action: unknown) => {
+      calls.push({ kind: 'xdotool', request: action });
+    },
     accessibilityStatus: async () => ({ helper: true, apps: [], missing: [] }),
   } as unknown as DesktopCapability;
   return {
@@ -147,6 +150,31 @@ describe('desktop.inspect (S54)', () => {
 });
 
 describe('desktop.act (S54)', () => {
+  it('types into a ref through the keyboard after focusing it (S56)', async () => {
+    const { act, calls } = setup();
+    const output = await act.run({ snapshot: 's3', ref: 'e6', action: 'type', text: '42' }, ctx);
+    expect(output.content).toContain('Typed 2 characters into [e6]');
+    expect(calls).toEqual([
+      { kind: 'act', request: { snapshot: 's3', ref: 'e6', action: 'click' } },
+      { kind: 'xdotool', request: { kind: 'type', text: '42' } },
+      { kind: 'inspect', request: { window: WINDOW } },
+    ]);
+  });
+
+  it('presses an allow-listed key without a ref and re-reads the active window (S56)', async () => {
+    const { act, calls } = setup();
+    const output = await act.run({ snapshot: 's3', action: 'key', key: 'ctrl+s' }, ctx);
+    expect(output.content).toContain('Pressed ctrl+s');
+    expect(calls).toEqual([
+      { kind: 'xdotool', request: { kind: 'key', key: 'ctrl+s' } },
+      { kind: 'inspect', request: {} },
+    ]);
+    expect(
+      act.input.safeParse({ snapshot: 's3', action: 'key', key: 'ctrl+alt+delete' }).success,
+    ).toBe(false);
+    expect(act.input.safeParse({ snapshot: 's3', action: 'key' }).success).toBe(false);
+  });
+
   it('refuses an action while the owner has control, while inspect still reads (S55)', async () => {
     const { act, inspect, calls } = setup({ owner: true });
     const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);
