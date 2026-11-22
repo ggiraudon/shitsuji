@@ -12,4 +12,13 @@ describe('computer-use prompt section (S56)', () => {
     expect(text).toContain('Never type a secret the owner did not give you');
     expect(text.indexOf('desktop.inspect')).toBeLessThan(text.indexOf('computer.act'));
   });
+
+  it('prefers a shortcut or one input batch, spells out the dialog and save rules (S56)', () => {
+    const text = new ComputerUseInjectable().render();
+    expect(text).toContain('find: { name }');
+    expect(text).toContain('20 { type } / { key } steps');
+    expect(text).toContain('window "soffice"');
+    expect(text).toContain('do not repeat the workspace/ prefix');
+    expect(text).toContain('(offscreen)');
+  });
 });

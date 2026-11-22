@@ -379,6 +379,10 @@ runs a structure-only and a screenshot-only variant and reports them side by sid
 
 The prompt includes a short computer-use section: `desktop.inspect` first, pixels last, use
 `computer.request_takeover` for sign-ins and CAPTCHAs, and never type a secret the owner did not give.
+After the live run it also says to try a shortcut, a cell name or one batch of `{type}`/`{key}` steps
+before reading the tree again; that a new dialog is found by inspecting its application (`soffice`),
+not the window that opened it; that a save dialog takes a plain name or a full path rather than
+`workspace/…`; and that an `(offscreen)` node is not something to click by pixel.
 
 ### Take control
 

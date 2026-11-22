@@ -189,7 +189,7 @@ keyboard), because a Calc cell is not an AT-SPI editable-text object and `comput
 without a vision model. The helper caps a huge Calc grid, includes `file chooser`/`alert` windows, and
 `ctrl+s` is in the key allow-list. The real integration test opens Calc, fills A1/B1, saves through the
 file chooser and reads `/workspace/calc.csv` with `workspace.exec`. The offline eval reports 2,000/200
-tokens for structure-only (context 2,397) and 3,200/320 for screenshots (context 3,310); the structure
+tokens for structure-only (context 2,585) and 3,200/320 for screenshots (context 3,498); the structure
 run starts with Calc closed, launches it through `desktop.act`, and sends zero images.
 The default screen is now 1920x1080: the Save dialog is 888 px tall, which put its buttons below a
 1440x900 screen. A `fit-windows` watcher (uid 1000) moves and shrinks a window that an app still opens
