@@ -288,8 +288,11 @@ export class TurnRunner {
         return { kind: 'reply', text: response.text, files };
       }
       const results: { isError: boolean }[] = [];
+      let pauseQuestion: string | undefined;
       for (const call of response.toolCalls) {
-        const result = await this.executeTool(session, turn, call, signal);
+        const result = await this.executeTool(session, turn, call, signal, (question) => {
+          pauseQuestion = question;
+        });
         results.push(result);
         files.push(...result.files);
         await this.store(session, turn.id, 'tool', 'system', [
@@ -302,6 +305,8 @@ export class TurnRunner {
           },
         ]);
       }
+      // A tool asked for the owner (S55): the step's results are stored, then the turn pauses.
+      if (pauseQuestion) return { kind: 'question', text: pauseQuestion };
       const stalled = stall.record(results);
       if (stalled) throw new TurnEnded(stalled);
     }
@@ -471,6 +476,7 @@ export class TurnRunner {
     turn: Turn,
     call: ToolCall,
     signal: AbortSignal,
+    onPause?: (question: string) => void,
   ): Promise<{
     /** What the model is told, including the pipeline's wrapping. */
     content: string;
@@ -498,6 +504,7 @@ export class TurnRunner {
       log: log.child({ tool: call.name }),
       events,
       writeFenced: (fn) => this.turnLock.write(turn.id, fn),
+      ...(onPause && { requestPause: onPause }),
     });
     signal.throwIfAborted();
     const ok = outcome.kind === 'ok';

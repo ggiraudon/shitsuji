@@ -50,8 +50,30 @@ let files: SandboxFiles;
 let desktop: DesktopCapability;
 let controlPort: string;
 let viewerPort: string;
+let fullViewerPort: string;
 let now = Date.parse('2026-01-01T00:00:00.000Z');
 let viewOnlyPassword = '';
+let fullControlPassword = '';
+let controlMode: 'agent' | 'owner' = 'agent';
+const controlListeners = new Set<(mode: 'agent' | 'owner') => void>();
+const viewerControl = {
+  status: () => ({ mode: controlMode }),
+  take: async () => {
+    controlMode = 'owner';
+    for (const listener of controlListeners) listener(controlMode);
+    return { mode: controlMode };
+  },
+  giveBack: async () => {
+    controlMode = 'agent';
+    for (const listener of controlListeners) listener(controlMode);
+    return { mode: controlMode };
+  },
+  fullCredentials: async () => driver.fullViewerCredentials(),
+  onModeChange: (listener: (mode: 'agent' | 'owner') => void) => {
+    controlListeners.add(listener);
+    return () => controlListeners.delete(listener);
+  },
+};
 
 const imageExists = (image: string): boolean =>
   spawnSync('docker', ['image', 'inspect', image], { stdio: 'ignore' }).status === 0;
@@ -100,11 +122,12 @@ const signIn = async (): Promise<string> => {
   return response.headers.getSetCookie()[0]!.split(';')[0]!;
 };
 
-const wsUrl = (): string => `${api.url.replace('http', 'ws')}/desktop/stream`;
+const wsUrl = (control?: 'full'): string =>
+  `${api.url.replace('http', 'ws')}/desktop/stream${control ? `?control=${control}` : ''}`;
 
-const upgradeStatus = (cookie?: string): Promise<number> =>
+const upgradeStatus = (cookie?: string, control?: 'full'): Promise<number> =>
   new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl(), { ...(cookie && { headers: { cookie } }) });
+    const ws = new WebSocket(wsUrl(control), { ...(cookie && { headers: { cookie } }) });
     ws.on('unexpected-response', (_request, response) => {
       response.resume();
       ws.terminate();
@@ -117,9 +140,9 @@ const upgradeStatus = (cookie?: string): Promise<number> =>
     ws.on('error', () => undefined);
   });
 
-const openStream = (cookie: string): Promise<{ ws: WebSocket; bytes: Bytes }> =>
+const openStream = (cookie: string, control?: 'full'): Promise<{ ws: WebSocket; bytes: Bytes }> =>
   new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl(), { headers: { cookie } });
+    const ws = new WebSocket(wsUrl(control), { headers: { cookie } });
     const bytes = new Bytes(ws);
     ws.once('open', () => resolve({ ws, bytes }));
     ws.once('error', reject);
@@ -242,6 +265,7 @@ beforeAll(async () => {
   }
   controlPort = await freePort();
   viewerPort = await freePort();
+  fullViewerPort = await freePort();
 
   docker([
     'run',
@@ -311,10 +335,16 @@ beforeAll(async () => {
     'SANDBOX_GATEWAY_VIEWER_PORT=6081',
     '-e',
     'SANDBOX_GATEWAY_VIEWER_TARGET=sandbox:6081',
+    '-e',
+    'SANDBOX_GATEWAY_FULL_VIEWER_PORT=6080',
+    '-e',
+    'SANDBOX_GATEWAY_FULL_VIEWER_TARGET=sandbox:6080',
     '-p',
     `127.0.0.1:${controlPort}:4555`,
     '-p',
     `127.0.0.1:${viewerPort}:6081`,
+    '-p',
+    `127.0.0.1:${fullViewerPort}:6080`,
     '--entrypoint',
     'node',
     SANDBOX_IMAGE,
@@ -338,6 +368,7 @@ beforeAll(async () => {
   files = opened.files!;
   desktop = opened.desktop!;
   viewOnlyPassword = (await driver.viewerCredentials()).viewOnlyPassword;
+  fullControlPassword = (await driver.fullViewerCredentials()).fullControlPassword;
 
   api = await startApiServer(
     {
@@ -353,7 +384,11 @@ beforeAll(async () => {
       verifyKey: (key: string | undefined) => key === KEY,
       viewer: {
         credentials: () => driver.viewerCredentials(),
-        stream: { host: '127.0.0.1', port: Number(viewerPort) },
+        stream: {
+          viewOnly: { host: '127.0.0.1', port: Number(viewerPort) },
+          full: { host: '127.0.0.1', port: Number(fullViewerPort) },
+        },
+        control: viewerControl,
         cookieSecure: false,
       },
     } as unknown as Omit<ApiDeps, 'webSocket'>,
@@ -388,8 +423,14 @@ describe('desktop viewer (S51)', () => {
 
       const credentials = await fetch(`${api.url}/desktop/credentials`, { headers: { cookie } });
       expect(credentials.status).toBe(200);
-      const body = (await credentials.json()) as { viewOnlyPassword: string };
+      const body = (await credentials.json()) as {
+        viewOnlyPassword: string;
+        mode: string;
+        fullControlPassword?: string;
+      };
       expect(body.viewOnlyPassword).toBe(viewOnlyPassword);
+      expect(body.mode).toBe('agent');
+      expect(body.fullControlPassword).toBeUndefined();
 
       const passwordFile = JSON.parse(
         docker(['exec', '-u', '1001:1000', sandbox, 'cat', '/run/sandbox/vnc-passwords.json']),
@@ -397,6 +438,64 @@ describe('desktop viewer (S51)', () => {
       expect(body.viewOnlyPassword).toBe(passwordFile.viewOnly);
       expect(body.viewOnlyPassword).not.toBe(passwordFile.full);
     },
+  );
+
+  it.runIf(available)(
+    'takes control, relays full input and closes every full stream on Give back (S55)',
+    async () => {
+      now = Date.parse('2026-01-01T00:00:00.000Z');
+      const cookie = await signIn();
+      const before = await pointer();
+      await expect(upgradeStatus(cookie, 'full')).resolves.toBe(403);
+
+      const take = await fetch(`${api.url}/desktop/take`, {
+        method: 'POST',
+        headers: { cookie, origin: api.url },
+      });
+      expect(take.status).toBe(200);
+      expect(await take.json()).toMatchObject({ mode: 'owner' });
+
+      const credentials = await fetch(`${api.url}/desktop/credentials`, {
+        headers: { cookie },
+      });
+      const body = (await credentials.json()) as {
+        mode: string;
+        fullControlPassword?: string;
+      };
+      expect(body.mode).toBe('owner');
+      expect(body.fullControlPassword).toBe(fullControlPassword);
+
+      const { ws, bytes } = await openStream(cookie, 'full');
+      await rfbAuth(ws, bytes, fullControlPassword);
+      const target = { x: (before.x + 40) % 1400, y: (before.y + 30) % 860 };
+      const event = Buffer.alloc(6);
+      event[0] = 5;
+      event[1] = 0;
+      event.writeUInt16BE(target.x, 2);
+      event.writeUInt16BE(target.y, 4);
+      send(ws, event);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await pointer()).toEqual(target);
+
+      const closed = new Promise<number>((resolve) => ws.once('close', (code) => resolve(code)));
+      const give = await fetch(`${api.url}/desktop/give-back`, {
+        method: 'POST',
+        headers: { cookie, origin: api.url },
+      });
+      expect(give.status).toBe(200);
+      expect(await give.json()).toMatchObject({ mode: 'agent' });
+      expect(await closed).toBe(1000);
+
+      await expect(upgradeStatus(cookie, 'full')).resolves.toBe(403);
+      const after = await fetch(`${api.url}/desktop/credentials`, { headers: { cookie } });
+      const afterBody = (await after.json()) as {
+        mode: string;
+        fullControlPassword?: string;
+      };
+      expect(afterBody.mode).toBe('agent');
+      expect(afterBody.fullControlPassword).toBeUndefined();
+    },
+    60_000,
   );
 
   it.runIf(available)('refuses an expired cookie', async () => {

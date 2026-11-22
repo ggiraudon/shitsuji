@@ -21,8 +21,9 @@ import type { InboundMessage, InboundResult } from '../../ports/ChannelAdapter.j
 import type { EventBus } from '../../ports/EventBus.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { Repositories, TurnEvent } from '../../ports/Repositories.js';
+import type { DesktopControlViewer } from '../../ports/DesktopControl.js';
 import type { ViewerCredentials } from '../../ports/SandboxDriver.js';
-import { registerViewer, type ViewerStream } from './desktopViewer.js';
+import { registerViewer, type ViewerStreams } from './desktopViewer.js';
 import {
   LIVE_EVENT_TYPES,
   approvalDecisionBody,
@@ -74,8 +75,10 @@ export interface ApiDeps {
   viewer?: {
     /** Reads the view-only password from sandboxd, behind its token. */
     credentials(): Promise<ViewerCredentials>;
-    /** The gateway's view-only stream the viewer relays to the browser. */
-    stream: ViewerStream;
+    /** The gateway's view-only and full-control streams (S55). */
+    stream: ViewerStreams;
+    /** Mode, take/give back and the gated full credential (S55). */
+    control: DesktopControlViewer;
     /** True when the API is served over TLS, so the cookie carries Secure. */
     cookieSecure: boolean;
     /** Tests shorten the sign-in lifetime; production keeps one hour. */

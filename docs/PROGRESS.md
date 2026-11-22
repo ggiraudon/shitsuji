@@ -195,7 +195,25 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       terminal and Chromium, a real set_text/click and a stale ref after the window closes. The
       Chromium input gap remains as recorded for S53
       ([#136](https://github.com/ggiraudon/shitsuji/issues/136)).)*
-- [ ] **S55** Take control and Give back
+- [x] **S55** Take control and Give back
+      *(`SandboxService` holds the `agent` | `owner` mode. In owner mode `computer.act` keeps only
+      `screenshot` and `ocr`, `desktop.act` is refused, and screenshots/tree reads still work.
+      `computer.request_takeover({ reason })` ends the turn `waiting` with the reason labelled as
+      the agent's words and the viewer link; the runner's new `requestPause` does that after the
+      step. Pressing Take control in the viewer works without a request and pauses every running
+      turn. The full-control password has its own token-protected sandboxd route; core returns it
+      only to the cookie-gated viewer in owner mode, and the full websockify stream goes through
+      the gateway's new 6080 listener, chosen by core. Take/Give back need the cookie and the same
+      Origin check as login; Give back closes every open full stream and refuses new ones. The page
+      shows Take control / Give back, the `Xvfb -ac` password warning while in control, and
+      reconnects watch-only; the CSP stays strict. A 15-minute timeout or a core restart returns the
+      desktop to agent mode; paused turns resume with a system note and, when vision allows, a fresh
+      screenshot, otherwise with a hint to use `desktop.inspect`. Every resume is a compare-and-set
+      from `waiting`, so a double Give back cannot resume twice. Unit tests cover mode changes,
+      refusals, expiry, restart and the double-resume guard; the API integration test takes control,
+      sends full-control pointer input, and sees the full stream close on Give back. The Chromium
+      input gap remains as recorded for S53
+      ([#136](https://github.com/ggiraudon/shitsuji/issues/136)).)*
 - [ ] **S56** The desktop end to end
 - [ ] **S57** The browser in `sandboxd`
 - [ ] **S58** Reading pages

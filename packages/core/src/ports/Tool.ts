@@ -80,6 +80,11 @@ export interface ToolContext {
   events: EventBus;
   /** Runs fn in a transaction only while the turn is still running (TurnLock, F02). */
   writeFenced<T>(fn: (tx: Transaction) => Promise<T>): Promise<T>;
+  /**
+   * Asks the runner to end this turn as `waiting` with this question after the current step, for a
+   * tool that needs the owner (S55 takeover). Absent in tests and contexts that cannot pause.
+   */
+  requestPause?(question: string): void;
 }
 
 /** An image a tool produced: a workspace file the ContextBuilder loads later. Never the bytes. */

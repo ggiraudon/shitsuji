@@ -20,6 +20,8 @@ export interface SandboxDriver {
    * desktop does not implement it.
    */
   viewerCredentials?(): Promise<ViewerCredentials>;
+  /** F10/S55: the full-control password, only while the owner holds control. */
+  fullViewerCredentials?(): Promise<FullViewerCredentials>;
   /** Optional tools of the driver itself, always named `<id>.*`. They go through the same pipeline. */
   extraTools?(): Tool[];
 }
@@ -42,6 +44,12 @@ export interface DriverHealth {
 export interface ViewerCredentials {
   /** The password for the view-only VNC session; the full-control one is never handed to `core`. */
   viewOnlyPassword: string;
+}
+
+/** The full-control credential, asked for only while the owner has control (S55). */
+export interface FullViewerCredentials {
+  /** The password for the full-control VNC session; never logged or returned outside the viewer. */
+  fullControlPassword: string;
 }
 
 /** What a driver's sandbox can do. A missing capability means its tools are not registered. */

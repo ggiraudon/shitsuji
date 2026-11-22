@@ -12,26 +12,43 @@ export interface GatewayConfig {
   control: GatewayListener;
   /** The view-only WebSocket relay (S51); absent unless the deployment asks for it. */
   viewer?: GatewayListener;
+  /** The full-control relay (S55); only core reaches it, and only in owner mode. */
+  fullViewer?: GatewayListener;
 }
 
 /**
- * The gateway's two listeners (S48, S51): the control port for sandboxd, and an optional view-only
- * stream port for websockify. The viewer listener is opt-in so the base gateway stays one port.
+ * The gateway's listeners (S48, S51, S55): the control port for sandboxd, and the optional
+ * view-only and full-control stream ports for websockify. The stream listeners are opt-in so the
+ * base gateway stays one port.
  */
 export function gatewayConfigFromEnv(env: NodeJS.ProcessEnv = process.env): GatewayConfig {
   const control = listenerFromEnv(env, 'SANDBOX_GATEWAY', 'sandbox:4555');
   const viewerPort = env.SANDBOX_GATEWAY_VIEWER_PORT?.trim();
-  if (!viewerPort) return { control };
-  const viewer = listenerFromEnv(
-    env,
-    'SANDBOX_GATEWAY_VIEWER',
-    'sandbox:6081',
-    'SANDBOX_GATEWAY_VIEWER_PORT',
-  );
-  if (viewer.port === control.port) {
-    throw new Error('SANDBOX_GATEWAY_VIEWER_PORT must differ from SANDBOX_GATEWAY_PORT.');
+  const fullPort = env.SANDBOX_GATEWAY_FULL_VIEWER_PORT?.trim();
+  const config: GatewayConfig = { control };
+  if (viewerPort) {
+    config.viewer = listenerFromEnv(
+      env,
+      'SANDBOX_GATEWAY_VIEWER',
+      'sandbox:6081',
+      'SANDBOX_GATEWAY_VIEWER_PORT',
+    );
   }
-  return { control, viewer };
+  if (fullPort) {
+    config.fullViewer = listenerFromEnv(
+      env,
+      'SANDBOX_GATEWAY_FULL_VIEWER',
+      'sandbox:6080',
+      'SANDBOX_GATEWAY_FULL_VIEWER_PORT',
+    );
+  }
+  const ports = [config.control, config.viewer, config.fullViewer].filter(
+    (listener): listener is GatewayListener => listener !== undefined,
+  );
+  if (new Set(ports.map((listener) => listener.port)).size !== ports.length) {
+    throw new Error('SANDBOX_GATEWAY ports must differ from each other.');
+  }
+  return config;
 }
 
 function listenerFromEnv(
@@ -87,6 +104,21 @@ export function startGateways(config: GatewayConfig, log: GatewayLogger): Server
       log.info('sandboxd viewer gateway listening', {
         port: viewerConfig.port,
         target: `${viewerConfig.targetHost}:${viewerConfig.targetPort}`,
+      });
+    });
+  }
+  if (config.fullViewer) {
+    const fullConfig = config.fullViewer;
+    const full = createGateway({
+      targetHost: fullConfig.targetHost,
+      targetPort: fullConfig.targetPort,
+      log,
+    });
+    servers.push(full);
+    full.listen(fullConfig.port, '0.0.0.0', () => {
+      log.info('sandboxd full-control viewer gateway listening', {
+        port: fullConfig.port,
+        target: `${fullConfig.targetHost}:${fullConfig.targetPort}`,
       });
     });
   }

@@ -453,4 +453,59 @@ describe('SandboxService (F08, S40)', () => {
     );
     await expect(plain.viewerCredentials()).rejects.toThrow(/no desktop viewer/);
   });
+
+  it('holds the control mode and only hands out the full password in owner mode (S55)', async () => {
+    const withFull = {
+      ...driver(
+        {
+          files: { roots: ['/workspace'] },
+          desktop: { accessibility: false, screenshots: true, takeControl: true },
+          egress: { lanBlocked: true, credentialSwap: false },
+        },
+        { files: fakeFiles(), desktop: fakeDesktop(false) },
+      ),
+      fullViewerCredentials: async () => ({ fullControlPassword: 'full-pass' }),
+    };
+    const { sandbox } = build(withFull);
+    await sandbox.start();
+    expect(sandbox.desktopMode).toBe('agent');
+    await expect(sandbox.fullViewerCredentials()).rejects.toThrow(/does not have control/);
+
+    const modes: string[] = [];
+    sandbox.onDesktopModeChange((mode) => modes.push(mode));
+    sandbox.enterOwnerControl({ requestedBy: 'owner', since: new Date(0) });
+    expect(sandbox.desktopMode).toBe('owner');
+    expect(modes).toEqual(['owner']);
+    await expect(sandbox.fullViewerCredentials()).resolves.toEqual({
+      fullControlPassword: 'full-pass',
+    });
+
+    sandbox.leaveOwnerControl();
+    expect(sandbox.desktopMode).toBe('agent');
+    expect(modes).toEqual(['owner', 'agent']);
+    await expect(sandbox.fullViewerCredentials()).rejects.toThrow(/does not have control/);
+  });
+
+  it('registers computer.request_takeover only when composition sets the control service (S55)', async () => {
+    const withDesktop = driver(
+      {
+        files: { roots: ['/workspace'] },
+        desktop: { accessibility: false, screenshots: true, takeControl: true },
+        egress: { lanBlocked: true, credentialSwap: false },
+      },
+      { files: fakeFiles(), desktop: fakeDesktop(false) },
+    );
+    const { sandbox } = build(withDesktop);
+    sandbox.setTakeControl({
+      mode: 'agent',
+      requestByAgent: async () => ({ ok: false, message: 'no' }),
+      abandonAgentRequest: () => undefined,
+    });
+    await sandbox.start();
+    expect(names(sandbox)).toContain('computer.request_takeover');
+
+    const { sandbox: without } = build(withDesktop);
+    await without.start();
+    expect(names(without)).not.toContain('computer.request_takeover');
+  });
 });

@@ -1,5 +1,5 @@
 import { configFromEnv } from './config.js';
-import { A11yService } from './a11y.js';
+import { A11yService, a11yHelperArgv } from './a11y.js';
 import { DesktopService, SetprivDesktopRunner } from './desktop.js';
 import { ExecSupervisor, setprivCommand } from './exec.js';
 import { SandboxFilesService } from './files.js';
@@ -43,12 +43,12 @@ async function main(): Promise<void> {
     ? new A11yService({
         command:
           config.commandUid !== undefined
-            ? setprivCommand([config.desktopA11yPython, config.desktopA11yHelper], {
+            ? setprivCommand(a11yHelperArgv(config.desktopA11yPython, config.desktopA11yHelper), {
                 uid: config.commandUid,
                 ...(config.commandGid !== undefined && { gid: config.commandGid }),
                 setprivPath: config.setprivPath,
               })
-            : [config.desktopA11yPython, config.desktopA11yHelper],
+            : a11yHelperArgv(config.desktopA11yPython, config.desktopA11yHelper),
         env: {
           PATH: config.commandPath,
           HOME: config.commandHome,

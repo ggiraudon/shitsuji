@@ -25,6 +25,7 @@ import {
   probeReplySchema,
   readFileReplySchema,
   statFileReplySchema,
+  viewerFullCredentialsReplySchema,
   writeFileReplySchema,
   SANDBOX_ROUTES,
   SANDBOX_TOKEN_HEADER,
@@ -50,6 +51,7 @@ import type {
   DesktopWindow,
   ExecEvent,
   ExecRequest,
+  FullViewerCredentials,
   SandboxEgress,
   SandboxExec,
   SandboxFiles,
@@ -173,6 +175,15 @@ export class SandboxClient {
     } catch (error) {
       return { ok: false, detail: (error as Error).message };
     }
+  }
+
+  /** The full-control password (S55); core asks only after the owner takes control. */
+  async fullViewerCredentials(): Promise<FullViewerCredentials> {
+    const reply = await this.call(
+      SANDBOX_ROUTES.viewerFullCredentials,
+      viewerFullCredentialsReplySchema,
+    );
+    return { fullControlPassword: reply.fullControlPassword };
   }
 
   private async errorOf(response: Response): Promise<Error> {

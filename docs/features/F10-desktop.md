@@ -121,11 +121,14 @@ matters: build and tag `shitsuji/sandbox` first, which Compose does with its `sa
 - The page uses the pinned `@novnc/novnc` client served by core (no CDN). After the cookie check it
   fetches `GET /desktop/credentials`, which asks sandboxd's token-protected
   `GET /desktop/viewer-credentials` for the view-only password. The full-control password never
-  leaves the sandbox.
+  leaves the sandbox until S55's owner mode; it has its own core-only route and only
+  `GET /desktop/credentials` returns it, to this cookie-gated page (S55).
 - `GET /desktop/stream` is a WebSocket, cookie-gated on the upgrade. Core connects to the
   `sandboxd-gateway`'s view-only listener on 6081 as a WebSocket client and bridges the frames; the
   gateway's second listener forwards to websockify's 6081 view-only stream. Core never joins the
-  sandbox network. 6080 (full control) is not exposed until S55.
+  sandbox network. In owner mode the page opens `?control=full`, which core relays through the
+  gateway's 6080 listener; `POST /desktop/take` and `/desktop/give-back` need the same cookie and
+  `Origin` check as login, and Give back closes every open full stream at once (S55).
 - `POST /desktop/login` is throttled: after five wrong keys from one address in five minutes it
   answers 429 until the window ends and logs once. Login, logout and the stream upgrade also reject a
   cross-origin `Origin` when one is present.
@@ -246,7 +249,8 @@ API and can be swapped.
 - **It runs as uid 1000**, not as `sandboxd`'s 1001: the session D-Bus accepts clients of the uid that owns
   the bus, and the desktop session — and its accessibility bus — is uid 1000's. It gets a fixed minimal
   environment (display and bus address, no token and no VNC password), so it cannot read what the daemon
-  protects even if a sandbox command signals it.
+  protects even if a sandbox command signals it. It starts with `python3 -I`, so the uid-1000 user site
+  folder, which sandbox commands can write, is never on its import path.
 - One request is in flight at a time. Each has a deadline (10 s by default) and its line has a 2 MiB cap;
   every reply is validated with zod, including the node count, names and values. A hung, oversized,
   malformed or internally failed helper is killed, the request in flight fails, and the next request starts
@@ -304,10 +308,14 @@ Two tools, matching the levels above:
   `type`, `key`, `wait`, `launch_app`, `ocr`. The result always includes a fresh scaled screenshot, so the
   model sees the effect.
 
+- `computer.request_takeover({ reason })` asks the owner for the desktop and pauses the turn with
+  the question and viewer link (S55).
 - **Tree registration:** `desktop.inspect` and `desktop.act` are registered only when the active driver
   advertises `accessibility`, which means the helper answered; structure does not need a vision model.
-  `desktop.inspect` is `read`, `desktop.act` is `write_local`, and both mark their output untrusted. A ref
-  whose window changed is refused with "stale, take a new snapshot" rather than clicked.
+  `desktop.inspect` is `read`, `desktop.act` is `write_local`, and both mark their output untrusted. A
+  ref whose window changed is refused with "stale, take a new snapshot" rather than clicked.
+- In owner mode `computer.act` keeps only `screenshot` and `ocr`, and `desktop.act` is refused; the
+  agent can still read the tree and screenshots.
 - Needs a **vision-capable model** for `computer.act`; the router selects `purpose: vision`
   ([F03](F03-model-providers.md)). DeepSeek V4.1 Flash accepts images, so computer use can run on the same
   model as chat. Keeping `purpose: vision` separate still lets you point it at a stronger or local vision
@@ -331,15 +339,39 @@ Two tools, matching the levels above:
 
 ### Take control
 
-1. The agent calls `computer.request_takeover({ reason })` (or you press **Take control**).
-2. The desktop goes to `owner` mode: the agent's input calls are refused; the web UI's noVNC canvas becomes
-   interactive.
-3. You sign in, solve the CAPTCHA, or fix something; then press **Give back**.
-4. The waiting turn resumes with a note of what changed (new screenshot).
+The desktop has two modes, held by `SandboxService` and reset to `agent` in every new process:
 
-The display has no X access control (`Xvfb -ac`), so any process in the sandbox can read the screen and the
-keystrokes, including what you type while you have control. Do not enter a password, a one-time code or any
-other secret during Take control; credential entry belongs to the
+- In **agent** mode the agent drives the desktop and the viewer is watch-only.
+- In **owner** mode the viewer gets the full-control stream. Every writing action of `computer.act`
+  and `desktop.act` is refused with a clear message; `screenshot`, `ocr`, `desktop.inspect` and
+  `desktop.find` still work, so the agent can look but not act. The full-control VNC password is
+  only returned by core's cookie-gated credentials route while the mode is owner, and the stream
+  only goes through core.
+
+1. The agent calls `computer.request_takeover({ reason })` (or you press **Take control**).
+2. The turn ends `waiting` with a question. The question starts with
+   "The agent asked for control of the desktop." and quotes the agent's reason as its words, not
+   verified, followed by the viewer link. It reaches the same reply channel as the turn (Telegram or
+   the TUI); pressing **Take control** in the viewer works without a request too.
+3. The desktop goes to `owner` mode: the agent's writes are refused and the viewer canvas becomes
+   interactive. Pressing Take control yourself also pauses every running turn, so its desktop
+   actions cannot race yours.
+4. You sign in, solve the CAPTCHA, or fix something; then press **Give back**.
+5. Give back returns the agent mode, closes every open full-control stream, and queues a `resume`
+   turn. Its system note says the screen may have changed and, when the vision gate allows it,
+   attaches a fresh screenshot; otherwise it tells the agent to take a new `desktop.inspect`
+   snapshot. The resume is a compare-and-set from `waiting`, so two Give backs cannot resume twice.
+
+**If nobody gives back**, the desktop returns to the agent after 15 minutes (the default takeover
+timeout), the full streams close, and the paused turns resume with a "did not give the desktop back
+in time" note.
+**If core restarts** while in owner mode, the mode is lost with the process; the new process starts
+in agent mode and resumes any waiting takeover turn with a "core restarted" note and a screenshot
+when vision allows. The desktop is never left stuck in owner mode.
+
+While you have control the page shows a permanent warning: the display has no X access control
+(`Xvfb -ac`), so any process in the sandbox can read the screen and the keystrokes. Do not enter a
+password, a one-time code or any other secret during Take control; credential entry belongs to the
 [F12](F12-secrets-vault.md) path.
 
 From Telegram, the agent sends a "Take control" link that opens the web UI on that screen.

@@ -152,11 +152,22 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
   override readonly untrustedOutput = true;
   readonly effect: ToolEffect = 'write_local';
 
-  constructor(private readonly desktop: DesktopCapability) {
+  constructor(
+    private readonly desktop: DesktopCapability,
+    private readonly isOwner: () => boolean = () => false,
+  ) {
     super();
   }
 
   async run(args: ActArgs, ctx: ToolContext): Promise<ToolOutput> {
+    if (this.isOwner()) {
+      return {
+        content:
+          'The owner has control of the desktop. Reading the tree and screenshots still works, ' +
+          'but the agent cannot click or set text until the owner gives it back.',
+        isError: true,
+      };
+    }
     let result;
     try {
       result = await this.desktop.actOnElement(
@@ -204,8 +215,11 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
 }
 
 /** The two structure-first tools, registered only when the driver advertises accessibility. */
-export function desktopA11yTools(desktop: DesktopCapability): Tool[] {
-  return [new DesktopInspectTool(desktop), new DesktopActTool(desktop)];
+export function desktopA11yTools(
+  desktop: DesktopCapability,
+  isOwner: () => boolean = () => false,
+): Tool[] {
+  return [new DesktopInspectTool(desktop), new DesktopActTool(desktop, isOwner)];
 }
 
 function toFindQuery(args: InspectArgs): DesktopA11yFindQuery {

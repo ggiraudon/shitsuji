@@ -243,6 +243,12 @@ export const EXEC_SIGNAL_ROUTE = /^\/exec\/([^/]+)\/signal$/;
 export const viewerCredentialsReplySchema = z.object({ viewOnly: z.string().min(1) }).strict();
 export type ViewerCredentialsReply = z.infer<typeof viewerCredentialsReplySchema>;
 
+/** The full-control password (S55); core asks only after the owner has taken control. */
+export const viewerFullCredentialsReplySchema = z
+  .object({ fullControlPassword: z.string().min(1) })
+  .strict();
+export type ViewerFullCredentialsReply = z.infer<typeof viewerFullCredentialsReplySchema>;
+
 // ---- desktop (S53) ----------------------------------------------------------------------------
 
 /** Apps the model may launch; the daemon never takes an arbitrary command. */
@@ -580,6 +586,7 @@ export const SANDBOX_ROUTES = {
   probe: '/probe',
   exec: '/exec',
   viewerCredentials: '/desktop/viewer-credentials',
+  viewerFullCredentials: '/desktop/viewer-credentials/full',
   desktopState: '/desktop/state',
   desktopScreenshot: '/desktop/screenshot',
   desktopInputMouse: '/desktop/input/mouse',

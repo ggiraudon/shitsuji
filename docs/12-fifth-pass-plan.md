@@ -1,6 +1,6 @@
 # Fifth pass plan: F10 desktop, then F09 browser
 
-> **Status:** in progress (S50-S54 done; S55-S62 planned).
+> **Status:** in progress (S50-S55 done; S56-S62 planned).
 
 The fifth pass finishes most of Phase 2 ("its own computer"). The sandbox from the fourth pass gets a
 graphical desktop that you can watch, the agent learns to use it (structure first, pixels last), and its
@@ -164,13 +164,17 @@ packages/
 
 #### S55. Take control and Give back
 - Control modes `agent` | `owner`, held by `SandboxService`. In `owner` mode `computer.act` and
-  `desktop.act` are refused with a clear message, and the viewer switches to the full-control VNC password.
+  `desktop.act` are refused with a clear message (screenshots, OCR and tree reads still work), and the
+  viewer switches to the full-control VNC password.
 - `computer.request_takeover({ reason })` puts the turn in `waiting` with the reason; the owner gets the
-  message on their channel with the viewer link. The viewer page shows **Take control** and **Give back**.
-  Pressing **Take control** yourself works too, and pauses the running turn's desktop actions.
-- Give back resumes the waiting turn with a note and a fresh screenshot.
-- *Check:* unit tests for the mode changes and refusals; an integration test drives take/give back through
-  the API.
+  message on their channel with the viewer link, labelled as the agent's words. The viewer page shows
+  **Take control** and **Give back**. Pressing **Take control** yourself works too, and pauses the
+  running turn's desktop actions.
+- Give back resumes the waiting turn with a note and a fresh screenshot when the vision gate allows it;
+  otherwise the note says the screen changed and suggests `desktop.inspect`. A 15-minute timeout and a
+  core restart both return the desktop to the agent; every resume is a compare-and-set from `waiting`.
+- *Check:* unit tests for the mode changes and refusals, expiry and the double-resume guard; an
+  integration test drives take/give back through the API and shows a full-control stream closing.
 
 #### S56. The desktop end to end
 - The Calc task from F10: open Calc, type numbers, save to `/workspace`, read the file with

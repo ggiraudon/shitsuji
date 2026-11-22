@@ -13,7 +13,7 @@ const image = {
   scale: 1280 / 1440,
 };
 
-const setup = (scale = 1280 / 1440) => {
+const setup = (scale = 1280 / 1440, owner = false) => {
   const writes: { ref: string; bytes: Uint8Array }[] = [];
   const files = {
     resolve: async (ref: string) => `/workspace/${ref}`,
@@ -43,10 +43,21 @@ const setup = (scale = 1280 / 1440) => {
     events: { publish() {}, subscribe() {}, subscribePattern() {} },
     writeFenced: async <T>(fn: () => Promise<T>) => fn(),
   } as unknown as ToolContext;
-  return { tool: new ComputerActTool(files, desktop), writes, actions, ctx };
+  return { tool: new ComputerActTool(files, desktop, () => owner), writes, actions, ctx };
 };
 
 describe('computer.act (S53)', () => {
+  it('refuses pointer and keyboard actions while the owner has control (S55)', async () => {
+    const { tool, actions, ctx } = setup(1280 / 1440, true);
+    const click = await tool.run({ action: 'click', x: 10, y: 20 }, ctx);
+    expect(click.isError).toBe(true);
+    expect(click.content).toContain('owner has control');
+    expect(actions).toEqual([]);
+
+    const shot = await tool.run({ action: 'screenshot' }, ctx);
+    expect(shot.isError).toBeUndefined();
+    expect(shot.images).toHaveLength(1);
+  });
   it('performs the click and returns a fresh screenshot reference, never bytes', async () => {
     const { tool, writes, actions, ctx } = setup();
     const output = await tool.run({ action: 'click', x: 10, y: 20 }, ctx);
