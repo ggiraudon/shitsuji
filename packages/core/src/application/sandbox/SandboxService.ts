@@ -13,6 +13,7 @@ import type {
 import type { Tool } from '../../ports/Tool.js';
 import type { EgressProbe } from './EgressProbe.js';
 import { workspaceTools, type ExecOptions } from './tools/index.js';
+import { asUntrustedTool } from './tools/untrusted.js';
 import { computerActTools } from '../desktop/ComputerActTool.js';
 import { desktopA11yTools } from '../desktop/DesktopA11yTools.js';
 
@@ -191,7 +192,9 @@ export class SandboxService {
 
   /**
    * A driver's own tools must be named `<id>.*`, so they cannot shadow a standard tool (`workspace.*`,
-   * `tool_search`, …) or another driver's, and each name appears once (F08, S42).
+   * `tool_search`, …) or another driver's, and each name appears once (F08, S42). They are third-party
+   * code, so their output is untrusted by default: each is wrapped before it reaches the catalog, and
+   * the pipeline marks its result as data (#141).
    */
   private extraToolsOf(driver: SandboxDriver): readonly Tool[] {
     const extras = driver.extraTools?.() ?? [];
@@ -212,7 +215,8 @@ export class SandboxService {
       }
       seen.add(tool.name);
     }
-    return extras;
+    // None of these can be core's own: core's tools are `workspace.*` and refused above.
+    return extras.map((tool) => asUntrustedTool(tool));
   }
 
   async close(): Promise<void> {
