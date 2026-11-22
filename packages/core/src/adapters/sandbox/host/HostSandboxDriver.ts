@@ -8,13 +8,19 @@ import { HostEgress } from './HostEgress.js';
 import { HostExec } from './HostExec.js';
 import { WorkspaceRoot } from './WorkspaceRoot.js';
 
+/** How the host driver is confined: one writable root, read-only roots, and the exec switch. */
 export interface HostSandboxOptions {
   /** The workspace folder the file and exec tools are confined to (decision Q1). */
   workspaceDir: string;
   /** Read-only roots the read tools may reach, e.g. the handoff folder (decision T2). */
   readDirs?: readonly string[];
   /** `tools.exec` from the config; when it is off the sandbox has no exec (decision Q1). */
-  exec?: { enabled: boolean; maxTimeoutSeconds: number };
+  exec?: {
+    /** Whether `workspace.exec` exists at all in this process. */
+    enabled: boolean;
+    /** The longest timeout a command may ask for; the tool caps its request to it. */
+    maxTimeoutSeconds: number;
+  };
 }
 
 /**
@@ -24,9 +30,13 @@ export interface HostSandboxOptions {
  */
 export class HostSandboxDriver implements SandboxDriver {
   readonly id = 'host';
+  /** The read-only roots the file tools may read, copied from the options. */
   private readonly readDirs: readonly string[];
 
-  constructor(private readonly options: HostSandboxOptions) {
+  constructor(
+    /** The workspace folder, the read-only roots and the exec switch. */
+    private readonly options: HostSandboxOptions,
+  ) {
     this.readDirs = options.readDirs ?? [];
   }
 
@@ -54,10 +64,17 @@ export class HostSandboxDriver implements SandboxDriver {
     };
   }
 
-  async health(): Promise<{ ok: boolean; detail?: string }> {
+  /** Always healthy: the host has no runtime that can be down, but the ports stay the same. */
+  async health(): Promise<{
+    /** Always true for this driver. */
+    ok: boolean;
+    /** Never set here: the host driver has no failure to report. */
+    detail?: string;
+  }> {
     return { ok: true };
   }
 
+  /** Whether the config enabled `workspace.exec` for this process. */
   private get execEnabled(): boolean {
     return this.options.exec?.enabled ?? false;
   }
