@@ -5,18 +5,24 @@ import { parse as parseYaml } from 'yaml';
 import { ConfigError } from '../../domain/errors.js';
 import { shitsujiConfigSchema, type ShitsujiConfig } from './schema.js';
 
+/** The environment a load reads: the process environment, or a test's stand-in. */
 export type Env = Record<string, string | undefined>;
 
+/** What `loadConfig` may be given; every field has a production default. */
 export interface LoadConfigOptions {
   /** Environment variables. Defaults to process.env. This module is the only reader of process.env. */
   env?: Env;
   /** Explicit config file. Otherwise SHITSUJI_CONFIG, then ./shitsuji.config.yaml if it exists. */
   file?: string;
+  /** The folder a relative `file` resolves against; the process cwd by default. */
   cwd?: string;
+  /** The home folder `~` expands to; the OS home by default. */
   homeDir?: string;
 }
 
+/** The configuration and where it came from, for the startup log. */
 export interface LoadedConfig {
+  /** The validated configuration. */
   config: ShitsujiConfig;
   /** The file that was read, if any. */
   source?: string;
