@@ -46,7 +46,9 @@ const ctx = {
   writeFenced: async <T>(fn: () => Promise<T>) => fn(),
 } as unknown as ToolContext;
 
-function setup(options: { stale?: boolean; failInspect?: boolean; owner?: boolean } = {}) {
+function setup(
+  options: { stale?: boolean; failInspect?: boolean; owner?: boolean; failXdotool?: boolean } = {},
+) {
   const calls: { kind: string; request: unknown }[] = [];
   const desktop = {
     accessibility: true,
@@ -73,6 +75,7 @@ function setup(options: { stale?: boolean; failInspect?: boolean; owner?: boolea
     },
     act: async (action: unknown) => {
       calls.push({ kind: 'xdotool', request: action });
+      if (options.failXdotool) throw new Error('the keyboard failed');
     },
     accessibilityStatus: async () => ({ helper: true, apps: [], missing: [] }),
   } as unknown as DesktopCapability;
@@ -187,6 +190,35 @@ describe('desktop.act (S54)', () => {
       act.input.safeParse({ snapshot: 's1', action: 'launch_app', app: 'firefox' }).success,
     ).toBe(false);
     expect(act.input.safeParse({ snapshot: 's1', action: 'launch_app' }).success).toBe(false);
+  });
+
+  it('runs a short keyboard sequence as one call and stops at the first failure (S56 follow-up)', async () => {
+    const { act, calls } = setup();
+    const output = await act.run(
+      { snapshot: 's1', ref: 'e3', steps: [{ type: '42' }, { key: 'Tab' }, { type: '7' }] },
+      ctx,
+    );
+    expect(output.content).toContain('Ran 3 steps after focusing [e3]');
+    expect(calls).toEqual([
+      { kind: 'act', request: { snapshot: 's1', ref: 'e3', action: 'click' } },
+      { kind: 'xdotool', request: { kind: 'type', text: '42' } },
+      { kind: 'xdotool', request: { kind: 'key', key: 'Tab' } },
+      { kind: 'xdotool', request: { kind: 'type', text: '7' } },
+      { kind: 'inspect', request: {} },
+    ]);
+    expect(
+      act.input.safeParse({
+        steps: Array.from({ length: 21 }, () => ({ key: 'Tab' })),
+      }).success,
+    ).toBe(false);
+  });
+
+  it('says which batch step failed', async () => {
+    const { act } = setup({ failXdotool: true });
+    const output = await act.run({ steps: [{ type: '42' }, { key: 'Tab' }, { type: '7' }] }, ctx);
+    expect(output.isError).toBe(true);
+    expect(output.content).toContain('Step 1 of 3');
+    expect(output.content).toContain('type "42"');
   });
 
   it('refuses an action while the owner has control, while inspect still reads (S55)', async () => {

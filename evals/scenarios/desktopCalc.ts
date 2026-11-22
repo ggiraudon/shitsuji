@@ -34,7 +34,17 @@ export const desktopCalcStructure: Scenario = {
         {
           id: 's2',
           name: 'desktop.act',
-          arguments: { snapshot: 's1', ref: 'e3', action: 'type', text: '42' },
+          arguments: {
+            snapshot: 's1',
+            ref: 'e3',
+            steps: [
+              { type: '42' },
+              { key: 'Tab' },
+              { type: '7' },
+              { key: 'Return' },
+              { key: 'ctrl+s' },
+            ],
+          },
         },
       ],
     },
@@ -42,42 +52,6 @@ export const desktopCalcStructure: Scenario = {
       toolCalls: [
         {
           id: 's3',
-          name: 'desktop.act',
-          arguments: { snapshot: 's1', action: 'key', key: 'Return' },
-        },
-      ],
-    },
-    {
-      toolCalls: [
-        {
-          id: 's4',
-          name: 'desktop.act',
-          arguments: { snapshot: 's1', ref: 'e4', action: 'type', text: '7' },
-        },
-      ],
-    },
-    {
-      toolCalls: [
-        {
-          id: 's5',
-          name: 'desktop.act',
-          arguments: { snapshot: 's1', action: 'key', key: 'Return' },
-        },
-      ],
-    },
-    {
-      toolCalls: [
-        {
-          id: 's6',
-          name: 'desktop.act',
-          arguments: { snapshot: 's1', action: 'key', key: 'ctrl+s' },
-        },
-      ],
-    },
-    {
-      toolCalls: [
-        {
-          id: 's7',
           name: 'workspace.exec',
           arguments: { program: 'cat', args: ['calc.csv'] },
         },

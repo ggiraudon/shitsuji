@@ -52,22 +52,66 @@ const inspectSchema = z
     }
   });
 
+const batchStepSchema = z
+  .object({
+    /** Characters to type in this step. */
+    type: z.string().min(1).max(10_000).optional(),
+    /** An allow-listed key or chord to press in this step. */
+    key: z.enum(DESKTOP_KEYS).optional(),
+  })
+  .strict()
+  .refine((step) => (step.type === undefined) !== (step.key === undefined), {
+    message: 'give exactly one of type or key',
+  });
+
 const actSchema = z
   .object({
     /** The snapshot the ref came from, as desktop.inspect reported it. */
-    snapshot,
+    snapshot: snapshot.optional(),
     /** Required for click, set_text and type; a key press may act on the focused window. */
     ref: ref.optional(),
-    action: z.enum([...DESKTOP_A11Y_ACTIONS, 'type', 'key', 'launch_app'] as const),
+    action: z.enum([...DESKTOP_A11Y_ACTIONS, 'type', 'key', 'launch_app'] as const).optional(),
     /** The replacement text for set_text or the characters to type. */
     text: z.string().max(10_000).optional(),
     /** The key or chord for `key`, from the desktop allow-list. */
     key: z.enum(DESKTOP_KEYS).optional(),
     /** An allowed app for launch_app. */
     app: z.enum(DESKTOP_APPS).optional(),
+    /** A short keyboard sequence run as one call; stops at the first failure. */
+    steps: z.array(batchStepSchema).min(1).max(20).optional(),
   })
   .strict()
   .superRefine((args, ctx) => {
+    if (args.steps && args.action !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['steps'], message: 'cannot be combined with action' });
+    }
+    if (!args.steps && args.action === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['action'], message: 'or steps is required' });
+    }
+    if (args.steps) {
+      if (args.ref !== undefined && args.snapshot === undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['snapshot'],
+          message: 'is required when steps focus a ref',
+        });
+      }
+      for (const field of ['text', 'key', 'app'] as const) {
+        if (args[field] !== undefined) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [field],
+            message: 'is only allowed with an action',
+          });
+        }
+      }
+      return;
+    }
+    if (args.action === 'key' || args.action === 'launch_app') {
+      // These do not need a ref or a snapshot.
+    } else if (args.action !== undefined && args.snapshot === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['snapshot'], message: 'is required for this action' });
+    }
     if (args.action !== 'key' && args.action !== 'launch_app' && args.ref === undefined) {
       ctx.addIssue({ code: 'custom', path: ['ref'], message: 'is required for this action' });
     }
@@ -190,7 +234,9 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
         isError: true,
       };
     }
+    if (args.steps) return this.runSteps(args, ctx);
 
+    const action = args.action!;
     let acted: string;
     let window = '';
     let app: string | undefined;
@@ -198,32 +244,32 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
     let name: string | undefined;
     const ref = args.ref;
     try {
-      if (args.action === 'launch_app') {
+      if (action === 'launch_app') {
         await this.desktop.act({ kind: 'launch_app', app: args.app! }, ctx.signal);
         acted = `Launched ${args.app}.`;
         app = args.app;
-      } else if (args.action === 'key') {
+      } else if (action === 'key') {
         await this.desktop.act({ kind: 'key', key: args.key! }, ctx.signal);
         acted = `Pressed ${args.key}.`;
       } else {
         const result = await this.desktop.actOnElement(
           {
-            snapshot: args.snapshot,
+            snapshot: args.snapshot!,
             ref: args.ref!,
-            action: args.action === 'type' ? 'click' : args.action,
-            ...(args.action === 'set_text' && args.text !== undefined && { text: args.text }),
+            action: action === 'type' ? 'click' : action,
+            ...(action === 'set_text' && args.text !== undefined && { text: args.text }),
           },
           ctx.signal,
         );
         role = result.role;
         name = result.name;
         app = result.app;
-        if (args.action === 'type') {
+        if (action === 'type') {
           await this.desktop.act({ kind: 'type', text: args.text! }, ctx.signal);
           acted =
             `Typed ${args.text!.length} characters into [${args.ref}] ` +
             `${describe(result.role, result.name)} in "${result.window}".`;
-        } else if (args.action === 'click') {
+        } else if (action === 'click') {
           acted = `Clicked [${args.ref}] ${describe(result.role, result.name)} in "${result.window}".`;
         } else {
           acted =
@@ -242,7 +288,7 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
     let tree: DesktopA11yTree | undefined;
     try {
       tree =
-        args.action === 'key' || args.action === 'launch_app'
+        action === 'key' || action === 'launch_app'
           ? await this.desktop.inspect({}, ctx.signal)
           : await this.desktop.inspect({ window }, ctx.signal);
       window ??= tree.window;
@@ -262,6 +308,60 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
         ...(app && { app }),
         role,
         ...(name && { name }),
+      },
+    };
+  }
+
+  /** One trust call for a short keyboard sequence; stops at the first failing step. */
+  private async runSteps(args: ActArgs, ctx: ToolContext): Promise<ToolOutput> {
+    const steps = args.steps!;
+    try {
+      if (args.ref !== undefined) {
+        if (args.snapshot === undefined) {
+          return { content: 'Focusing a ref needs its snapshot.', isError: true };
+        }
+        await this.desktop.actOnElement(
+          { snapshot: args.snapshot, ref: args.ref, action: 'click' },
+          ctx.signal,
+        );
+      }
+    } catch (error) {
+      return { content: `Focusing [${args.ref}] failed: ${messageOf(error)}`, isError: true };
+    }
+
+    for (const [index, step] of steps.entries()) {
+      try {
+        if (step.type !== undefined) {
+          await this.desktop.act({ kind: 'type', text: step.type }, ctx.signal);
+        } else {
+          await this.desktop.act({ kind: 'key', key: step.key! }, ctx.signal);
+        }
+      } catch (error) {
+        const what =
+          step.type !== undefined ? `type ${JSON.stringify(step.type)}` : `key ${step.key}`;
+        return {
+          content: `Step ${index + 1} of ${steps.length} (${what}) failed: ${messageOf(error)}`,
+          isError: true,
+        };
+      }
+    }
+
+    let tree: DesktopA11yTree | undefined;
+    try {
+      tree = await this.desktop.inspect({}, ctx.signal);
+    } catch {
+      // The steps succeeded; a failed re-read only means no fresh tree to show.
+    }
+    return {
+      content: [
+        `Ran ${steps.length} steps${args.ref ? ` after focusing [${args.ref}]` : ''}.`,
+        tree ? formatA11yTree(tree) : 'The tree could not be read again.',
+      ].join('\n'),
+      data: {
+        steps: steps.length,
+        ...(args.ref && { ref: args.ref }),
+        ...(tree && { snapshot: tree.snapshot, window: tree.window }),
+        role: 'keyboard',
       },
     };
   }
