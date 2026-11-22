@@ -204,6 +204,7 @@ def make_node(accessible, path, depth):
         "states": states_of(accessible),
         "actions": actions,
         "path": path,
+        "accessible": accessible,
         "children": [],
     }
 
@@ -294,6 +295,7 @@ def assign_refs(out):
             "role": node["role"],
             "name": node["name"],
             "value": node["value"],
+            "accessible": node["accessible"],
         }
     return refs
 
@@ -435,6 +437,7 @@ def make_reply(request, start, start_path, app, frame, frame_path, find):
             "states": states_of(start),
             "actions": actions_of(start),
             "path": start_path,
+            "accessible": start,
             "children": [],
         }
     root["children"], truncated = collect_children(start, start_path, 1, max_depth, budget)
@@ -461,6 +464,7 @@ def make_reply(request, start, start_path, app, frame, frame_path, find):
         "epoch": epoch,
         "window": name_of(frame),
         "frame_path": frame_path_key(frame_path),
+        "frame": frame,
         "refs": refs,
     }
     snapshot_id = remember(snapshot)
@@ -537,6 +541,13 @@ def apps_request():
     ]
 
 
+def is_defunct(accessible):
+    try:
+        return accessible.getState().contains(pyatspi.STATE_DEFUNCT)
+    except Exception:
+        return True
+
+
 def act_request(request):
     snapshot_id = request.get("snapshot")
     ref = request.get("ref")
@@ -546,9 +557,11 @@ def act_request(request):
     if snapshot_is_stale(snapshot):
         raise HelperError("stale", "stale, take a new snapshot")
     entry = snapshot["refs"][ref]
-    element = resolve_path(entry["path"])
-    frame = resolve_path(snapshot["frame_path"])
-    if element is None or frame is None or name_of(frame) != snapshot["window"]:
+    element = entry.get("accessible")
+    frame = snapshot.get("frame")
+    if element is None or is_defunct(element):
+        raise HelperError("stale", "stale, take a new snapshot")
+    if frame is None or is_defunct(frame) or name_of(frame) != snapshot["window"]:
         raise HelperError("stale", "stale, take a new snapshot")
     if role_of(element) != entry["role"] or truncate(name_of(element), MAX_NAME) != entry["name"]:
         raise HelperError("stale", "stale, take a new snapshot")
