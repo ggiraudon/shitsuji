@@ -72,6 +72,31 @@ describe('OpenAICompatibleProvider: DeepSeek', () => {
     });
   });
 
+  it('turns thinking off when the request asks for no reasoning', async () => {
+    const { p, requests } = provider([{ fixture: 'deepseek-text.sse' }]);
+    await collect(p.stream(request({ reasoning: 'off' })));
+
+    expect(requests[0]!.body).toMatchObject({ thinking: { type: 'disabled' } });
+  });
+
+  it('never sends the thinking toggle to an endpoint that is not DeepSeek', async () => {
+    const { p, requests } = provider([{ fixture: 'deepseek-text.sse' }], undefined, 'openrouter');
+    await collect(p.stream(request({ reasoning: 'off' })));
+
+    expect(requests[0]!.body).not.toHaveProperty('thinking');
+  });
+
+  it('sends the thinking toggle to another endpoint that opts into the quirk', async () => {
+    const { p, requests } = provider(
+      [{ fixture: 'deepseek-text.sse' }],
+      { disableThinking: 'deepseek' },
+      'openrouter',
+    );
+    await collect(p.stream(request({ reasoning: 'off' })));
+
+    expect(requests[0]!.body).toMatchObject({ thinking: { type: 'disabled' } });
+  });
+
   it('assembles fragmented, interleaved streaming tool calls (bug 3)', async () => {
     const { p, requests } = provider([{ fixture: 'deepseek-tool-calls.sse' }]);
     const result = await complete(p, request({ tools: [calculator] }));

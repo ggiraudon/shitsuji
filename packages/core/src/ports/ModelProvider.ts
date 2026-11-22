@@ -32,6 +32,12 @@ export interface ModelRequest {
   temperature?: number;
   /** The reply budget in tokens; the runner uses 4096. */
   maxOutputTokens?: number;
+  /**
+   * How much reasoning the caller will pay for. `off` asks the adapter to disable thinking where the
+   * endpoint can (`deepseek`'s `thinking` toggle); an endpoint that cannot is simply called as usual.
+   * The compactor sets it, because a summary needs no chain of thought (#150).
+   */
+  reasoning?: 'off';
   /** Who is asking, for metering and logs. Adapters ignore it. */
   metadata?: {
     /** The routing purpose, e.g. `chat`; recorded in the usage row. */

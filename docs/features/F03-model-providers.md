@@ -67,9 +67,14 @@ interface ProviderQuirks {
   systemRole: 'system' | 'developer' | 'user-prefix';
   parallelToolCalls: boolean;
   reasoningField?: 'reasoning_content' | 'reasoning';
+  disableThinking?: 'deepseek' | 'none';           // endpoints that take `thinking: {"type":"disabled"}`
   maxToolsPerRequest?: number;
 }
 ```
+
+A request may set `reasoning: 'off'` (the compactor does, since a summary needs no chain of thought).
+`disableThinking` is `deepseek` by default for the `deepseek` provider id and `none` otherwise, so other
+endpoints never receive a parameter they do not know; set it explicitly to opt another endpoint in.
 
 For `json-in-text` models, a `TextToolCallParser` reads a fenced JSON block from the reply and turns it into a
 `tool_call` event, so the agent loop never needs to know.
