@@ -28,6 +28,12 @@ export const providerQuirksSchema = z
     parallelToolCalls: z.boolean().default(true),
     /** Where the endpoint streams reasoning: DeepSeek uses reasoning_content, others reasoning. */
     reasoningField: z.enum(['reasoning_content', 'reasoning']).optional(),
+    /**
+     * How to turn thinking off for a request that asks for no reasoning: `deepseek` sends
+     * `thinking: {"type":"disabled"}`. Defaults to `deepseek` for the `deepseek` provider id,
+     * `none` otherwise, so other endpoints never receive a parameter they do not know.
+     */
+    disableThinking: z.enum(['deepseek', 'none']).optional(),
     /** Ask the endpoint for a final usage chunk (stream_options.include_usage). */
     streamUsage: z.boolean().default(true),
   })
@@ -108,7 +114,12 @@ export class OpenAICompatibleProvider implements ModelProvider {
         false,
       );
     }
-    this.quirks = quirks.data;
+    this.quirks = {
+      ...quirks.data,
+      // The `deepseek` endpoint is the one we know takes DeepSeek's toggle; other ids must opt in.
+      disableThinking:
+        quirks.data.disableThinking ?? (options.id === 'deepseek' ? 'deepseek' : 'none'),
+    };
     this.fetchImpl = options.fetch ?? fetch;
   }
 
@@ -238,6 +249,11 @@ export class OpenAICompatibleProvider implements ModelProvider {
     if (this.quirks.streamUsage) body.stream_options = { include_usage: true };
     if (request.temperature !== undefined) body.temperature = request.temperature;
     if (request.maxOutputTokens !== undefined) body.max_tokens = request.maxOutputTokens;
+    // A summary needs no chain of thought; without this a reasoning model spends the whole budget
+    // thinking and returns empty text (#150).
+    if (request.reasoning === 'off' && this.quirks.disableThinking === 'deepseek') {
+      body.thinking = { type: 'disabled' };
+    }
     if (request.tools?.length && this.quirks.toolCalls === 'native') {
       body.tools = request.tools.map((t) => ({
         type: 'function',

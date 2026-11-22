@@ -3,6 +3,7 @@ import type { Message } from '../../domain/model/Message.js';
 import { textOf } from '../../domain/model/Message.js';
 import type { Session } from '../../domain/model/Session.js';
 import type { Turn } from '../../domain/model/Turn.js';
+import type { SessionId, TurnId } from '../../domain/model/ids.js';
 import type { Clock } from '../../ports/Clock.js';
 import type { Logger } from '../../ports/Logger.js';
 import type { SessionRepository } from '../../ports/Repositories.js';
@@ -61,10 +62,15 @@ export class Compactor {
   private readonly threshold: number;
   /** Character budget of one summarize request; 24k by default. */
   private readonly maxInputChars: number;
-  /** Output-token budget of the summary; 600 by default. */
+  /** Output-token budget of the summary; 2048 by default, enough for reasoning plus the answer. */
   private readonly maxSummaryTokens: number;
   /** How many summarize requests one compaction may make; four by default. */
   private readonly maxRounds: number;
+  /**
+   * The turn whose compaction failed or came back empty, per session. One attempt per turn: a
+   * model that cannot summarise must not add a call to every step of the turn (#150).
+   */
+  private readonly failedTurns = new Map<SessionId, TurnId>();
 
   constructor(
     /** The model router, session store, logger and limit overrides. */
@@ -72,7 +78,7 @@ export class Compactor {
   ) {
     this.threshold = deps.threshold ?? 0.75;
     this.maxInputChars = deps.maxInputChars ?? 24_000;
-    this.maxSummaryTokens = deps.maxSummaryTokens ?? 600;
+    this.maxSummaryTokens = deps.maxSummaryTokens ?? 2048;
     this.maxRounds = deps.maxRounds ?? 4;
   }
 
@@ -99,6 +105,8 @@ export class Compactor {
     const covered = Math.min(session.summaryCount ?? 0, transcript.length);
     const uncovered = transcript.slice(covered);
     if (!this.needsCompaction(uncovered, limits)) return undefined;
+    // A failed summary is not retried in the same turn, however many steps it has.
+    if (this.failedTurns.get(session.id) === turn.id) return undefined;
 
     // The open request and everything after it stay: only what came before this turn is summarised.
     const open = transcript.findIndex((m) => m.turnId === turn.id);
@@ -154,17 +162,38 @@ export class Compactor {
           messages: [{ role: 'user', parts: [{ type: 'text', text: prompt }] }],
           temperature: 0.2,
           maxOutputTokens: this.maxSummaryTokens,
+          // A summary needs no chain of thought. Without this, a reasoning model spends the whole
+          // budget thinking and returns empty text (#150).
+          reasoning: 'off',
           metadata: { turnId: turn.id, sessionId: session.id, background: turn.isBackground },
         },
         { signal },
       );
-      return response.text.trim() || undefined;
+      const text = response.text.trim();
+      if (!text) {
+        this.failedTurns.set(session.id, turn.id);
+        this.deps.log.warn(
+          'Model returned an empty summary; keeping the full transcript for this turn',
+          {
+            sessionId: session.id,
+            turnId: turn.id,
+            finishReason: response.finishReason,
+            outputTokens: response.usage?.outputTokens,
+            reasoningTokens: response.usage?.reasoningTokens,
+          },
+        );
+        return undefined;
+      }
+      this.failedTurns.delete(session.id);
+      return text;
     } catch (error) {
       // A Stop must reach the caller; a failed summary is not a failed turn, and the full transcript
       // is still there, just larger.
       if (signal?.aborted) throw error;
+      this.failedTurns.set(session.id, turn.id);
       this.deps.log.warn('Compaction failed; keeping the full transcript for now', {
         sessionId: session.id,
+        turnId: turn.id,
         error: serializeError(error),
       });
       return undefined;

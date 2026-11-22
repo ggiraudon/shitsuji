@@ -243,6 +243,14 @@ actually saw; if one fails, the earlier chunks are kept and the rest waits for t
 single message larger than a whole chunk is cut. `CompactionSummaryInjectable` puts the summary at the
 start of the history, and the newest request is never summarised away (F04 criterion 5).
 
+A summary needs no chain of thought, so the request asks the adapter for no reasoning (`reasoning:
+'off'`; DeepSeek takes `thinking: {"type":"disabled"}`) and allows 2,048 output tokens, with the
+200-word limit kept in the prompt. Before #150, a reasoning model spent the whole 600-token budget
+thinking, returned empty text, and the compactor tried again before every step of the turn. Now an
+empty or failed summary logs a warning with the finish reason and the output/reasoning token counts,
+and the compactor makes **one attempt per turn**: after a failure it leaves the turn alone and tries
+again in the next turn, so a model that cannot summarise costs one call, not one per step.
+
 ### Interruptions and failures
 
 - **Stop** aborts the model stream and every pending tool, marks the turn `cancelled` and its request
