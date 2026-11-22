@@ -8,9 +8,11 @@ import type { FileEntry, FileStat, SandboxFiles } from '../../../ports/SandboxDr
  * outside are refused. This is the code that moves into `sandboxd` with the `shitsuji` driver.
  */
 export class WorkspaceRoot implements SandboxFiles {
+  /** The root's real path, resolved and cached on first use. */
   private real?: string;
 
   constructor(
+    /** The writable workspace folder; it is created if it does not exist. */
     readonly dir: string,
     /** Extra folders the read tools may reach, e.g. the handoff folder. Never writable. */
     private readonly readDirs: readonly string[] = [],
@@ -70,6 +72,7 @@ export class WorkspaceRoot implements SandboxFiles {
     throw new Error(`"${input}" is outside the workspace and the handoff folder`);
   }
 
+  /** An absolute path inside one of the read roots, checked through symlinks; throws otherwise. */
   private async resolveAbsoluteRead(input: string): Promise<string> {
     const roots = [
       await this.root(),
