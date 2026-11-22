@@ -51,12 +51,16 @@ export interface ContextBudget {
   withinBudget: boolean;
 }
 
+import type { DesktopCapability } from '../packages/core/src/ports/SandboxDriver.js';
+
 export interface ScenarioContext {
   workspaceDir: string;
   mailbox: Mailbox;
   receipts: Receipt[];
   approvals: ApprovalRecord[];
   reply: string;
+  /** Image parts that reached the model in this offline run; absent for a live run. */
+  imagesSent?: number;
   /** Absent for a live run, where the request cannot be inspected. */
   context?: ContextBudget;
 }
@@ -78,6 +82,12 @@ export interface Scenario {
   message: string;
   /** The chat model's scripted replies (offline). */
   steps: EvalStep[];
+  /** Enable `workspace.exec` for this scenario (the Calc task reads its saved file). */
+  exec?: boolean;
+  /** Declare the offline eval model vision-capable (the screenshot-only Calc run). */
+  vision?: boolean;
+  /** Build a fake desktop for an offline run (S56); ignored by a live run. */
+  desktop?: (workspaceDir: string) => DesktopCapability;
   /** The offline judge's answer; defaults to allowing with the owner's words. */
   judge?: OfflineJudge;
   /** How the harness answers an approval card; defaults to approve. */

@@ -1,4 +1,5 @@
 import { injection } from './injection.js';
+import { desktopCalcScreens, desktopCalcStructure } from './desktopCalc.js';
 import { notifyAllowed } from './notifyAllowed.js';
 import { notifyAsks } from './notifyAsks.js';
 import { plainAnswer } from './plainAnswer.js';
@@ -14,4 +15,6 @@ export const scenarios: readonly Scenario[] = [
   notifyAllowed,
   notifyAsks,
   injection,
+  desktopCalcStructure,
+  desktopCalcScreens,
 ];
