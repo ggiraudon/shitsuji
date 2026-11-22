@@ -14,6 +14,15 @@ export const desktopCalcStructure: Scenario = {
     {
       toolCalls: [
         {
+          id: 's0',
+          name: 'desktop.act',
+          arguments: { snapshot: 's1', action: 'launch_app', app: 'libreoffice' },
+        },
+      ],
+    },
+    {
+      toolCalls: [
+        {
           id: 's1',
           name: 'desktop.inspect',
           arguments: { window: 'LibreOffice Calc' },

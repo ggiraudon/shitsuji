@@ -1,5 +1,5 @@
 import { z } from 'zod/v4';
-import { DESKTOP_A11Y_ACTIONS, DESKTOP_KEYS } from '@shitsuji/sandbox-protocol';
+import { DESKTOP_A11Y_ACTIONS, DESKTOP_APPS, DESKTOP_KEYS } from '@shitsuji/sandbox-protocol';
 import type {
   DesktopA11yFindQuery,
   DesktopA11yTree,
@@ -58,15 +58,17 @@ const actSchema = z
     snapshot,
     /** Required for click, set_text and type; a key press may act on the focused window. */
     ref: ref.optional(),
-    action: z.enum([...DESKTOP_A11Y_ACTIONS, 'type', 'key'] as const),
+    action: z.enum([...DESKTOP_A11Y_ACTIONS, 'type', 'key', 'launch_app'] as const),
     /** The replacement text for set_text or the characters to type. */
     text: z.string().max(10_000).optional(),
     /** The key or chord for `key`, from the desktop allow-list. */
     key: z.enum(DESKTOP_KEYS).optional(),
+    /** An allowed app for launch_app. */
+    app: z.enum(DESKTOP_APPS).optional(),
   })
   .strict()
   .superRefine((args, ctx) => {
-    if (args.action !== 'key' && args.ref === undefined) {
+    if (args.action !== 'key' && args.action !== 'launch_app' && args.ref === undefined) {
       ctx.addIssue({ code: 'custom', path: ['ref'], message: 'is required for this action' });
     }
     if ((args.action === 'set_text' || args.action === 'type') && args.text === undefined) {
@@ -84,6 +86,12 @@ const actSchema = z
     }
     if (args.action !== 'key' && args.key !== undefined) {
       ctx.addIssue({ code: 'custom', path: ['key'], message: 'is only allowed with key' });
+    }
+    if (args.action === 'launch_app' && args.app === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['app'], message: 'is required with launch_app' });
+    }
+    if (args.action !== 'launch_app' && args.app !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['app'], message: 'is only allowed with launch_app' });
     }
   });
 
@@ -158,9 +166,9 @@ export class DesktopInspectTool extends BaseTool<typeof inspectSchema> {
 export class DesktopActTool extends BaseTool<typeof actSchema> {
   readonly name = 'desktop.act';
   readonly description =
-    'Click an element, set its text, type into it, or press a key using a ref from desktop.inspect. ' +
-    'The result is a fresh tree and snapshot. A ref whose window changed is refused with "stale, ' +
-    'take a new snapshot".';
+    'Click an element, set its text, type into it, press a key, or launch an allowed app using a ref ' +
+    'from desktop.inspect. The result is a fresh tree and snapshot. A ref whose window changed is ' +
+    'refused with "stale, take a new snapshot".';
   readonly input = actSchema;
   override readonly target = 'desktop' as const;
   override readonly untrustedOutput = true;
@@ -178,7 +186,7 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
       return {
         content:
           'The owner has control of the desktop. Reading the tree and screenshots still works, ' +
-          'but the agent cannot click, type or set text until the owner gives it back.',
+          'but the agent cannot click, type, launch or set text until the owner gives it back.',
         isError: true,
       };
     }
@@ -190,7 +198,11 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
     let name: string | undefined;
     const ref = args.ref;
     try {
-      if (args.action === 'key') {
+      if (args.action === 'launch_app') {
+        await this.desktop.act({ kind: 'launch_app', app: args.app! }, ctx.signal);
+        acted = `Launched ${args.app}.`;
+        app = args.app;
+      } else if (args.action === 'key') {
         await this.desktop.act({ kind: 'key', key: args.key! }, ctx.signal);
         acted = `Pressed ${args.key}.`;
       } else {
@@ -230,7 +242,7 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
     let tree: DesktopA11yTree | undefined;
     try {
       tree =
-        args.action === 'key'
+        args.action === 'key' || args.action === 'launch_app'
           ? await this.desktop.inspect({}, ctx.signal)
           : await this.desktop.inspect({ window }, ctx.signal);
       window ??= tree.window;

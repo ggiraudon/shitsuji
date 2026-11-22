@@ -302,11 +302,12 @@ or macOS desktop (for example through cua's driver), or (much later, opt-in) you
 Two tools, matching the levels above:
 
 - `desktop.inspect({ window?, find?, depth? })` returns the AT-SPI tree or matching elements, with refs and
-  a snapshot id, and `desktop.act({ snapshot, ref, action, text?, key? })` clicks an element, sets its
-  text, types into it, or presses a key. After an action, the result holds a fresh tree and snapshot.
-  `type` focuses the ref and sends the characters with the desktop keyboard; `key` presses one of the
-  allow-listed chords. This is what commits a Calc cell: the cell itself is not an editable-text
-  object, but it accepts typing once focused.
+  a snapshot id, and `desktop.act({ snapshot, ref, action, text?, key?, app? })` clicks an element, sets
+  its text, types into it, presses a key, or launches an allowed app. After an action, the result holds
+  a fresh tree and snapshot. `type` focuses the ref and sends the characters with the desktop keyboard;
+  `key` presses one of the allow-listed chords. This is what commits a Calc cell: the cell itself is not
+  an editable-text object, but it accepts typing once focused. `launch_app` is here as well as in
+  `computer.act`, so a model without vision can still open the app.
 - `computer.act` with actions `screenshot`, `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`,
   `type`, `key`, `wait`, `launch_app`, `ocr`. The result always includes a fresh scaled screenshot, so the
   model sees the effect.
@@ -344,7 +345,8 @@ Two tools, matching the levels above:
 
 The end-to-end Calc task uses the tree, not pixels:
 
-1. Launch LibreOffice, find "Calc Spreadsheet" and click it.
+1. Launch LibreOffice with `desktop.act({ action: "launch_app", app: "libreoffice" })`, find
+   "Calc Spreadsheet" and click it. This works without a vision model.
 2. `desktop.inspect({ window: "Calc", find: { name: "A1" } })` (or a sub-tree ref) returns the cell
    ref; `desktop.act({ action: "type", ref, text: "42" })`, then `key: "Return"` commits it. Repeat for
    B1, then `key: "ctrl+s"`.

@@ -6,6 +6,7 @@ describe('computer-use prompt section (S56)', () => {
     const text = new ComputerUseInjectable().render();
     expect(text).toContain('desktop.inspect');
     expect(text).toContain('desktop.act');
+    expect(text).toContain('launch_app');
     expect(text).toContain('computer.act');
     expect(text).toContain('computer.request_takeover');
     expect(text).toContain('Never type a secret the owner did not give you');

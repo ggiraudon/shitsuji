@@ -114,6 +114,7 @@ export class CalcDesktop implements DesktopCapability {
   }
 
   async actOnElement(request: DesktopA11yActRequest): Promise<DesktopA11yActResult> {
+    if (!this.open) throw new Error('No LibreOffice Calc window is open.');
     if (request.action === 'set_text') {
       if (request.ref === 'e3') this.cells.A1 = request.text ?? '';
       else if (request.ref === 'e4') this.cells.B1 = request.text ?? '';
@@ -143,6 +144,7 @@ export class CalcDesktop implements DesktopCapability {
   }
 
   private tree(): DesktopA11yTree {
+    if (!this.open) throw new Error('No LibreOffice Calc window is open.');
     return {
       app: 'libreoffice',
       window: 'calc.csv - LibreOffice Calc',

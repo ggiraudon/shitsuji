@@ -218,15 +218,17 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       *(The real Calc flow works through the tree: launch LibreOffice, find and click Calc, find A1/B1,
       focus and type with `desktop.act` (`type` plus `key`), save with `ctrl+s`, set the filename in
       the `file chooser` dialog, choose CSV format, then read `/workspace/calc.csv` with
-      `workspace.exec`. `desktop.act` gained `type` and `key` because a Calc cell is not an AT-SPI
-      editable-text object; `ctrl+s` joined the key allow-list. The helper now includes `file
+      `workspace.exec`. `desktop.act` gained `launch_app`, `type` and `key` because a Calc cell is
+      not an AT-SPI editable-text object and `computer.act` is not registered without a vision
+      model; `ctrl+s` joined the key allow-list. The helper now includes `file
       chooser`/`alert` windows and caps a huge Calc grid at 3,000 visits / 1,500 nodes so a tree no
       longer times out. The offline eval has `desktop-calc-structure` (desktop.inspect/act only,
-      zero images) and `desktop-calc-screens` (computer.act); both pass at 3,200/320 tokens, with
-      context 2,238 and 3,147 tokens. The prompt has a short computer-use section: tree first,
-      pixels last, Take control for sign-ins/CAPTCHAs, never type a secret the owner did not give.
-      F10's acceptance criteria are ticked and the class map records the desktop classes. The live
-      viewer run is the remaining manual check.)*
+      starts with Calc closed, launches it, zero images) and `desktop-calc-screens` (computer.act);
+      both pass, at 3,600/360 tokens with context 2,268 and 3,200/320 with context 3,177. The prompt
+      has a short computer-use section: launch via `desktop.act`, tree first, pixels last, Take
+      control for sign-ins/CAPTCHAs, never type a secret the owner did not give. F10's acceptance
+      criteria are ticked and the class map records the desktop classes. The live viewer run is the
+      remaining manual check.)*
 - [ ] **S57** The browser in `sandboxd`
 - [ ] **S58** Reading pages
 - [ ] **S59** Committing steps and the trust check

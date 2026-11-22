@@ -175,6 +175,20 @@ describe('desktop.act (S54)', () => {
     expect(act.input.safeParse({ snapshot: 's3', action: 'key' }).success).toBe(false);
   });
 
+  it('launches an allowed app without computer.act or a vision model (S56 follow-up)', async () => {
+    const { act, calls } = setup();
+    const output = await act.run({ snapshot: 's1', action: 'launch_app', app: 'libreoffice' }, ctx);
+    expect(output.content).toContain('Launched libreoffice');
+    expect(calls).toEqual([
+      { kind: 'xdotool', request: { kind: 'launch_app', app: 'libreoffice' } },
+      { kind: 'inspect', request: {} },
+    ]);
+    expect(
+      act.input.safeParse({ snapshot: 's1', action: 'launch_app', app: 'firefox' }).success,
+    ).toBe(false);
+    expect(act.input.safeParse({ snapshot: 's1', action: 'launch_app' }).success).toBe(false);
+  });
+
   it('refuses an action while the owner has control, while inspect still reads (S55)', async () => {
     const { act, inspect, calls } = setup({ owner: true });
     const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);

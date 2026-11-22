@@ -184,12 +184,13 @@ packages/
   prompt gets a short computer-use section (or a note in #105's charter if that has landed).
 - *Check:* the offline eval passes; you watch a live run in the viewer.
 
-Implemented: `desktop.act` gained `type` and `key` (focus the ref, then the desktop keyboard), because a
-Calc cell is not an AT-SPI editable-text object; the helper caps a huge Calc grid, includes
-`file chooser`/`alert` windows, and `ctrl+s` is in the key allow-list. The real integration test opens
-Calc, fills A1/B1, saves through the file chooser and reads `/workspace/calc.csv` with `workspace.exec`.
-The offline eval reports 3,200/320 tokens for both variants (structure context 2,238; screenshots 3,147)
-and the structure run sends zero images.
+Implemented: `desktop.act` gained `launch_app`, `type` and `key` (focus the ref, then the desktop
+keyboard), because a Calc cell is not an AT-SPI editable-text object and `computer.act` is not registered
+without a vision model. The helper caps a huge Calc grid, includes `file chooser`/`alert` windows, and
+`ctrl+s` is in the key allow-list. The real integration test opens Calc, fills A1/B1, saves through the
+file chooser and reads `/workspace/calc.csv` with `workspace.exec`. The offline eval reports 3,600/360
+tokens for structure-only (context 2,268) and 3,200/320 for screenshots (context 3,177); the structure
+run starts with Calc closed, launches it through `desktop.act`, and sends zero images.
 
 ### The browser
 

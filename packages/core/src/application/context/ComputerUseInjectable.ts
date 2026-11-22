@@ -15,6 +15,7 @@ export class ComputerUseInjectable extends BaseContextInjectable {
   render(): string {
     return [
       'Computer use:',
+      '- Launch an allowed app with desktop.act({ action: "launch_app", app: "libreoffice" }); it works without a vision model.',
       '- Start with desktop.inspect and its [eN] refs, then desktop.act. Use computer.act only when the tree is missing or the app draws its own pixels; a screenshot costs far more than text.',
       '- If a sign-in, CAPTCHA or password blocks you, ask the owner to take control with computer.request_takeover. Never type a secret the owner did not give you for this action, and never ask them to type a secret while you hold the desktop.',
     ].join('\n');
