@@ -217,12 +217,19 @@ window "Untitled 1 - LibreOffice Calc" (libreoffice) — snapshot s3
   text "Name Box" [e20] = "A1"
   table "Sheet1"
     cell "A1" [e31] = "42"  cell "B1" [e32] = ""
+    cell "A2" [e33] = "" (offscreen)
 ```
 
 Refs belong to a **snapshot**: `desktop.act({ snapshot, ref, action })` re-resolves the element and refuses
 with "stale, take a new snapshot" when the window was created, destroyed or renamed, or when the element's
 role, name or value no longer matches the snapshot (openbot and OpenMausBot use their snapshot ids the same
 way). Refs map to private child-index paths in the helper; an AT-SPI object path never reaches the model.
+
+A node carries `(offscreen)` when the application does not render it (`STATE_SHOWING` false, a cell
+scrolled out) or when its centre lies past the screen edge (a dialog taller than the display, so its
+bottom buttons are cut off). Its ref still works — `desktop.act` uses the AT-SPI action, not a
+coordinate — but a pixel click at its centre cannot land on it, so the agent scrolls or uses the ref
+instead of guessing coordinates (S56).
 
 The tree is capped at about 8,000 tokens per window; when it is cut, the result names the window and a ref
 to continue from: `desktop.inspect({ window, ref, depth })`. `desktop.inspect({ window, find: { name } })`

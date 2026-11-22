@@ -21,10 +21,17 @@ The snapshot table lives here. A ref is `eN` and maps to a private child-index p
 the AT-SPI object path never leaves the helper. A snapshot is bound to the
 application's current event generation, so a structural change (a child added or
 removed, a window created or destroyed, a changed name) makes an old ref answer
-"stale, take a new snapshot".
+"stale, take a new snapshot". A snapshot also keeps the accessible itself, so an
+act checks that element instead of walking back down from the desktop root.
+
+A node whose element is not rendered (`STATE_SHOWING` false) or whose centre lies
+past the screen edge (a dialog taller than the display, so its bottom buttons are
+cut off) carries the `offscreen` state: a pixel click at its centre cannot reach
+it, while the AT-SPI action still can.
 """
 
 import json
+import subprocess
 import sys
 
 import pyatspi
@@ -128,7 +135,7 @@ def text_value(accessible, role):
         return ""
 
 
-def states_of(accessible):
+def states_of(accessible, actions=()):
     wanted = (
         ("checked", pyatspi.STATE_CHECKED),
         ("focused", pyatspi.STATE_FOCUSED),
@@ -152,7 +159,58 @@ def states_of(accessible):
                 found.append(label)
         except Exception:
             continue
+    try:
+        showing = state.contains(pyatspi.STATE_SHOWING)
+    except Exception:
+        showing = None
+    # Only an element the agent can act on needs the screen check: it is the one a pixel click
+    # would target, and asking LibreOffice for extents is not free. A non-rendered element is
+    # known to be off-screen from the state alone.
+    actionable = bool(actions) or "editable" in found
+    if showing is False or (showing and actionable and outside_screen(accessible)):
+        # A pixel click at the element's position cannot land on it: it is scrolled out, or the
+        # window extends past the screen (S56). The AT-SPI action still works on it.
+        found.append("offscreen")
     return found
+
+
+def screen_size():
+    """The X screen in pixels, once at start; None when it cannot be asked."""
+    try:
+        width, height = subprocess.run(
+            ["/usr/bin/xdotool", "getdisplaygeometry"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.split()
+        return int(width), int(height)
+    except Exception:
+        return None
+
+
+SCREEN = screen_size()
+
+
+def outside_screen(accessible):
+    """True when the element has a centre that is not on the screen.
+
+    The centre is what a coordinate click taken from the element's box would target, so a button
+    whose bottom half hangs past the edge is not reachable that way, while one that is merely
+    clipped at the very edge still is.
+    """
+    if SCREEN is None:
+        return False
+    try:
+        extents = accessible.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+    except Exception:
+        return False
+    if extents.width <= 0 or extents.height <= 0:
+        return False
+    width, height = SCREEN
+    centre_x = extents.x + extents.width / 2
+    centre_y = extents.y + extents.height / 2
+    return not (0 <= centre_x < width and 0 <= centre_y < height)
 
 
 def actions_of(accessible):
@@ -201,7 +259,7 @@ def make_node(accessible, path, depth):
         "role": role,
         "name": name,
         "value": value,
-        "states": states_of(accessible),
+        "states": states_of(accessible, actions),
         "actions": actions,
         "path": path,
         "accessible": accessible,
@@ -430,12 +488,13 @@ def make_reply(request, start, start_path, app, frame, frame_path, find):
     root = make_node(start, start_path, 0)
     if root is None:
         role = role_of(start)
+        actions = actions_of(start)
         root = {
             "role": role,
             "name": truncate(name_of(start), MAX_NAME),
             "value": text_value(start, role),
-            "states": states_of(start),
-            "actions": actions_of(start),
+            "states": states_of(start, actions),
+            "actions": actions,
             "path": start_path,
             "accessible": start,
             "children": [],

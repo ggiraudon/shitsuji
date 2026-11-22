@@ -24,7 +24,14 @@ const WINDOW_ROLES = new Set([
   'alert',
 ]);
 
-const SHOWN_STATES = new Set(['disabled', 'checked', 'focused', 'selected', 'expanded']);
+const SHOWN_STATES = new Set([
+  'disabled',
+  'checked',
+  'focused',
+  'selected',
+  'expanded',
+  'offscreen',
+]);
 
 /**
  * Formats a window's tree. The frame node is folded into the header; a sub-tree request formats the

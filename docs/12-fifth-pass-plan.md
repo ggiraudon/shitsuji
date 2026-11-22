@@ -194,7 +194,9 @@ run starts with Calc closed, launches it through `desktop.act`, and sends zero i
 The default screen is now 1920x1080: the Save dialog is 888 px tall, which put its buttons below a
 1440x900 screen. A `fit-windows` watcher (uid 1000) moves and shrinks a window that an app still opens
 past an edge, because xfwm4 has no setting that fits an oversized window; on the real image the Save
-dialog lands at (403,150) 1124x888, and a forced 2600x2300 window is clamped to the work area.
+dialog lands at (403,150) 1124x888, and a forced 2600x2300 window is clamped to the work area. A node
+that the app does not render, or whose centre is off the screen, is marked `(offscreen)`: on a
+1440x900 display the Save dialog's Save and Cancel buttons carry it, and on 1920x1080 they do not.
 
 ### The browser
 

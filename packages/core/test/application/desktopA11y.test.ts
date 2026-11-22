@@ -99,6 +99,25 @@ describe('desktop.inspect (S54)', () => {
     expect(text).toContain('a ref goes stale when the window changes');
   });
 
+  it('marks an element that a pixel click cannot reach (S56)', () => {
+    const text = formatA11yTree({
+      ...tree(),
+      nodes: [
+        { ref: 'e1', depth: 0, role: 'frame', name: WINDOW, states: [], actions: [] },
+        {
+          ref: 'e2',
+          depth: 1,
+          role: 'push button',
+          name: 'Export',
+          states: ['offscreen'],
+          actions: ['click'],
+        },
+      ],
+      total: 2,
+    });
+    expect(text).toContain('push button "Export" [e2] (offscreen)');
+  });
+
   it('reads a tree and marks its output as untrusted', async () => {
     const { inspect, calls } = setup();
     expect(inspect.target).toBe('desktop');
