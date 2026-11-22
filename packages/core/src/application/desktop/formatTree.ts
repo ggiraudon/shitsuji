@@ -15,9 +15,23 @@ export const A11Y_TREE_MAX_CHARS = 32_000;
 const NOTE_RESERVE = 500;
 
 /** The roles whose node is the window itself; the header already names the window. */
-const WINDOW_ROLES = new Set(['frame', 'dialog', 'window']);
+const WINDOW_ROLES = new Set([
+  'frame',
+  'dialog',
+  'window',
+  'file chooser',
+  'color chooser',
+  'alert',
+]);
 
-const SHOWN_STATES = new Set(['disabled', 'checked', 'focused', 'selected', 'expanded']);
+const SHOWN_STATES = new Set([
+  'disabled',
+  'checked',
+  'focused',
+  'selected',
+  'expanded',
+  'offscreen',
+]);
 
 /**
  * Formats a window's tree. The frame node is folded into the header; a sub-tree request formats the

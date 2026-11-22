@@ -40,4 +40,4 @@ const report = await runEvals(
 );
 
 console.log(values.json ? JSON.stringify(report, null, 2) : formatReport(report));
-process.exitCode = report.passRate === 1 ? 0 : 1;
+process.exit(report.passRate === 1 ? 0 : 1);

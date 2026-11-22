@@ -134,7 +134,7 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       servers are 1001 so commands cannot read the generated view-only/full passwords, signal them or
       bind their ports. The image exposes the raw WebSocket only; core serves the viewer page and its
       noVNC client. Compose uses the desktop image with `shm_size: 1g`, `mem_limit: 6g`,
-      `pids_limit: 2048` and `SCREEN=1440x900x24`; no port is published. The CI image job waits for
+      `pids_limit: 2048` and `SCREEN=1920x1080x24`; no port is published. The CI image job waits for
       `:0`, lists XFCE windows, starts Chromium, checks no setuid file and that 5900/6080/6081 are
       unreachable from the host, checks the supervisor's children have no capabilities while sandboxd
       keeps its four, and checks a command cannot signal the stream servers. The conformance suite and
@@ -214,7 +214,24 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       sends full-control pointer input, and sees the full stream close on Give back. The Chromium
       input gap remains as recorded for S53
       ([#136](https://github.com/ggiraudon/shitsuji/issues/136)).)*
-- [ ] **S56** The desktop end to end
+- [x] **S56** The desktop end to end
+      *(The real Calc flow works through the tree: launch LibreOffice, find and click Calc, find A1/B1,
+      focus and type with `desktop.act` (`type` plus `key`), save with `ctrl+s`, set the filename in
+      the `file chooser` dialog, choose CSV format, then read `/workspace/calc.csv` with
+      `workspace.exec`. `desktop.act` gained `launch_app`, `type` and `key` because a Calc cell is
+      not an AT-SPI editable-text object and `computer.act` is not registered without a vision
+      model; `ctrl+s` joined the key allow-list. The helper now includes `file
+      chooser`/`alert` windows and caps a huge Calc grid at 3,000 visits / 1,500 nodes so a tree no
+      longer times out. The offline eval has `desktop-calc-structure` (desktop.inspect/act only,
+      starts with Calc closed, launches it, zero images) and `desktop-calc-screens` (computer.act);
+      both pass, at 2,000/200 tokens with context 2,585 and 3,200/320 with context 3,498. After the
+      live run, `desktop.act` keeps the AT-SPI element of a snapshot ref instead of re-walking the
+      tree, takes up to 20 `{type}`/`{key}` steps as one trusted call, and the screen defaults to
+      1920x1080 with a `fit-windows` watcher for windows an app opens past an edge. The prompt
+      has a short computer-use section: launch via `desktop.act`, tree first, pixels last, Take
+      control for sign-ins/CAPTCHAs, never type a secret the owner did not give. F10's acceptance
+      criteria are ticked and the class map records the desktop classes. The live viewer run is the
+      remaining manual check.)*
 - [ ] **S57** The browser in `sandboxd`
 - [ ] **S58** Reading pages
 - [ ] **S59** Committing steps and the trust check

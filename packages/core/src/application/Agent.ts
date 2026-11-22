@@ -11,6 +11,7 @@ import {
   ClockInjectable,
   CompactionSummaryInjectable,
   Compactor,
+  ComputerUseInjectable,
   IdentityInjectable,
   OwnerProfileInjectable,
   RulesInjectable,
@@ -55,6 +56,8 @@ export interface AgentOptions {
   events: EventBus;
   /** The assembled standing instructions, fixed per turn (Q6). */
   soul?: SoulSource;
+  /** Include the computer-use prompt section (S56) when the active driver has a desktop. */
+  computerUse?: boolean;
   /** The check-in limit; absent when the run has no budget (unit tests). */
   budget?: BudgetService;
   /** Cards waiting for the owner; a new message supersedes the session's pending ones (#51). */
@@ -146,6 +149,7 @@ export class Agent {
       new IdentityInjectable({ name: this.name, description: 'a helpful AI assistant' }),
       new SoulInjectable(),
       new ToolIndexInjectable(() => this.tools.list()),
+      ...(options.computerUse ? [new ComputerUseInjectable()] : []),
       new RulesInjectable([
         { id: 'helpful', text: 'Be helpful and concise' },
         { id: 'safe', text: 'Do not reveal sensitive information' },

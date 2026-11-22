@@ -196,6 +196,11 @@ export interface CreateShitsujiOptions {
   /** Extra plugins, loaded after the built-ins and before the plugins directory. */
   plugins?: readonly ShitsujiPlugin[];
   /**
+   * Override the sandbox driver (evaluation harnesses and tests). Production leaves this unset and
+   * `sandbox.driver` chooses.
+   */
+  sandboxDriver?: SandboxDriver;
+  /**
    * A shorter cold-start wait for tests (S49); production uses ten attempts two seconds apart.
    */
   sandboxRetry?: { attempts: number; delayMs: number };
@@ -349,7 +354,7 @@ export async function createShitsuji(
   const viewerStream = viewerStreamOf(config);
   const viewerUrl = viewerStream ? `${publicUrlOf(config)}/desktop` : undefined;
   const sandbox = new SandboxService({
-    driver: sandboxDriverOf(config, log),
+    driver: options.sandboxDriver ?? sandboxDriverOf(config, log),
     lease: { ownerId: OWNER_ID },
     exec: config.tools.exec,
     outbound: new NodeOutboundFiles(path.join(config.paths.dataDir, 'handoff', 'outbox')),
@@ -405,6 +410,7 @@ export async function createShitsuji(
     imageHistoryLimit: config.context.imageHistoryLimit,
     imageMaxBytes: config.context.imageMaxBytes,
     images: { read: (ref) => sandbox.readBytes(ref) },
+    computerUse: Boolean(sandbox.capabilities?.desktop),
     stabilityCheck: config.context.stabilityCheck ?? true,
   });
   Object.assign(facts, {

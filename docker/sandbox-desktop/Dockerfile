@@ -21,7 +21,7 @@ FROM ${SANDBOX_BASE}
 
 ENV DISPLAY=:0 \
     SANDBOX_DESKTOP=1 \
-    SCREEN=1440x900x24 \
+    SCREEN=1920x1080x24 \
     DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-session \
     XDG_RUNTIME_DIR=/tmp/runtime-agent \
     XDG_SESSION_TYPE=x11 \
@@ -82,6 +82,7 @@ RUN mkdir -p /etc/supervisor/conf.d
 COPY --chmod=0755 docker/sandbox-desktop/sandbox-desktop /usr/local/bin/sandbox-desktop
 COPY --chmod=0755 docker/sandbox-desktop/start-sandboxd /usr/local/bin/start-sandboxd
 COPY --chmod=0755 docker/sandbox-desktop/a11y_helper.py /app/a11y_helper.py
+COPY --chmod=0755 docker/sandbox-desktop/fit-windows.py /usr/local/bin/fit-windows.py
 COPY --chmod=0644 docker/sandbox-desktop/supervisord.conf /etc/supervisor/supervisord.conf
 
 # The sandbox network only: no ports are published. websockify serves the raw WebSocket; core

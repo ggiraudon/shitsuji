@@ -21,10 +21,17 @@ The snapshot table lives here. A ref is `eN` and maps to a private child-index p
 the AT-SPI object path never leaves the helper. A snapshot is bound to the
 application's current event generation, so a structural change (a child added or
 removed, a window created or destroyed, a changed name) makes an old ref answer
-"stale, take a new snapshot".
+"stale, take a new snapshot". A snapshot also keeps the accessible itself, so an
+act checks that element instead of walking back down from the desktop root.
+
+A node whose element is not rendered (`STATE_SHOWING` false) or whose centre lies
+past the screen edge (a dialog taller than the display, so its bottom buttons are
+cut off) carries the `offscreen` state: a pixel click at its centre cannot reach
+it, while the AT-SPI action still can.
 """
 
 import json
+import subprocess
 import sys
 
 import pyatspi
@@ -32,9 +39,10 @@ from gi.repository import GLib
 
 VERSION = 1
 
-# The node and text caps keep one reply inside what sandboxd will accept (S54).
-MAX_NODES = 2000
-MAX_VISITED = 8000
+# The node and text caps keep one reply inside what sandboxd will accept (S54). A Calc sheet can
+# publish tens of thousands of cells; a lower visit cap keeps one window's tree inside the deadline.
+MAX_NODES = 1500
+MAX_VISITED = 3000
 MAX_NAME = 160
 MAX_VALUE = 240
 MAX_SNAPSHOTS = 32
@@ -127,7 +135,7 @@ def text_value(accessible, role):
         return ""
 
 
-def states_of(accessible):
+def states_of(accessible, actions=()):
     wanted = (
         ("checked", pyatspi.STATE_CHECKED),
         ("focused", pyatspi.STATE_FOCUSED),
@@ -151,7 +159,58 @@ def states_of(accessible):
                 found.append(label)
         except Exception:
             continue
+    try:
+        showing = state.contains(pyatspi.STATE_SHOWING)
+    except Exception:
+        showing = None
+    # Only an element the agent can act on needs the screen check: it is the one a pixel click
+    # would target, and asking LibreOffice for extents is not free. A non-rendered element is
+    # known to be off-screen from the state alone.
+    actionable = bool(actions) or "editable" in found
+    if showing is False or (showing and actionable and outside_screen(accessible)):
+        # A pixel click at the element's position cannot land on it: it is scrolled out, or the
+        # window extends past the screen (S56). The AT-SPI action still works on it.
+        found.append("offscreen")
     return found
+
+
+def screen_size():
+    """The X screen in pixels, once at start; None when it cannot be asked."""
+    try:
+        width, height = subprocess.run(
+            ["/usr/bin/xdotool", "getdisplaygeometry"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.split()
+        return int(width), int(height)
+    except Exception:
+        return None
+
+
+SCREEN = screen_size()
+
+
+def outside_screen(accessible):
+    """True when the element has a centre that is not on the screen.
+
+    The centre is what a coordinate click taken from the element's box would target, so a button
+    whose bottom half hangs past the edge is not reachable that way, while one that is merely
+    clipped at the very edge still is.
+    """
+    if SCREEN is None:
+        return False
+    try:
+        extents = accessible.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+    except Exception:
+        return False
+    if extents.width <= 0 or extents.height <= 0:
+        return False
+    width, height = SCREEN
+    centre_x = extents.x + extents.width / 2
+    centre_y = extents.y + extents.height / 2
+    return not (0 <= centre_x < width and 0 <= centre_y < height)
 
 
 def actions_of(accessible):
@@ -166,6 +225,7 @@ def actions_of(accessible):
 ROLE_KEEP = {
     "application",
     "dialog",
+    "file chooser",
     "document",
     "document frame",
     "frame",
@@ -199,9 +259,10 @@ def make_node(accessible, path, depth):
         "role": role,
         "name": name,
         "value": value,
-        "states": states_of(accessible),
+        "states": states_of(accessible, actions),
         "actions": actions,
         "path": path,
+        "accessible": accessible,
         "children": [],
     }
 
@@ -292,6 +353,7 @@ def assign_refs(out):
             "role": node["role"],
             "name": node["name"],
             "value": node["value"],
+            "accessible": node["accessible"],
         }
     return refs
 
@@ -313,6 +375,9 @@ def clean_node(node):
     return result
 
 
+WINDOW_ROLES = ("frame", "dialog", "window", "file chooser", "color chooser", "alert")
+
+
 def windows():
     """The top-level frames of every application, with their private index paths."""
     try:
@@ -323,7 +388,7 @@ def windows():
     for app_index, application in enumerate(children(desktop)):
         app_name = name_of(application)
         for index, frame in enumerate(children(application)):
-            if role_of(frame) not in ("frame", "dialog", "window"):
+            if role_of(frame) not in WINDOW_ROLES:
                 continue
             active = False
             try:
@@ -423,13 +488,15 @@ def make_reply(request, start, start_path, app, frame, frame_path, find):
     root = make_node(start, start_path, 0)
     if root is None:
         role = role_of(start)
+        actions = actions_of(start)
         root = {
             "role": role,
             "name": truncate(name_of(start), MAX_NAME),
             "value": text_value(start, role),
-            "states": states_of(start),
-            "actions": actions_of(start),
+            "states": states_of(start, actions),
+            "actions": actions,
             "path": start_path,
+            "accessible": start,
             "children": [],
         }
     root["children"], truncated = collect_children(start, start_path, 1, max_depth, budget)
@@ -456,6 +523,7 @@ def make_reply(request, start, start_path, app, frame, frame_path, find):
         "epoch": epoch,
         "window": name_of(frame),
         "frame_path": frame_path_key(frame_path),
+        "frame": frame,
         "refs": refs,
     }
     snapshot_id = remember(snapshot)
@@ -532,6 +600,13 @@ def apps_request():
     ]
 
 
+def is_defunct(accessible):
+    try:
+        return accessible.getState().contains(pyatspi.STATE_DEFUNCT)
+    except Exception:
+        return True
+
+
 def act_request(request):
     snapshot_id = request.get("snapshot")
     ref = request.get("ref")
@@ -541,9 +616,11 @@ def act_request(request):
     if snapshot_is_stale(snapshot):
         raise HelperError("stale", "stale, take a new snapshot")
     entry = snapshot["refs"][ref]
-    element = resolve_path(entry["path"])
-    frame = resolve_path(snapshot["frame_path"])
-    if element is None or frame is None or name_of(frame) != snapshot["window"]:
+    element = entry.get("accessible")
+    frame = snapshot.get("frame")
+    if element is None or is_defunct(element):
+        raise HelperError("stale", "stale, take a new snapshot")
+    if frame is None or is_defunct(frame) or name_of(frame) != snapshot["window"]:
         raise HelperError("stale", "stale, take a new snapshot")
     if role_of(element) != entry["role"] or truncate(name_of(element), MAX_NAME) != entry["name"]:
         raise HelperError("stale", "stale, take a new snapshot")

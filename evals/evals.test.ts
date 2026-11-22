@@ -15,6 +15,8 @@ describe('evaluation harness (S38)', () => {
       'notify-allowed',
       'notify-asks',
       'injection',
+      'desktop-calc-structure',
+      'desktop-calc-screens',
     ]);
     for (const run of report.scenarios) {
       expect({ id: run.id, error: run.error, failed: run.checks.filter((c) => !c.passed) }).toEqual(

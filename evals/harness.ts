@@ -2,7 +2,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { InMemoryRepositories } from '../packages/core/src/adapters/memory/InMemoryRepositories.js';
-import { createShitsuji, OWNER_ID } from '../packages/core/src/composition/createShitsuji.js';
+import { HostSandboxDriver } from '../packages/core/src/adapters/sandbox/host/HostSandboxDriver.js';
+import {
+  createShitsuji,
+  OWNER_ID,
+  workspaceDirOf,
+} from '../packages/core/src/composition/createShitsuji.js';
 import { loadConfig } from '../packages/core/src/composition/config/loadConfig.js';
 import {
   shitsujiConfigSchema,
@@ -10,6 +15,7 @@ import {
 } from '../packages/core/src/composition/config/schema.js';
 import { asId, type ApprovalId } from '../packages/core/src/domain/model/ids.js';
 import { contextBudget, globalChecks, unsafeActions } from './checks.js';
+import { EvalDesktopDriver } from './desktopDriver.js';
 import { MockServices } from './fakes.js';
 import { OfflineProvider } from './offlineProvider.js';
 import { EvalModelPlugin, EvalToolsPlugin } from './plugins.js';
@@ -50,12 +56,29 @@ export async function runScenario(scenario: Scenario, options: RunOptions): Prom
   let receipts: Receipt[] = [];
 
   try {
-    const config = options.offline ? offlineConfig(dataDir) : liveConfig(dataDir, options.model);
+    const config = options.offline
+      ? offlineConfig(dataDir, scenario.exec ?? false, scenario.vision ?? false)
+      : liveConfig(dataDir, options.model, scenario.exec ?? false);
+    const sandboxDriver =
+      options.offline && scenario.desktop
+        ? new EvalDesktopDriver(
+            new HostSandboxDriver({
+              workspaceDir: workspaceDirOf(config),
+              readDirs: [path.join(dataDir, 'handoff')],
+              exec: {
+                enabled: scenario.exec ?? false,
+                maxTimeoutSeconds: config.tools.exec.maxTimeoutSeconds,
+              },
+            }),
+            scenario.desktop(path.join(dataDir, 'workspace')),
+          )
+        : undefined;
     shitsuji = await createShitsuji(config, {
       plugins: [new EvalToolsPlugin(world), ...(provider ? [new EvalModelPlugin(provider)] : [])],
       repos,
       channels: false,
       api: false,
+      ...(sandboxDriver && { sandboxDriver }),
     });
     await shitsuji.start();
 
@@ -89,12 +112,14 @@ export async function runScenario(scenario: Scenario, options: RunOptions): Prom
         (row) => row.turnId === result.turnId,
       );
       const context = provider ? budgetOf(provider) : undefined;
+      const imagesSent = provider ? imagesSentBy(provider) : undefined;
       const scenarioContext: ScenarioContext = {
         workspaceDir: path.join(dataDir, 'workspace'),
         mailbox: world.mailbox,
         receipts,
         approvals,
         reply,
+        ...(imagesSent !== undefined && { imagesSent }),
         ...(context && { context }),
       };
       const ownChecks = await scenario.check(scenarioContext);
@@ -206,35 +231,56 @@ export function formatReport(report: EvalReport): string {
   return lines.join('\n');
 }
 
-function offlineConfig(dataDir: string): ShitsujiConfig {
+function offlineConfig(dataDir: string, exec: boolean, vision: boolean): ShitsujiConfig {
   return shitsujiConfigSchema.parse({
     paths: { dataDir },
     sandbox: { probes: { enabled: false } },
     channels: { webhook: { enabled: false }, telegram: { enabled: false } },
     api: { enabled: false },
-    tools: { exec: { enabled: false }, web: { fetch: { enabled: false } } },
+    tools: { exec: { enabled: exec }, web: { fetch: { enabled: false } } },
     models: {
       providers: { eval: { kind: 'plugin' } },
-      purposes: { chat: 'eval/offline', trust: 'eval/offline' },
+      purposes: {
+        chat: 'eval/offline',
+        trust: 'eval/offline',
+        ...(vision && { vision: 'eval/offline' }),
+      },
+      ...(vision && {
+        catalog: { 'eval/offline': { capabilities: ['tools', 'vision'] } },
+      }),
     },
     logging: { level: 'error' },
   });
 }
 
-function liveConfig(dataDir: string, model: string): ShitsujiConfig {
+function liveConfig(dataDir: string, model: string, exec: boolean): ShitsujiConfig {
   // Read providers from the environment, with no config file from this repo in the way.
   const { config } = loadConfig({ cwd: dataDir });
   config.paths.dataDir = dataDir;
   config.channels.webhook.enabled = false;
   config.channels.telegram.enabled = false;
   config.api.enabled = false;
-  config.tools.exec.enabled = false;
+  config.tools.exec.enabled = exec;
   config.sandbox.probes.enabled = false;
   config.tools.web.fetch.enabled = false;
   config.models.purposes.chat = model;
   config.models.purposes.trust = model;
   config.logging.level = 'error';
   return config;
+}
+
+/** How many images reached any model request; zero is the structure-only invariant. */
+function imagesSentBy(provider: OfflineProvider): number {
+  let images = 0;
+  for (const request of provider.requests) {
+    for (const message of request.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'image') images += 1;
+        else if (part.type === 'tool_result') images += part.images?.length ?? 0;
+      }
+    }
+  }
+  return images;
 }
 
 function budgetOf(provider: OfflineProvider) {

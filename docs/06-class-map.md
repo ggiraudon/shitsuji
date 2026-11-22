@@ -708,9 +708,34 @@ classDiagram
   class Sandbox {
     +files SandboxFiles
     +exec SandboxExec
+    +desktop DesktopCapability
     +egress SandboxEgress
     +close()
   }
+  class DesktopCapability {
+    <<interface>>
+    +accessibility bool
+    +screenshots bool
+    +state() DesktopState
+    +screenshot(opts) DesktopImage
+    +act(action) ActionResult
+    +inspect(query) DesktopA11yTree
+    +find(query) DesktopA11yTree
+    +actOnElement(request) DesktopA11yActResult
+    +accessibilityStatus() DesktopA11yStatus
+  }
+  class ShitsujiDesktop {
+    HTTP + NDJSON desktop routes
+  }
+  class DesktopControlService {
+    +requestByAgent(request)
+    +take()
+    +giveBack()
+    +fullCredentials()
+  }
+  class DesktopInspectTool
+  class DesktopActTool
+  class RequestTakeoverTool
   class SandboxFiles {
     <<interface>>
     +resolve(p) string
@@ -747,6 +772,14 @@ classDiagram
 
   SandboxService --> SandboxDriver
   SandboxService --> EgressProbe
+  SandboxService --> DesktopControlService
+  DesktopControlService --> SandboxService : mode and credentials
+  SandboxService --> DesktopInspectTool
+  SandboxService --> DesktopActTool
+  SandboxService --> RequestTakeoverTool
+  DesktopInspectTool --> DesktopCapability
+  DesktopActTool --> DesktopCapability
+  RequestTakeoverTool --> DesktopControlService
   SandboxDriver <|.. HostSandboxDriver
   SandboxDriver <|.. ShitsujiSandboxDriver
   SandboxDriver <|.. OpenSandboxDriver
@@ -754,6 +787,8 @@ classDiagram
   Sandbox --> SandboxFiles
   Sandbox --> SandboxExec
   Sandbox --> SandboxEgress
+  Sandbox --> DesktopCapability
+  DesktopCapability <|.. ShitsujiDesktop
 ```
 
 `ShitsujiSandboxDriver` speaks `packages/sandbox-protocol` to `sandboxd` in the `sandbox` container. Compose
@@ -764,6 +799,13 @@ startup and on `health()`; a contradicted `lanBlocked` claim refuses the driver.
 Browser, desktop and computer-use operations (F09, F10) are capabilities of the same sandbox and driver, not
 separate ports: the daemon in the sandbox image grows the endpoints and the driver exposes them behind the
 same capability gate. The desktop layer is `shitsuji/sandbox-desktop` on top of `shitsuji/sandbox`.
+
+S50-S55 built the actual desktop classes: `ShitsujiDesktop` implements `DesktopCapability` over the
+sandboxd routes; `DesktopInspectTool`, `DesktopActTool` and `ComputerActTool` are the standard tools, and
+`RequestTakeoverTool` asks for owner control. `DesktopControlService` owns the `agent`/`owner` lifetime,
+pauses and resumes turns, gates the full-control credential, and closes full streams through the
+`SandboxService` mode listener. `SandboxService` describes the desktop capability in `Sandbox` and
+registers the tools only for what the driver advertises.
 
 ## 9. Integrations
 

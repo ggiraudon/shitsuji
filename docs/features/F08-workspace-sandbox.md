@@ -246,7 +246,7 @@ sandbox:
   networks: [sandbox]                # internet only through egress-proxy
   environment:
     SANDBOX_EGRESS_PROXY: http://egress-proxy:3128  # HTTP(S)_PROXY for commands (S48)
-    SCREEN: 1440x900x24              # the desktop display (F10)
+    SCREEN: 1920x1080x24              # the desktop display (F10)
 ```
 
 The base image is still built separately: the desktop Dockerfile is `FROM shitsuji/sandbox`, and Compose

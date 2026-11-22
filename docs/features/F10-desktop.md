@@ -52,7 +52,7 @@ sandbox:
   mem_limit: 6g                      # workspace and desktop together
   pids_limit: 2048
   environment:
-    SCREEN: 1440x900x24
+    SCREEN: 1920x1080x24
 ```
 
 Processes inside, started by **supervisord** (Debian's `supervisor`; s6-overlay would add a tarball and a
@@ -63,6 +63,7 @@ root init for no extra benefit, and Compose's `init: true` already reaps zombies
 | `dbus-daemon --session` + `at-spi2-registryd` | 1000 | — (in-container only) | Accessibility bus the apps publish their trees on |
 | `Xvfb :0` | 1000 | — | Virtual display `:0` |
 | `xfce4-session` | 1000 | — | Window manager and desktop |
+| `fit-windows` | 1000 | — | Moves and shrinks a window that opens past the screen edge (S56) |
 | `x11vnc` (full) | 1001 | `127.0.0.1:5900` | VNC with the full-control password |
 | `x11vnc -viewonly` | 1001 | `127.0.0.1:5901` | VNC with the view-only password |
 | `websockify` | 1001 | sandbox network 6080 | Raw WebSocket for full control |
@@ -78,6 +79,14 @@ two `websockify` instances run as uid 1001: the passwords are generated at start
 them, signal the stream servers or bind their ports. `sandboxd` (1001) reads the passwords for the viewer.
 The VNC servers bind loopback; websockify is the only network-facing part. The passwords are new on every
 container start.
+
+The display is 1920×1080 by default (`SCREEN`), which is what the Calc dialogs need: the Save dialog is
+888 px tall, so on a 1440×900 screen its buttons sat below the bottom edge. A **watcher** then keeps
+every window on the screen: `fit-windows.py` polls `wmctrl` and, when a window extends past an edge,
+moves it back and shrinks it to fit. This is a watcher rather than an xfwm4 setting because xfwm4's
+placement and wrap options only act while the user drags a window, and it has no option to fit an
+oversized one. A window that already fits is never touched, so the watcher cannot fight an app that
+resizes itself.
 
 No desktop port is published to the host. You watch through `core`'s authenticated viewer page at
 `/desktop` (decision Y1; the web UI of [F07](F07-web-ui.md) absorbs it later): `core` serves the page and
@@ -104,7 +113,7 @@ matters: build and tag `shitsuji/sandbox` first, which Compose does with its `sa
   plus CHOWN/FOWNER/SETUID/SETGID/SETPCAP/KILL, `no-new-privileges`, a read-only root with `/tmp` and
   `/run/sandbox` as tmpfs, and no published port.
 - Compose gives the service `shm_size: 1g`, `mem_limit: 6g`, `pids_limit: 2048` and
-  `SCREEN=1440x900x24`. The `sandbox-image` CI job waits for `:0`, lists an XFCE window, starts
+  `SCREEN=1920x1080x24`. The `sandbox-image` CI job waits for `:0`, lists an XFCE window, starts
   Chromium, checks that no setuid file remains and that 5900/6080/6081 are unreachable from the host,
   checks that the supervisor's children keep no capabilities and that a command cannot signal the
   stream servers, and the conformance suite and egress probes also run against the desktop image.
@@ -208,12 +217,19 @@ window "Untitled 1 - LibreOffice Calc" (libreoffice) — snapshot s3
   text "Name Box" [e20] = "A1"
   table "Sheet1"
     cell "A1" [e31] = "42"  cell "B1" [e32] = ""
+    cell "A2" [e33] = "" (offscreen)
 ```
 
 Refs belong to a **snapshot**: `desktop.act({ snapshot, ref, action })` re-resolves the element and refuses
 with "stale, take a new snapshot" when the window was created, destroyed or renamed, or when the element's
 role, name or value no longer matches the snapshot (openbot and OpenMausBot use their snapshot ids the same
 way). Refs map to private child-index paths in the helper; an AT-SPI object path never reaches the model.
+
+A node carries `(offscreen)` when the application does not render it (`STATE_SHOWING` false, a cell
+scrolled out) or when its centre lies past the screen edge (a dialog taller than the display, so its
+bottom buttons are cut off). Its ref still works — `desktop.act` uses the AT-SPI action, not a
+coordinate — but a pixel click at its centre cannot land on it, so the agent scrolls or uses the ref
+instead of guessing coordinates (S56).
 
 The tree is capped at about 8,000 tokens per window; when it is cut, the result names the window and a ref
 to continue from: `desktop.inspect({ window, ref, depth })`. `desktop.inspect({ window, find: { name } })`
@@ -302,8 +318,12 @@ or macOS desktop (for example through cua's driver), or (much later, opt-in) you
 Two tools, matching the levels above:
 
 - `desktop.inspect({ window?, find?, depth? })` returns the AT-SPI tree or matching elements, with refs and
-  a snapshot id, and `desktop.act({ snapshot, ref, action, text? })` acts on an element. After an action,
-  the result holds a fresh tree and snapshot.
+  a snapshot id, and `desktop.act({ snapshot, ref, action, text?, key?, app? })` clicks an element, sets
+  its text, types into it, presses a key, or launches an allowed app. After an action, the result holds
+  a fresh tree and snapshot. `type` focuses the ref and sends the characters with the desktop keyboard;
+  `key` presses one of the allow-listed chords. This is what commits a Calc cell: the cell itself is not
+  an editable-text object, but it accepts typing once focused. `launch_app` is here as well as in
+  `computer.act`, so a model without vision can still open the app.
 - `computer.act` with actions `screenshot`, `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`,
   `type`, `key`, `wait`, `launch_app`, `ocr`. The result always includes a fresh scaled screenshot, so the
   model sees the effect.
@@ -336,6 +356,33 @@ Two tools, matching the levels above:
   [F09](F09-browser.md).
 - **Screenshot pruning:** the context keeps the newest N images as pixels
   (`context.imageHistoryLimit`, default 3); older screenshots become deterministic placeholders.
+
+#### The Calc task (S56)
+
+The end-to-end Calc task uses the tree, not pixels:
+
+1. Launch LibreOffice with `desktop.act({ action: "launch_app", app: "libreoffice" })`, find
+   "Calc Spreadsheet" and click it. This works without a vision model.
+2. `desktop.inspect({ window: "Calc", find: { name: "A1" } })` (or a sub-tree ref) returns the cell
+   ref; `desktop.act({ action: "type", ref, text: "42" })`, then `key: "Return"` commits it. Repeat for
+   B1, then `key: "ctrl+s"`.
+3. The Save dialog is a `file chooser`; its accessible name can be "Question" or "Export Text File"
+   while `desktop.windows` shows the WM title. Inspecting the application (`soffice`) picks the active
+   dialog. Set the name to `/workspace/calc.csv`, click Save, choose "Use Text CSV Format", then OK in
+   the export options.
+4. `workspace.exec` reads `/workspace/calc.csv`.
+
+A Calc sheet publishes tens of thousands of cells, so the helper's traversal is capped (3,000 visits,
+1,500 nodes); a cut tree says how to ask for a sub-tree. Use `find` by cell name or role for the grid
+rather than reading the whole sheet. The integration test drives exactly this flow; the offline eval
+runs a structure-only and a screenshot-only variant and reports them side by side.
+
+The prompt includes a short computer-use section: `desktop.inspect` first, pixels last, use
+`computer.request_takeover` for sign-ins and CAPTCHAs, and never type a secret the owner did not give.
+After the live run it also says to try a shortcut, a cell name or one batch of `{type}`/`{key}` steps
+before reading the tree again; that a new dialog is found by inspecting its application (`soffice`),
+not the window that opened it; that a save dialog takes a plain name or a full path rather than
+`workspace/…`; and that an `(offscreen)` node is not something to click by pixel.
 
 ### Take control
 
@@ -385,16 +432,16 @@ in Chromium can be processed by a script and opened in LibreOffice without movin
 
 ## Acceptance criteria
 
-- `docker compose up` starts the desktop; the web UI shows it live.
-- The agent opens LibreOffice Calc, types numbers, saves a file to `/workspace`, and `workspace.exec` can read it.
-- The same Calc task completes **using only `desktop.inspect` / `desktop.act`**, with no screenshot sent to
+- [x] `docker compose up` starts the desktop; the web UI shows it live.
+- [x] The agent opens LibreOffice Calc, types numbers, saves a file to `/workspace`, and `workspace.exec` can read it.
+- [x] The same Calc task completes **using only `desktop.inspect` / `desktop.act`**, with no screenshot sent to
   the model; an eval ([F22](F22-observability-and-cost.md)) compares its tokens and success rate with the
   screenshot-only run.
-- `desktop.inspect` on Thunar, the XFCE terminal and Chromium returns named elements; the startup check
+- [x] `desktop.inspect` on Thunar, the XFCE terminal and Chromium returns named elements; the startup check
   reports any allowed app that publishes no tree.
-- Acting on a ref after the window changed returns "stale" instead of clicking the wrong thing.
-- Take control / Give back works and the agent continues.
-- No desktop port is reachable from the host or LAN without going through `core`.
+- [x] Acting on a ref after the window changed returns "stale" instead of clicking the wrong thing.
+- [x] Take control / Give back works and the agent continues.
+- [x] No desktop port is reachable from the host or LAN without going through `core`.
 
 ## Risks and open questions
 

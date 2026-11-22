@@ -46,7 +46,9 @@ const ctx = {
   writeFenced: async <T>(fn: () => Promise<T>) => fn(),
 } as unknown as ToolContext;
 
-function setup(options: { stale?: boolean; failInspect?: boolean; owner?: boolean } = {}) {
+function setup(
+  options: { stale?: boolean; failInspect?: boolean; owner?: boolean; failXdotool?: boolean } = {},
+) {
   const calls: { kind: string; request: unknown }[] = [];
   const desktop = {
     accessibility: true,
@@ -71,6 +73,10 @@ function setup(options: { stale?: boolean; failInspect?: boolean; owner?: boolea
         app: 'thunar',
       };
     },
+    act: async (action: unknown) => {
+      calls.push({ kind: 'xdotool', request: action });
+      if (options.failXdotool) throw new Error('the keyboard failed');
+    },
     accessibilityStatus: async () => ({ helper: true, apps: [], missing: [] }),
   } as unknown as DesktopCapability;
   return {
@@ -91,6 +97,25 @@ describe('desktop.inspect (S54)', () => {
     expect(text).not.toContain('[e1]'); // the frame is the header, not an actionable node
     expect(text).toContain('desktop.act({ snapshot: "s3", ref: "e3", action: "click" })');
     expect(text).toContain('a ref goes stale when the window changes');
+  });
+
+  it('marks an element that a pixel click cannot reach (S56)', () => {
+    const text = formatA11yTree({
+      ...tree(),
+      nodes: [
+        { ref: 'e1', depth: 0, role: 'frame', name: WINDOW, states: [], actions: [] },
+        {
+          ref: 'e2',
+          depth: 1,
+          role: 'push button',
+          name: 'Export',
+          states: ['offscreen'],
+          actions: ['click'],
+        },
+      ],
+      total: 2,
+    });
+    expect(text).toContain('push button "Export" [e2] (offscreen)');
   });
 
   it('reads a tree and marks its output as untrusted', async () => {
@@ -147,6 +172,74 @@ describe('desktop.inspect (S54)', () => {
 });
 
 describe('desktop.act (S54)', () => {
+  it('types into a ref through the keyboard after focusing it (S56)', async () => {
+    const { act, calls } = setup();
+    const output = await act.run({ snapshot: 's3', ref: 'e6', action: 'type', text: '42' }, ctx);
+    expect(output.content).toContain('Typed 2 characters into [e6]');
+    expect(calls).toEqual([
+      { kind: 'act', request: { snapshot: 's3', ref: 'e6', action: 'click' } },
+      { kind: 'xdotool', request: { kind: 'type', text: '42' } },
+      { kind: 'inspect', request: { window: WINDOW } },
+    ]);
+  });
+
+  it('presses an allow-listed key without a ref and re-reads the active window (S56)', async () => {
+    const { act, calls } = setup();
+    const output = await act.run({ snapshot: 's3', action: 'key', key: 'ctrl+s' }, ctx);
+    expect(output.content).toContain('Pressed ctrl+s');
+    expect(calls).toEqual([
+      { kind: 'xdotool', request: { kind: 'key', key: 'ctrl+s' } },
+      { kind: 'inspect', request: {} },
+    ]);
+    expect(
+      act.input.safeParse({ snapshot: 's3', action: 'key', key: 'ctrl+alt+delete' }).success,
+    ).toBe(false);
+    expect(act.input.safeParse({ snapshot: 's3', action: 'key' }).success).toBe(false);
+  });
+
+  it('launches an allowed app without computer.act or a vision model (S56 follow-up)', async () => {
+    const { act, calls } = setup();
+    const output = await act.run({ snapshot: 's1', action: 'launch_app', app: 'libreoffice' }, ctx);
+    expect(output.content).toContain('Launched libreoffice');
+    expect(calls).toEqual([
+      { kind: 'xdotool', request: { kind: 'launch_app', app: 'libreoffice' } },
+      { kind: 'inspect', request: {} },
+    ]);
+    expect(
+      act.input.safeParse({ snapshot: 's1', action: 'launch_app', app: 'firefox' }).success,
+    ).toBe(false);
+    expect(act.input.safeParse({ snapshot: 's1', action: 'launch_app' }).success).toBe(false);
+  });
+
+  it('runs a short keyboard sequence as one call and stops at the first failure (S56 follow-up)', async () => {
+    const { act, calls } = setup();
+    const output = await act.run(
+      { snapshot: 's1', ref: 'e3', steps: [{ type: '42' }, { key: 'Tab' }, { type: '7' }] },
+      ctx,
+    );
+    expect(output.content).toContain('Ran 3 steps after focusing [e3]');
+    expect(calls).toEqual([
+      { kind: 'act', request: { snapshot: 's1', ref: 'e3', action: 'click' } },
+      { kind: 'xdotool', request: { kind: 'type', text: '42' } },
+      { kind: 'xdotool', request: { kind: 'key', key: 'Tab' } },
+      { kind: 'xdotool', request: { kind: 'type', text: '7' } },
+      { kind: 'inspect', request: {} },
+    ]);
+    expect(
+      act.input.safeParse({
+        steps: Array.from({ length: 21 }, () => ({ key: 'Tab' })),
+      }).success,
+    ).toBe(false);
+  });
+
+  it('says which batch step failed', async () => {
+    const { act } = setup({ failXdotool: true });
+    const output = await act.run({ steps: [{ type: '42' }, { key: 'Tab' }, { type: '7' }] }, ctx);
+    expect(output.isError).toBe(true);
+    expect(output.content).toContain('Step 1 of 3');
+    expect(output.content).toContain('type "42"');
+  });
+
   it('refuses an action while the owner has control, while inspect still reads (S55)', async () => {
     const { act, inspect, calls } = setup({ owner: true });
     const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);

@@ -1,6 +1,6 @@
 # Fifth pass plan: F10 desktop, then F09 browser
 
-> **Status:** in progress (S50-S55 done; S56-S62 planned).
+> **Status:** in progress (S50-S56 done; S57-S62 planned).
 
 The fifth pass finishes most of Phase 2 ("its own computer"). The sandbox from the fourth pass gets a
 graphical desktop that you can watch, the agent learns to use it (structure first, pixels last), and its
@@ -94,7 +94,7 @@ packages/
   control. websockify exposes only the raw WebSocket on the sandbox network; `core` serves the viewer page
   and its noVNC client (S51). No port is published.
 - Compose: `sandbox` uses the desktop image, `shm_size: 1g`, `mem_limit: 6g`, `pids_limit: 2048`,
-  `SCREEN=1440x900x24`.
+  `SCREEN=1920x1080x24`.
 - *Check:* the `sandbox-image` CI job builds the desktop image, waits for `:0`, lists an XFCE window with
   `wmctrl`, starts Chromium, finds no setuid file, and probes that 5900/6080/6081 are not reachable from
   outside the sandbox network. It also checks that the supervisor's children have no capabilities, that
@@ -183,6 +183,20 @@ packages/
 - F10's acceptance criteria are ticked, F10 and the class map are updated with what was built, and the
   prompt gets a short computer-use section (or a note in #105's charter if that has landed).
 - *Check:* the offline eval passes; you watch a live run in the viewer.
+
+Implemented: `desktop.act` gained `launch_app`, `type` and `key` (focus the ref, then the desktop
+keyboard), because a Calc cell is not an AT-SPI editable-text object and `computer.act` is not registered
+without a vision model. The helper caps a huge Calc grid, includes `file chooser`/`alert` windows, and
+`ctrl+s` is in the key allow-list. The real integration test opens Calc, fills A1/B1, saves through the
+file chooser and reads `/workspace/calc.csv` with `workspace.exec`. The offline eval reports 2,000/200
+tokens for structure-only (context 2,585) and 3,200/320 for screenshots (context 3,498); the structure
+run starts with Calc closed, launches it through `desktop.act`, and sends zero images.
+The default screen is now 1920x1080: the Save dialog is 888 px tall, which put its buttons below a
+1440x900 screen. A `fit-windows` watcher (uid 1000) moves and shrinks a window that an app still opens
+past an edge, because xfwm4 has no setting that fits an oversized window; on the real image the Save
+dialog lands at (403,150) 1124x888, and a forced 2600x2300 window is clamped to the work area. A node
+that the app does not render, or whose centre is off the screen, is marked `(offscreen)`: on a
+1440x900 display the Save dialog's Save and Cancel buttons carry it, and on 1920x1080 they do not.
 
 ### The browser
 
