@@ -224,7 +224,10 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       chooser`/`alert` windows and caps a huge Calc grid at 3,000 visits / 1,500 nodes so a tree no
       longer times out. The offline eval has `desktop-calc-structure` (desktop.inspect/act only,
       starts with Calc closed, launches it, zero images) and `desktop-calc-screens` (computer.act);
-      both pass, at 3,600/360 tokens with context 2,268 and 3,200/320 with context 3,177. The prompt
+      both pass, at 2,000/200 tokens with context 2,397 and 3,200/320 with context 3,310. After the
+      live run, `desktop.act` keeps the AT-SPI element of a snapshot ref instead of re-walking the
+      tree, takes up to 20 `{type}`/`{key}` steps as one trusted call, and the screen defaults to
+      1920x1080 with a `fit-windows` watcher for windows an app opens past an edge. The prompt
       has a short computer-use section: launch via `desktop.act`, tree first, pixels last, Take
       control for sign-ins/CAPTCHAs, never type a secret the owner did not give. F10's acceptance
       criteria are ticked and the class map records the desktop classes. The live viewer run is the
