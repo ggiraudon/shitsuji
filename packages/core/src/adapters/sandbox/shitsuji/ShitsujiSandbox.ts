@@ -63,6 +63,7 @@ import type {
 export class SandboxRequestError extends Error {
   constructor(
     message: string,
+    /** The protocol error code (e.g. `not_found`, `outside_root`), for callers that branch. */
     readonly code: string,
   ) {
     super(message);
@@ -70,12 +71,15 @@ export class SandboxRequestError extends Error {
   }
 }
 
+/** How to reach sandboxd: its base URL, the shared token, and the test seams. */
 export interface SandboxClientOptions {
   /** e.g. http://sandbox:4555 */
   baseUrl: string;
+  /** The shared secret sent in `x-sandbox-token`; never logged. */
   token: string;
   /** Unary requests give up after this; exec has its own timeout. */
   timeoutMs?: number;
+  /** The fetch implementation, injectable for recorded fixtures. */
   fetch?: typeof fetch;
 }
 
@@ -84,14 +88,20 @@ export interface SandboxClientOptions {
  * is parsed with the protocol schema, so a daemon that drifts breaks loudly here.
  */
 export class SandboxClient {
+  /** The API root without a trailing slash. */
   private readonly baseUrl: string;
+  /** The fetch used for every call, injectable for tests. */
   private readonly fetchImpl: typeof fetch;
 
-  constructor(private readonly options: SandboxClientOptions) {
+  constructor(
+    /** The base URL, token, timeout and fetch. */
+    private readonly options: SandboxClientOptions,
+  ) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     this.fetchImpl = options.fetch ?? fetch;
   }
 
+  /** One unary request: sends the token, parses the reply with `schema`, throws on a refusal. */
   async call<S extends z.ZodTypeAny>(
     route: string,
     schema: S,
@@ -168,7 +178,13 @@ export class SandboxClient {
     }).catch(() => undefined);
   }
 
-  async health(): Promise<{ ok: boolean; detail?: string }> {
+  /** The daemon's health: `ok`, or the reason it is not (the caller logs it at startup). */
+  async health(): Promise<{
+    /** True when the health route answered ok. */
+    ok: boolean;
+    /** Why it is unhealthy, when it is. */
+    detail?: string;
+  }> {
     try {
       const reply = await this.call(SANDBOX_ROUTES.health, healthReplySchema);
       return { ok: reply.ok };
@@ -186,6 +202,7 @@ export class SandboxClient {
     return { fullControlPassword: reply.fullControlPassword };
   }
 
+  /** Turns a refused reply into a `SandboxRequestError` with the daemon's own code and message. */
   private async errorOf(response: Response): Promise<Error> {
     const parsed = errorReplySchema.safeParse(await response.json().catch(() => undefined));
     if (parsed.success) {
@@ -232,7 +249,10 @@ function normalise(relative: string): string {
  * compare and display them; the client turns them back into a root and a relative path.
  */
 export class ShitsujiFiles implements SandboxFiles {
-  constructor(private readonly client: SandboxClient) {}
+  constructor(
+    /** The HTTP client every file route goes through. */
+    private readonly client: SandboxClient,
+  ) {}
 
   async resolve(relative: string): Promise<string> {
     const clean = normalise(relative);
@@ -332,12 +352,19 @@ export class ShitsujiFiles implements SandboxFiles {
     }
   }
 
+  /** Builds a sandbox path from a root and a path the model gave, normalised the daemon's way. */
   private absolute(root: string, value: string): string {
     const rest = value === root ? '' : value.slice(root.length + 1);
     return `${root}/${normalise(rest)}`;
   }
 
-  private split(absolute: string): { root: SandboxRoot; path: string } {
+  /** Turns a sandbox path back into the root the daemon expects and the path within it. */
+  private split(absolute: string): {
+    /** `workspace` or `handoff`, as the wire protocol names them. */
+    root: SandboxRoot;
+    /** The path inside that root, normalised and never absolute. */
+    path: string;
+  } {
     if (absolute.startsWith(`${WORKSPACE}/`) || absolute === WORKSPACE) {
       return { root: 'workspace', path: normalise(absolute.slice(WORKSPACE.length + 1)) };
     }
@@ -353,6 +380,7 @@ export class ShitsujiExec implements SandboxExec {
   readonly maxTimeoutMs: number;
 
   constructor(
+    /** The HTTP client every exec route goes through. */
     private readonly client: SandboxClient,
     maxTimeoutMs: number,
   ) {
@@ -420,8 +448,12 @@ export class ShitsujiExec implements SandboxExec {
 }
 
 export class ShitsujiEgress implements SandboxEgress {
-  constructor(private readonly client: SandboxClient) {}
+  constructor(
+    /** The HTTP client the probe route goes through. */
+    private readonly client: SandboxClient,
+  ) {}
 
+  /** Asks the daemon whether it can open a TCP connection to the address. */
   async reachable(host: string, port: number, timeoutMs: number): Promise<boolean> {
     const reply = await this.client.call(SANDBOX_ROUTES.probe, probeReplySchema, {
       host,
@@ -437,10 +469,13 @@ export class ShitsujiDesktop implements DesktopCapability {
   readonly screenshots = true;
 
   constructor(
+    /** The HTTP client every desktop route goes through. */
     private readonly client: SandboxClient,
+    /** Whether the daemon reported an AT-SPI tree (S54); routes that need it are only offered then. */
     readonly accessibility: boolean,
   ) {}
 
+  /** The display's name and pixel size. */
   async state(): Promise<DesktopState> {
     const reply = await this.client.call(SANDBOX_ROUTES.desktopState, desktopStateReplySchema);
     return { display: reply.display, width: reply.width, height: reply.height };
@@ -585,6 +620,7 @@ export class ShitsujiDesktop implements DesktopCapability {
     return this.client.call(SANDBOX_ROUTES.desktopA11yStatus, desktopA11yStatusReplySchema);
   }
 
+  /** Sends one mouse action; the daemon validates the coordinates itself too. */
   private async mouse(request: z.infer<typeof desktopMouseRequestSchema>): Promise<void> {
     await this.client.call(
       SANDBOX_ROUTES.desktopInputMouse,
@@ -597,12 +633,17 @@ export class ShitsujiDesktop implements DesktopCapability {
 /** One open shitsuji sandbox: the capabilities the daemon reported, and the three ports. */
 export class ShitsujiSandbox {
   constructor(
+    /** Files through the daemon's roots; every path check happens there. */
     readonly files: ShitsujiFiles,
+    /** Command execution over the daemon's NDJSON stream. */
     readonly exec: SandboxExec,
+    /** The probe the startup egress check uses. */
     readonly egress: SandboxEgress,
+    /** The desktop, when the daemon has one (S53). */
     readonly desktop?: DesktopCapability,
   ) {}
 
+  /** Nothing to close: one long-lived daemon serves the owner (X5). */
   async close(): Promise<void> {
     // One long-lived daemon serves the owner; nothing to close per sandbox (X5).
   }
