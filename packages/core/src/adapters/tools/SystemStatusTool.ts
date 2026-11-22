@@ -11,10 +11,14 @@ export class SystemStatusTool extends BaseTool<typeof input> {
   readonly input = input;
   readonly effect = 'read' as const;
 
-  constructor(private readonly status: () => Promise<Record<string, unknown>>) {
+  constructor(
+    /** The facts the composition root can report; called per request so they are current. */
+    private readonly status: () => Promise<Record<string, unknown>>,
+  ) {
     super();
   }
 
+  /** The facts as pretty JSON, also returned as `data` for a receipt. */
   async run(): Promise<ToolOutput> {
     const facts = await this.status();
     return { content: JSON.stringify(facts, null, 2), data: facts };
