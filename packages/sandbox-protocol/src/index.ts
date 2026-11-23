@@ -436,6 +436,8 @@ export const desktopA11yNodeSchema = z
     /** The AT-SPI role name, e.g. `push button`. */
     role: z.string().min(1).max(200),
     name: z.string().max(500).optional(),
+    /** The window the node belongs to, for a search across an app's windows. */
+    window: z.string().max(500).optional(),
     /** Editable or displayed text, truncated by the helper. */
     value: z.string().max(2_000).optional(),
     states: z.array(z.string().max(40)).max(20),
@@ -451,6 +453,8 @@ export const desktopA11yTreeReplySchema = z
   .object({
     app: z.string().max(200),
     window: z.string().max(500),
+    /** The windows a single search covered (an app search); absent for one window. */
+    windows: z.array(z.string().max(500)).max(50).optional(),
     snapshot: snapshotSchema,
     nodes: z.array(desktopA11yNodeSchema).max(10_000),
     /** How many interesting nodes the tree had before any cap. */
@@ -476,12 +480,19 @@ export type DesktopA11yTreeQuery = z.infer<typeof desktopA11yTreeQuerySchema>;
 export const desktopA11yFindQuerySchema = z
   .object({
     window: z.string().min(1).max(500).optional(),
+    /** Search every window of this app, dialogs included, instead of one window. */
+    app: z.string().min(1).max(200).optional(),
     name: z.string().min(1).max(200).optional(),
     role: z.string().min(1).max(200).optional(),
+    /** Match the whole name/role instead of a substring. */
+    exact: z.boolean().optional(),
   })
   .strict()
   .refine((query) => query.name !== undefined || query.role !== undefined, {
     message: 'name or role is required',
+  })
+  .refine((query) => !(query.window !== undefined && query.app !== undefined), {
+    message: 'give a window or an app, not both',
   });
 export type DesktopA11yFindQuery = z.infer<typeof desktopA11yFindQuerySchema>;
 

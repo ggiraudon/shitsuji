@@ -22,11 +22,15 @@ const inspectSchema = z
   .object({
     /** A window title substring, or the application's name; omitted means the active window. */
     window: windowName.optional(),
+    /** Search every window of this app (dialogs included); only with find. */
+    app: z.string().min(1).max(200).optional(),
     /** Find elements by name and/or role instead of reading the whole tree. */
     find: z
       .object({
         name: z.string().min(1).max(200).optional(),
         role: z.string().min(1).max(200).optional(),
+        /** Match the whole name and role instead of a substring. */
+        exact: z.boolean().optional(),
       })
       .strict()
       .optional(),
@@ -48,6 +52,20 @@ const inspectSchema = z
         code: 'custom',
         path: ['ref'],
         message: 'find already locates the elements; do not give a ref too',
+      });
+    }
+    if (args.app !== undefined && args.find === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['app'],
+        message: 'is only allowed with find',
+      });
+    }
+    if (args.app !== undefined && args.window !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['app'],
+        message: 'searches the whole app; drop the window',
       });
     }
   });
@@ -151,8 +169,9 @@ export class DesktopInspectTool extends BaseTool<typeof inspectSchema> {
   readonly name = 'desktop.inspect';
   readonly description =
     'Read a desktop window as an accessibility tree with [eN] refs and a snapshot id, or find ' +
-    'elements by name or role. Prefer this over screenshots for desktop apps; use the ref with ' +
-    'desktop.act. If the tree is cut, ask for a sub-tree with window, ref and depth.';
+    'elements by name or role. Add app to search every window of that app, dialogs included; add ' +
+    'find.exact to match the whole name. Prefer this over screenshots for desktop apps; use the ' +
+    'ref with desktop.act. If the tree is cut, ask for a sub-tree with window, ref and depth.';
   readonly input = inspectSchema;
   override readonly target = 'desktop' as const;
   override readonly untrustedOutput = true;
@@ -171,6 +190,7 @@ export class DesktopInspectTool extends BaseTool<typeof inspectSchema> {
         data: {
           window: tree.window,
           app: tree.app,
+          ...(tree.windows && { windows: tree.windows }),
           snapshot: tree.snapshot,
           elements: tree.nodes.length,
           total: tree.total,
@@ -378,8 +398,10 @@ export function desktopA11yTools(
 function toFindQuery(args: InspectArgs): DesktopA11yFindQuery {
   return {
     ...(args.window && { window: args.window }),
+    ...(args.app && { app: args.app }),
     ...(args.find?.name && { name: args.find.name }),
     ...(args.find?.role && { role: args.find.role }),
+    ...(args.find?.exact !== undefined && { exact: args.find.exact }),
   };
 }
 

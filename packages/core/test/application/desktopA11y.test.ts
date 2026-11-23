@@ -37,6 +37,57 @@ const tree = (snapshot = 's3'): DesktopA11yTree => ({
   truncated: false,
 });
 
+const appTree = (snapshot = 's5'): DesktopA11yTree => ({
+  app: 'soffice',
+  window: 'soffice',
+  windows: ['Question', 'Tip of the Day'],
+  snapshot,
+  nodes: [
+    {
+      ref: 'e1',
+      depth: 0,
+      role: 'dialog',
+      name: 'Question',
+      window: 'Question',
+      states: [],
+      actions: [],
+      matched: false,
+    },
+    {
+      ref: 'e2',
+      depth: 1,
+      role: 'push button',
+      name: 'Use Text CSV Format',
+      window: 'Question',
+      states: [],
+      actions: ['click'],
+      matched: true,
+    },
+    {
+      ref: 'e3',
+      depth: 0,
+      role: 'dialog',
+      name: 'Tip of the Day',
+      window: 'Tip of the Day',
+      states: [],
+      actions: [],
+      matched: false,
+    },
+    {
+      ref: 'e4',
+      depth: 1,
+      role: 'push button',
+      name: 'OK',
+      window: 'Tip of the Day',
+      states: [],
+      actions: ['click'],
+      matched: true,
+    },
+  ],
+  total: 4,
+  truncated: false,
+});
+
 const ctx = {
   turnId: 't1',
   sessionId: 's1',
@@ -60,7 +111,7 @@ function setup(
     },
     find: async (request: unknown) => {
       calls.push({ kind: 'find', request });
-      return tree('s5');
+      return (request as { app?: string }).app ? appTree('s5') : tree('s5');
     },
     actOnElement: async (request: { action: 'click' | 'set_text' }) => {
       calls.push({ kind: 'act', request });
@@ -136,6 +187,26 @@ describe('desktop.inspect (S54)', () => {
     expect(calls).toEqual([{ kind: 'find', request: { window: 'Thunar', name: 'Open' } }]);
     expect(output.content).toContain('Matches for name "Open"');
     expect(output.content).toContain('push button "Open" [e5]');
+  });
+
+  it('searches every window of an app and groups matches by window (#151)', async () => {
+    const { inspect, calls } = setup();
+    const output = await inspect.run({ app: 'soffice', find: { name: 'OK', exact: true } }, ctx);
+    expect(calls).toEqual([{ kind: 'find', request: { app: 'soffice', name: 'OK', exact: true } }]);
+    expect(output.content).toContain('in app "soffice" (2 windows)');
+    expect(output.content).toContain('window "Question"');
+    expect(output.content).toContain('window "Tip of the Day"');
+    expect(output.content).toContain('push button "Use Text CSV Format" [e2]');
+    expect(output.data).toMatchObject({ windows: ['Question', 'Tip of the Day'] });
+  });
+
+  it('requires find with app and refuses app with window (#151)', () => {
+    const { inspect } = setup();
+    expect(inspect.input.safeParse({ app: 'soffice' }).success).toBe(false);
+    expect(
+      inspect.input.safeParse({ app: 'soffice', window: 'Save', find: { name: 'OK' } }).success,
+    ).toBe(false);
+    expect(inspect.input.safeParse({ app: 'soffice', find: { name: 'OK' } }).success).toBe(true);
   });
 
   it('cuts a large tree at about 8,000 tokens and says how to ask for a sub-tree', () => {

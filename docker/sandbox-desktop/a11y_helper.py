@@ -312,14 +312,28 @@ def filter_tree(nodes, needle):
     return kept
 
 
-def find_nodes(nodes, name, role):
-    """Flattened matches, each with an empty child list; the caller assigns refs."""
+def find_nodes(nodes, name, role, exact=False):
+    """Flattened matches, each with an empty child list; the caller assigns refs.
+
+    A substring match by default (case-insensitive); `exact` compares the whole name and role.
+    `dialog` also matches the dialog-like roles an app actually publishes (`alert`, `file
+    chooser`), which is what LibreOffice's popups use.
+    """
+
+    def matches(text, needle, family=None):
+        if family and text in family:
+            return True
+        return text == needle if exact else needle in text
+
+    def role_matches(text, needle):
+        return matches(text, needle, ROLE_FAMILIES.get(needle))
+
     found = []
     stack = list(reversed(nodes))
     while stack and len(found) < MAX_NODES:
         node = stack.pop()
-        if (not name or name in node["name"].casefold()) and (
-            not role or role in node["role"].casefold()
+        if (not name or matches(node["name"].casefold(), name)) and (
+            not role or role_matches(node["role"].casefold(), role)
         ):
             found.append({**node, "children": [], "matched": True})
         stack.extend(reversed(node["children"]))
@@ -348,13 +362,21 @@ def assign_refs(out):
     for index, node in enumerate(out, start=1):
         ref = f"e{index}"
         node["ref"] = ref
-        refs[ref] = {
+        entry = {
             "path": node["path"],
             "role": node["role"],
             "name": node["name"],
             "value": node["value"],
             "accessible": node["accessible"],
         }
+        # An app-wide search mixes windows, so each ref remembers its own frame.
+        if node.get("_frame") is not None:
+            entry["frame"] = node["_frame"]
+        if node.get("_frame_path") is not None:
+            entry["frame_path"] = node["_frame_path"]
+        if node.get("_window"):
+            entry["window"] = node["_window"]
+        refs[ref] = entry
     return refs
 
 
@@ -368,6 +390,8 @@ def clean_node(node):
     }
     if node["name"]:
         result["name"] = node["name"]
+    if node.get("window"):
+        result["window"] = node["window"]
     if node["value"]:
         result["value"] = node["value"]
     if "matched" in node:
@@ -376,6 +400,10 @@ def clean_node(node):
 
 
 WINDOW_ROLES = ("frame", "dialog", "window", "file chooser", "color chooser", "alert")
+# The roles a GTK/Qt app uses for what a model calls a "dialog"; LibreOffice's popups are `alert`.
+DIALOG_ROLES = ("dialog", "alert", "file chooser", "color chooser")
+# `role: "dialog"` finds the app's popups whatever role they actually publish.
+ROLE_FAMILIES = {"dialog": DIALOG_ROLES}
 
 
 def windows():
@@ -401,10 +429,28 @@ def windows():
                     "frame": frame,
                     "path": [app_index, index],
                     "title": name_of(frame),
+                    "role": role_of(frame),
                     "active": active,
                 }
             )
     return found
+
+
+def prefer_topmost(pool):
+    """The window a user would mean: the active modal dialog, else the active window.
+
+    xfwm4 publishes its own unnamed frame, and it is often ACTIVE while an app window is focused;
+    an empty title is therefore never the answer unless nothing else exists.
+    """
+    titled = [item for item in pool if item["title"]]
+    if titled:
+        pool = titled
+    active = [item for item in pool if item["active"]]
+    if active:
+        dialogs = [item for item in active if item["role"] in DIALOG_ROLES]
+        return dialogs[-1] if dialogs else active[-1]
+    dialogs = [item for item in pool if item["role"] in DIALOG_ROLES]
+    return dialogs[-1] if dialogs else pool[-1]
 
 
 def choose_window(request):
@@ -415,18 +461,17 @@ def choose_window(request):
     if wanted:
         exact = [item for item in candidates if item["title"].casefold() == wanted]
         if exact:
-            return exact[0]
+            return prefer_topmost(exact)
         partial = [
             item
             for item in candidates
             if wanted in item["title"].casefold() or wanted in item["app"].casefold()
         ]
         if partial:
-            active = [item for item in partial if item["active"]]
-            return active[0] if active else partial[0]
+            return prefer_topmost(partial)
         raise HelperError("not_found", f'No window matches "{wanted}".')
-    active = [item for item in candidates if item["active"]]
-    return active[0] if active else candidates[-1]
+    # No window named: the focused app window or dialog, never the window manager's own frame.
+    return prefer_topmost(candidates)
 
 
 def current_generation(app):
@@ -450,8 +495,11 @@ def remember(snapshot):
 def snapshot_for_ref(ref, frame_path=None):
     """The most recent snapshot holding this ref, for one window when one is named."""
     for snapshot_id, snapshot in reversed(list(SNAPSHOTS.items())):
-        if frame_path is not None and snapshot["frame_path"] != frame_path:
-            continue
+        if frame_path is not None:
+            entry = snapshot["refs"].get(ref)
+            entry_path = frame_path_key(entry["frame_path"]) if entry and "frame_path" in entry else None
+            if snapshot["frame_path"] != frame_path and entry_path != frame_path:
+                continue
         if ref in snapshot["refs"]:
             return snapshot_id, snapshot
     return None, None
@@ -480,7 +528,8 @@ def resolve_path(path):
         return None
 
 
-def make_reply(request, start, start_path, app, frame, frame_path, find):
+def build_tree(request, start, start_path, find):
+    """One window's flattened nodes, its total count, and whether a cap cut it."""
     max_depth = request.get("depth")
     if max_depth is not None:
         max_depth = int(max_depth)
@@ -504,7 +553,7 @@ def make_reply(request, start, start_path, app, frame, frame_path, find):
     if find:
         name = truncate(request.get("name") or "", 200).casefold()
         role = truncate(request.get("role") or "", 200).casefold()
-        tree = find_nodes(tree, name, role)
+        tree = find_nodes(tree, name, role, exact=bool(request.get("exact")))
         truncated = truncated or len(tree) >= MAX_NODES
     else:
         needle = truncate(request.get("filter") or "", 200).casefold()
@@ -515,6 +564,11 @@ def make_reply(request, start, start_path, app, frame, frame_path, find):
     flatten_budget = {"left": MAX_NODES, "cut": False}
     flatten(tree, 0, out, flatten_budget)
     truncated = truncated or flatten_budget["cut"] or total > MAX_NODES
+    return out, total, truncated
+
+
+def make_reply(request, start, start_path, app, frame, frame_path, find):
+    out, total, truncated = build_tree(request, start, start_path, find)
     refs = assign_refs(out)
     generation, epoch = current_generation(app)
     snapshot = {
@@ -537,6 +591,88 @@ def make_reply(request, start, start_path, app, frame, frame_path, find):
     }
 
 
+def choose_app(request):
+    """The app matching the request, and every frame it publishes (dialogs included)."""
+    needle = truncate(request.get("app") or "", 200).casefold()
+    if not needle:
+        raise HelperError("invalid", "An app name is required.")
+    frames = windows()
+    names = sorted({(item["app"] or "").casefold() for item in frames if item["app"]})
+    exact = [name for name in names if name == needle]
+    if exact:
+        chosen = exact[0]
+    else:
+        partial = [name for name in names if needle in name]
+        if len(partial) == 1:
+            chosen = partial[0]
+        elif len(partial) > 1:
+            raise HelperError(
+                "invalid", f'App "{needle}" is ambiguous: {", ".join(partial[:10])}.'
+            )
+        else:
+            # LibreOffice calls itself "soffice" but writes "LibreOffice" in its titles.
+            by_title = {
+                (item["app"] or "").casefold()
+                for item in frames
+                if item["app"] and needle in item["title"].casefold()
+            }
+            if len(by_title) != 1:
+                available = ", ".join(names[:20]) or "none"
+                raise HelperError(
+                    "not_found", f'No app matches "{needle}". Apps with a tree: {available}.'
+                )
+            chosen = next(iter(by_title))
+    return chosen, [item for item in frames if (item["app"] or "").casefold() == chosen]
+
+
+def find_app_request(request):
+    """Search every window of one app; each node names the window it came from."""
+    app, selected = choose_app(request)
+    out = []
+    total = 0
+    truncated = False
+    covered = []
+    for chosen in selected:
+        if len(out) >= MAX_NODES:
+            truncated = True
+            break
+        nodes, count, cut = build_tree(request, chosen["frame"], chosen["path"], find=True)
+        for node in nodes:
+            node["_frame"] = chosen["frame"]
+            node["_frame_path"] = chosen["path"]
+            node["_window"] = chosen["title"]
+            node["window"] = chosen["title"]
+        out.extend(nodes)
+        total += count
+        truncated = truncated or cut
+        covered.append(chosen["title"])
+    if len(out) > MAX_NODES:
+        out = out[:MAX_NODES]
+        truncated = True
+    refs = assign_refs(out)
+    generation, epoch = current_generation(app)
+    frame_path = f"app:{app}"
+    snapshot = {
+        "app": app,
+        "generation": generation,
+        "epoch": epoch,
+        "window": app,
+        "frame_path": frame_path,
+        "frame": None,
+        "refs": refs,
+    }
+    snapshot_id = remember(snapshot)
+    return {
+        "app": app,
+        "window": app,
+        "windows": covered,
+        "snapshot": snapshot_id,
+        "nodes": [clean_node(node) for node in out],
+        "total": total,
+        "truncated": truncated,
+    }
+
+
 def tree_request(request):
     ref = request.get("ref")
     if ref:
@@ -547,17 +683,19 @@ def tree_request(request):
         _, snapshot = snapshot_for_ref(ref, window_key)
         if snapshot is None or snapshot_is_stale(snapshot):
             raise HelperError("stale", "stale, take a new snapshot")
-        start = resolve_path(snapshot["refs"][ref]["path"])
-        frame = resolve_path(snapshot["frame_path"])
+        entry = snapshot["refs"][ref]
+        start = resolve_path(entry["path"])
+        frame = entry.get("frame") or resolve_path(snapshot["frame_path"])
+        frame_path = entry.get("frame_path") or snapshot["frame_path"]
         if start is None or frame is None:
             raise HelperError("stale", "stale, take a new snapshot")
         return make_reply(
             request,
             start,
-            snapshot["refs"][ref]["path"],
+            entry["path"],
             snapshot["app"],
             frame,
-            snapshot["frame_path"],
+            frame_path,
             find=False,
         )
     chosen = choose_window(request)
@@ -573,6 +711,8 @@ def tree_request(request):
 
 
 def find_request(request):
+    if request.get("app"):
+        return find_app_request(request)
     chosen = choose_window(request)
     return make_reply(
         request,
@@ -617,10 +757,12 @@ def act_request(request):
         raise HelperError("stale", "stale, take a new snapshot")
     entry = snapshot["refs"][ref]
     element = entry.get("accessible")
-    frame = snapshot.get("frame")
+    # An app-wide search mixes windows; each ref kept its own frame.
+    frame = entry.get("frame") or snapshot.get("frame")
+    window_name = entry.get("window") or snapshot["window"]
     if element is None or is_defunct(element):
         raise HelperError("stale", "stale, take a new snapshot")
-    if frame is None or is_defunct(frame) or name_of(frame) != snapshot["window"]:
+    if frame is None or is_defunct(frame) or name_of(frame) != window_name:
         raise HelperError("stale", "stale, take a new snapshot")
     if role_of(element) != entry["role"] or truncate(name_of(element), MAX_NAME) != entry["name"]:
         raise HelperError("stale", "stale, take a new snapshot")
@@ -678,7 +820,7 @@ def act_request(request):
         "ok": True,
         "action": action,
         "role": entry["role"],
-        "window": snapshot["window"],
+        "window": window_name,
         "app": snapshot["app"],
     }
     if entry["name"]:

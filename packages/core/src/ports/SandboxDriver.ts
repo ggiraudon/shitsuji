@@ -398,6 +398,8 @@ export interface DesktopA11yTreeNode {
   role: string;
   /** The accessible name, when the app publishes one. */
   name?: string;
+  /** The window the node belongs to, when one search covered several windows. */
+  window?: string;
   /** The node's text value, for entries and labels. */
   value?: string;
   /** The AT-SPI states it is in, e.g. `enabled`, `focused`. */
@@ -414,6 +416,8 @@ export interface DesktopA11yTree {
   app: string;
   /** The window title. */
   window: string;
+  /** The windows a search across an app covered, when there was more than one. */
+  windows?: readonly string[];
   /** The snapshot token, stable for this read and required by `actOnElement`. */
   snapshot: string;
   /** The nodes in tree order, limited by the query. */
@@ -440,10 +444,14 @@ export interface DesktopA11yTreeQuery {
 export interface DesktopA11yFindQuery {
   /** The window to search; omitted means the active window. */
   window?: string;
+  /** Search every window of this app, dialogs included, instead of one window. */
+  app?: string;
   /** A substring of the accessible name. */
   name?: string;
   /** A substring of the AT-SPI role. */
   role?: string;
+  /** Match the whole name and role instead of a substring. */
+  exact?: boolean;
 }
 
 /** Act on one node: its ref is only valid for the snapshot it came from. */
