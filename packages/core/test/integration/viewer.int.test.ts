@@ -794,7 +794,7 @@ describe('desktop Calc end to end (S56)', () => {
       // Accented text cannot go through xdotool; it is pasted, and the clipboard must come back.
       const clipboard = await desktop.readClipboard(signal);
       await desktop.writeClipboard('keep me', signal);
-      const accented = await findOne('Calc', { name: 'A2' }, (node) => node.name === 'A2');
+      const accented = await findOne('Calc', { name: 'C1' }, (node) => node.name === 'C1');
       await desktop.actOnElement(
         { snapshot: accented.tree.snapshot, ref: accented.ref, action: 'click' },
         signal,
@@ -804,13 +804,13 @@ describe('desktop Calc end to end (S56)', () => {
       await waitFor(
         async () => {
           try {
-            const tree = await desktop.find({ window: 'Calc', name: 'A2' }, signal);
-            return tree.nodes.some((node) => node.name === 'A2' && node.value === 'éçü');
+            const tree = await desktop.find({ window: 'Calc', name: 'C1' }, signal);
+            return tree.nodes.some((node) => node.name === 'C1' && node.value === 'éçü');
           } catch {
             return false;
           }
         },
-        'the accented value in A2',
+        'the accented value in C1',
         15_000,
       );
       expect(await desktop.readClipboard(signal)).toBe('keep me');

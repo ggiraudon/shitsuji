@@ -50,6 +50,10 @@ const fake = () => {
     async startDetached(argv) {
       calls.push([...argv]);
     },
+    async startDetachedInput(argv, input) {
+      calls.push([...argv]);
+      inputs.push(input);
+    },
   };
   return { runner, calls, inputs };
 };
@@ -140,7 +144,7 @@ describe('sandboxd desktop service (S53)', () => {
   });
 
   it('lists windows and reads the clipboard', async () => {
-    const { runner } = fake();
+    const { runner, inputs } = fake();
     const desktop = service(runner);
     await expect(desktop.windows()).resolves.toEqual({
       windows: [
@@ -167,6 +171,8 @@ describe('sandboxd desktop service (S53)', () => {
       ],
     });
     await expect(desktop.readClipboard()).resolves.toEqual({ text: 'clip text' });
+    await desktop.writeClipboard('new text');
+    expect(inputs.at(-1)).toBe('new text');
   });
 
   it('moves, resizes and focuses a window by id or title (#151)', async () => {

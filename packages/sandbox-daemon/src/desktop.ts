@@ -45,6 +45,8 @@ export interface DesktopCommandRunner {
     options?: { timeoutMs?: number; input?: string | Uint8Array; maxOutputBytes?: number },
   ): Promise<DesktopBinaryResult>;
   startDetached(argv: readonly string[]): Promise<void>;
+  /** Starts a detached process and writes its stdin, without waiting for it to exit (xclip). */
+  startDetachedInput(argv: readonly string[], input: string): Promise<void>;
 }
 
 export interface DesktopRunnerOptions {
@@ -174,6 +176,33 @@ export class SetprivDesktopRunner implements DesktopCommandRunner {
       child.once('spawn', () => {
         child.unref();
         resolve();
+      });
+    });
+  }
+
+  /**
+   * Like `startDetached`, but with stdin. xclip forks a child that owns the selection and keeps
+   * running, so waiting for exit would hang (and killing the group would drop the selection);
+   * this resolves once the input is written and leaves the process alone.
+   */
+  async startDetachedInput(argv: readonly string[], input: string): Promise<void> {
+    const command = setprivCommand([...argv], {
+      uid: this.options.uid,
+      gid: this.options.gid,
+      setprivPath: this.options.setprivPath,
+    });
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(command[0]!, command.slice(1), {
+        env: this.options.env,
+        detached: true,
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      child.once('error', reject);
+      child.once('spawn', () => {
+        child.stdin?.end(input, () => {
+          child.unref();
+          resolve();
+        });
       });
     });
   }
@@ -362,15 +391,23 @@ export class DesktopService {
   private async pasteText(text: string): Promise<void> {
     const previous = (await this.run(['xclip', '-selection', 'clipboard', '-o'], 3_000)).stdout;
     try {
-      const written = await this.run(['xclip', '-selection', 'clipboard', '-i'], 3_000, text);
-      if (written.code !== 0) {
+      try {
+        await this.options.runner.startDetachedInput(
+          ['/usr/bin/xclip', '-selection', 'clipboard', '-i'],
+          text,
+        );
+      } catch {
         throw invalidRequest('The text could not be put on the clipboard for pasting.');
       }
+      // Let the forked xclip take the selection before the app asks for it.
+      await new Promise((resolve) => setTimeout(resolve, 50));
       await this.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+v'], 5_000);
       // The app reads the selection asynchronously; give it a moment before taking it back.
       await new Promise((resolve) => setTimeout(resolve, 250));
     } finally {
-      await this.run(['xclip', '-selection', 'clipboard', '-i'], 3_000, previous);
+      await this.options.runner
+        .startDetachedInput(['/usr/bin/xclip', '-selection', 'clipboard', '-i'], previous)
+        .catch(() => undefined);
     }
   }
 
@@ -437,7 +474,11 @@ export class DesktopService {
   }
 
   async writeClipboard(text: string): Promise<void> {
-    await this.run(['xclip', '-selection', 'clipboard', '-i'], 3_000, text);
+    // xclip keeps a child alive as the selection owner, so this must not wait for exit.
+    await this.options.runner.startDetachedInput(
+      ['/usr/bin/xclip', '-selection', 'clipboard', '-i'],
+      text,
+    );
   }
 
   async ocr(request: DesktopOcrRequest): Promise<DesktopOcrReply> {
