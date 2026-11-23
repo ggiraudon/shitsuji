@@ -241,10 +241,12 @@ export class DesktopInspectTool extends BaseTool<typeof inspectSchema> {
         },
       };
     } catch (error) {
-      return {
-        content: `The accessibility tree could not be read: ${messageOf(error)}`,
-        isError: true,
-      };
+      return errorWithRemedy(
+        `The accessibility tree could not be read: ${messageOf(error)}.`,
+        'name the window or app, e.g. desktop.inspect({ window: "Save" }) or ' +
+          'desktop.inspect({ app: "soffice", find: { name: "OK" } }); if it still fails, ' +
+          'take a screenshot with computer.act.',
+      );
     }
   }
 
@@ -432,12 +434,10 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
 
   async run(args: ActArgs, ctx: ToolContext): Promise<ToolOutput> {
     if (this.isOwner()) {
-      return {
-        content:
-          'The owner has control of the desktop. Reading the tree and screenshots still works, ' +
-          'but the agent cannot click, type, launch or set text until the owner gives it back.',
-        isError: true,
-      };
+      return errorWithRemedy(
+        'The owner has control of the desktop, so the agent cannot click, type, launch or set text.',
+        'read the tree or a screenshot meanwhile, and ask the owner to give control back.',
+      );
     }
     if (args.steps) return this.runSteps(args, ctx);
 
@@ -485,10 +485,7 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
         window = result.window;
       }
     } catch (error) {
-      return {
-        content: `The action was not performed: ${messageOf(error)}`,
-        isError: true,
-      };
+      return actionError(error);
     }
 
     const after =
@@ -531,11 +528,10 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
     try {
       if (args.ref !== undefined) {
         if (args.snapshot === undefined) {
-          return {
-            content:
-              'Focusing a ref needs its snapshot.\nRemedy: pass the snapshot the ref came from.',
-            isError: true,
-          };
+          return errorWithRemedy(
+            `Focusing [${args.ref}] needs the snapshot it came from.`,
+            'pass the snapshot desktop.inspect reported with that ref.',
+          );
         }
         await this.desktop.actOnElement(
           { snapshot: args.snapshot, ref: args.ref, action: 'click' },
@@ -543,7 +539,10 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
         );
       }
     } catch (error) {
-      return { content: `Focusing [${args.ref}] failed: ${messageOf(error)}`, isError: true };
+      return errorWithRemedy(
+        `Focusing [${args.ref}] failed: ${messageOf(error)}.`,
+        'run desktop.inspect again and focus a ref from the new snapshot.',
+      );
     }
 
     for (const [index, step] of steps.entries()) {
@@ -556,10 +555,11 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
       } catch (error) {
         const what =
           step.type !== undefined ? `type ${JSON.stringify(step.type)}` : `key ${step.key}`;
-        return {
-          content: `Step ${index + 1} of ${steps.length} (${what}) failed: ${messageOf(error)}`,
-          isError: true,
-        };
+        return errorWithRemedy(
+          `Step ${index + 1} of ${steps.length} (${what}) failed: ${messageOf(error)}.`,
+          'the steps before it were sent; inspect the window before trying again, and do not ' +
+            'resend the whole batch.',
+        );
       }
     }
 
@@ -740,4 +740,25 @@ function describe(role: string, name: string | undefined): string {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Every desktop tool error is two lines: what failed, then the remedy (#151). */
+function errorWithRemedy(what: string, remedy: string): ToolOutput {
+  const sentence = (text: string) => (text.trimEnd().endsWith('.') ? text.trimEnd() : `${text}.`);
+  return { content: `${sentence(what)}\nRemedy: ${sentence(remedy)}`, isError: true };
+}
+
+/** An act failure: a stale ref needs a new snapshot; anything else needs a fresh look first. */
+function actionError(error: unknown): ToolOutput {
+  const detail = messageOf(error);
+  if (/stale, take a new snapshot/i.test(detail)) {
+    return errorWithRemedy(
+      `The action was not performed: ${detail}.`,
+      'run desktop.inspect on that window again and use a ref from the new snapshot.',
+    );
+  }
+  return errorWithRemedy(
+    `The action was not performed: ${detail}.`,
+    'run desktop.inspect on the window again and retry with a current ref; do not guess coordinates.',
+  );
 }

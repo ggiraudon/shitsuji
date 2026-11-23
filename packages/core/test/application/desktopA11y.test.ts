@@ -384,6 +384,8 @@ describe('desktop.act (S54)', () => {
     const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);
     expect(output.isError).toBe(true);
     expect(output.content).toContain('owner has control');
+    expect(output.content.split('\n')).toHaveLength(2);
+    expect(output.content.split('\n')[1]).toMatch(/^Remedy: /);
     expect(calls).toEqual([]);
 
     const tree = await inspect.run({ window: 'Thunar' }, ctx);
@@ -454,6 +456,21 @@ describe('desktop.act (S54)', () => {
     const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);
     expect(output.isError).toBe(true);
     expect(output.content).toContain('stale, take a new snapshot');
+  });
+
+  it('gives every error a second line with the remedy (#151)', async () => {
+    const { act, inspect } = setup({ stale: true, failInspect: true });
+    const stale = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);
+    const staleLines = stale.content.split('\n');
+    expect(staleLines).toHaveLength(2);
+    expect(staleLines[0]).toContain('stale, take a new snapshot');
+    expect(staleLines[1]).toMatch(/^Remedy: /);
+    expect(staleLines[1]).toContain('desktop.inspect');
+
+    const read = await inspect.run({ window: 'Thunar' }, ctx);
+    const readLines = read.content.split('\n');
+    expect(readLines).toHaveLength(2);
+    expect(readLines[1]).toMatch(/^Remedy: /);
   });
 
   it('registers exactly the three structure-first tools', () => {
