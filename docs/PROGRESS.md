@@ -224,7 +224,7 @@ agent can reach the issues. Decisions Y1–Y4 are made.
       chooser`/`alert` windows and caps a huge Calc grid at 3,000 visits / 1,500 nodes so a tree no
       longer times out. The offline eval has `desktop-calc-structure` (desktop.inspect/act only,
       starts with Calc closed, launches it, zero images) and `desktop-calc-screens` (computer.act);
-      both pass, at 2,000/200 tokens with context 2,585 and 3,200/320 with context 3,498. After the
+      both pass, at 2,000/200 tokens with context 3,247 and 3,200/320 with context 4,160. After the
       live run, `desktop.act` keeps the AT-SPI element of a snapshot ref instead of re-walking the
       tree, takes up to 20 `{type}`/`{key}` steps as one trusted call, and the screen defaults to
       1920x1080 with a `fit-windows` watcher for windows an app opens past an edge. The prompt

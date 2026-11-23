@@ -439,7 +439,7 @@ classDiagram
     computer act
   }
   class DesktopInspectTool {
-    desktop inspect and act
+    desktop inspect, find by app, wait, windows, move
   }
   class MailTools {
     mail tools

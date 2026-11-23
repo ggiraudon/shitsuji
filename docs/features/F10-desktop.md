@@ -302,8 +302,10 @@ export interface DesktopCapability {
   screenshot(opts?: { scale?: number }): Promise<Image>;
   act(action: ComputerAction, signal: AbortSignal): Promise<ActionResult>;
   inspect(request: TreeQuery, signal?: AbortSignal): Promise<Tree>;   // S54
-  find(request: FindQuery, signal?: AbortSignal): Promise<Tree>;      // S54
-  actOnElement(request: ActRequest, signal?: AbortSignal): Promise<ActResult>; // S54
+  find(request: FindQuery, signal?: AbortSignal): Promise<Tree>;      // S54, app/exact #151
+  actOnElement(request: ActRequest, signal?: AbortSignal): Promise<ActResult>; // S54, press list #151
+  windows(signal?: AbortSignal): Promise<Window[]>;
+  windowAction?(request: WindowAction, signal?: AbortSignal): Promise<Window[]>; // #151
   accessibilityStatus(signal?: AbortSignal): Promise<A11yStatus>;     // S54
   liveView(): Promise<LiveViewTicket>;                   // short-lived, owner-scoped URL
   setControl(mode: 'agent' | 'owner' | 'shared'): Promise<void>;
@@ -315,15 +317,34 @@ or macOS desktop (for example through cua's driver), or (much later, opt-in) you
 
 ### Computer-use tool
 
-Two tools, matching the levels above:
+Three structure tools plus the screenshot one, matching the levels above:
 
-- `desktop.inspect({ window?, find?, depth? })` returns the AT-SPI tree or matching elements, with refs and
-  a snapshot id, and `desktop.act({ snapshot, ref, action, text?, key?, app? })` clicks an element, sets
-  its text, types into it, presses a key, or launches an allowed app. After an action, the result holds
-  a fresh tree and snapshot. `type` focuses the ref and sends the characters with the desktop keyboard;
-  `key` presses one of the allow-listed chords. This is what commits a Calc cell: the cell itself is not
-  an editable-text object, but it accepts typing once focused. `launch_app` is here as well as in
-  `computer.act`, so a model without vision can still open the app.
+- `desktop.inspect({ window?, app?, find?, depth? })` returns the AT-SPI tree or matching elements,
+  with refs and a snapshot id. `find` takes `{ name?, role?, exact? }`; `app` searches every window of
+  that application (dialogs and popups included) and each match carries its window, while
+  `role: "dialog"` also matches the `alert` and `file chooser` roles GTK and LibreOffice publish.
+  Without a window, the focused titled window or dialog wins over xfwm4's unnamed frame; an app name
+  prefers its modal dialog over the main window (#151).
+- `desktop.wait({ window?, app?, find?, state?, timeoutMs? })` waits until an element or a window title
+  is present (the default) or absent, then returns the matches or geometry. A timeout is a normal
+  result that names the target, so a launch or a Save click needs one call, not inspect after inspect.
+- `desktop.windows({})` lists the windows with their WM_CLASS app, size, position and id, and
+  `desktop.window({ window, action: 'move' | 'resize' | 'focus', x?, y?, width?, height? })` changes one
+  by id or title substring and returns its new geometry. This is the manual complement to the S56
+  automatic fitting.
+- `desktop.act({ snapshot, ref, action, text?, key?, app? })` clicks an element, sets its text, types
+  into it, presses a key, or launches an allowed app. A press action may be a list such as
+  `press|click`: the helper tries each AT-SPI action name in order, runs the first the element offers,
+  and reports which one ran and whether the app confirmed it. After an action the result names the
+  focused element and every window that appeared (with the new dialog's tree and refs) or closed; it
+  does not re-read the acted window, which took 3.6-4.1 s for the Calc frame while a dialog read takes
+  0.2-0.5 s. Keys and typed text are `sent, unconfirmed`, and nothing is retried automatically (#151).
+- Every desktop tool error is two lines: what failed, then a `Remedy:` naming the next call (inspect
+  again after a stale ref, use the window id, ask the owner to give control back). The model is never
+  left with a dead end (#151).
+- `type` handles accented text: xdotool cannot type non-ASCII, so the daemon saves the clipboard text,
+  pastes through `ctrl+v`, waits for the app to read the selection, and restores the clipboard in a
+  `finally` block (#151).
 - `computer.act` with actions `screenshot`, `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`,
   `type`, `key`, `wait`, `launch_app`, `ocr`. The result always includes a fresh scaled screenshot, so the
   model sees the effect.

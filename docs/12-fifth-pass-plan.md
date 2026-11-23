@@ -189,7 +189,7 @@ keyboard), because a Calc cell is not an AT-SPI editable-text object and `comput
 without a vision model. The helper caps a huge Calc grid, includes `file chooser`/`alert` windows, and
 `ctrl+s` is in the key allow-list. The real integration test opens Calc, fills A1/B1, saves through the
 file chooser and reads `/workspace/calc.csv` with `workspace.exec`. The offline eval reports 2,000/200
-tokens for structure-only (context 2,585) and 3,200/320 for screenshots (context 3,498); the structure
+tokens for structure-only (context 3,247) and 3,200/320 for screenshots (context 4,160); the structure
 run starts with Calc closed, launches it through `desktop.act`, and sends zero images.
 The default screen is now 1920x1080: the Save dialog is 888 px tall, which put its buttons below a
 1440x900 screen. A `fit-windows` watcher (uid 1000) moves and shrinks a window that an app still opens
@@ -197,6 +197,9 @@ past an edge, because xfwm4 has no setting that fits an oversized window; on the
 dialog lands at (403,150) 1124x888, and a forced 2600x2300 window is clamped to the work area. A node
 that the app does not render, or whose centre is off the screen, is marked `(offscreen)`: on a
 1440x900 display the Save dialog's Save and Cancel buttons carry it, and on 1920x1080 they do not.
+Follow-up #151 then added the app-wide search, `desktop.wait`, the focus/window report after an act,
+two-line errors with a remedy, `press|click` fallbacks, `desktop.windows`/`desktop.window`, and
+clipboard typing for accented text; the prompt was kept to one extra bullet.
 
 ### The browser
 

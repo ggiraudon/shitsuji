@@ -19,10 +19,11 @@ export class ComputerUseInjectable extends BaseContextInjectable {
     return [
       'Computer use:',
       '- Launch an allowed app with desktop.act({ action: "launch_app", app: "libreoffice" }); it works without a vision model.',
-      '- Prefer a shortcut, a known name or one sequence over clicking around: find a cell or button with desktop.inspect({ window, find: { name } }), and give one desktop.act up to 20 { type } / { key } steps. Inspect again when you are unsure what is on screen, or when a ref went stale.',
+      '- Prefer a shortcut, a known name or one sequence: desktop.inspect({ app: "soffice", find: { name } }) searches every window of that app, dialogs included, and desktop.wait waits for a window or element after a launch or Save (a timeout is normal). One desktop.act takes up to 20 { type } / { key } steps and reports the focus and any new or closed window, not the whole tree.',
       '- Start with desktop.inspect and its [eN] refs, then desktop.act. Use computer.act only when the tree is missing or the app draws its own pixels; a screenshot costs far more than text. A node marked (offscreen) is not visible: use its ref or scroll, do not click its pixel.',
-      '- A new dialog usually belongs to the app, not the window that opened it. Inspect the app (window "soffice" for LibreOffice) to reach the active dialog, whose accessible name can differ from its title bar.',
+      '- A new dialog belongs to the app, not the window that opened it, and its accessible name can differ from its title: inspect the app (soffice for LibreOffice) or use the window the action reported.',
       '- In a save dialog type a plain file name (calc.csv) or a full path (/workspace/calc.csv); the dialog already points at the workspace, so do not repeat the workspace/ prefix.',
+      '- desktop.windows lists the windows; desktop.window moves, resizes or focuses one that is off screen. Errors have a second Remedy line; "sent, unconfirmed" means the action may not have landed, so inspect before trying again. Accented text is pasted through the clipboard, which is restored.',
       '- If a sign-in, CAPTCHA or password blocks you, ask the owner to take control with computer.request_takeover. Never type a secret the owner did not give you for this action, and never ask them to type a secret while you hold the desktop.',
     ].join('\n');
   }

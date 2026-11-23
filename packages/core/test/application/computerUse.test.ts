@@ -16,9 +16,19 @@ describe('computer-use prompt section (S56)', () => {
   it('prefers a shortcut or one input batch, spells out the dialog and save rules (S56)', () => {
     const text = new ComputerUseInjectable().render();
     expect(text).toContain('find: { name }');
+    expect(text).toContain('app: "soffice"');
     expect(text).toContain('20 { type } / { key } steps');
-    expect(text).toContain('window "soffice"');
     expect(text).toContain('do not repeat the workspace/ prefix');
     expect(text).toContain('(offscreen)');
+  });
+
+  it('names the app search, wait, window tools and the two-line errors (#151)', () => {
+    const text = new ComputerUseInjectable().render();
+    expect(text).toContain('desktop.wait');
+    expect(text).toContain('desktop.windows');
+    expect(text).toContain('desktop.window ');
+    expect(text).toContain('Remedy line');
+    expect(text).toContain('sent, unconfirmed');
+    expect(text).toContain('pasted through the clipboard');
   });
 });
