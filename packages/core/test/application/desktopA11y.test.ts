@@ -9,7 +9,11 @@ import {
   formatA11yFind,
   formatA11yTree,
 } from '../../src/application/desktop/formatTree.js';
-import type { DesktopA11yTree, DesktopCapability } from '../../src/ports/SandboxDriver.js';
+import type {
+  DesktopA11yTree,
+  DesktopCapability,
+  DesktopWindow,
+} from '../../src/ports/SandboxDriver.js';
 import { effectOf, type ToolContext } from '../../src/ports/Tool.js';
 
 const WINDOW = 's54-folder - File Manager';
@@ -88,6 +92,35 @@ const appTree = (snapshot = 's5'): DesktopA11yTree => ({
   truncated: false,
 });
 
+const replaceTree = (snapshot = 's6'): DesktopA11yTree => ({
+  app: 'soffice',
+  window: 'Replace?',
+  snapshot,
+  nodes: [
+    { ref: 'e1', depth: 0, role: 'alert', name: 'Replace?', states: [], actions: [] },
+    {
+      ref: 'e2',
+      depth: 1,
+      role: 'push button',
+      name: 'Replace',
+      states: ['focused'],
+      actions: ['click'],
+    },
+  ],
+  total: 2,
+  truncated: false,
+});
+
+const windowItem = (id: string, title: string): DesktopWindow => ({
+  id,
+  title,
+  x: 0,
+  y: 0,
+  width: 100,
+  height: 100,
+  desktop: 0,
+});
+
 const ctx = {
   turnId: 't1',
   sessionId: 's1',
@@ -98,20 +131,38 @@ const ctx = {
 } as unknown as ToolContext;
 
 function setup(
-  options: { stale?: boolean; failInspect?: boolean; owner?: boolean; failXdotool?: boolean } = {},
+  options: {
+    stale?: boolean;
+    failInspect?: boolean;
+    owner?: boolean;
+    failXdotool?: boolean;
+    /** Windows returned by each successive list: before, after, and the poll after a launch. */
+    windows?: DesktopWindow[][];
+    pollMs?: number;
+  } = {},
 ) {
   const calls: { kind: string; request: unknown }[] = [];
+  let lists = 0;
   const desktop = {
     accessibility: true,
     screenshots: true,
     inspect: async (request: unknown) => {
       calls.push({ kind: 'inspect', request });
       if (options.failInspect) throw new Error('The accessibility tree is not available.');
+      const requested = (request as { window?: string }).window;
+      if (requested === 'Replace?') return replaceTree('s4');
+      if (requested && requested !== WINDOW && requested !== 'Thunar') {
+        return { ...tree('s4'), window: requested, app: 'soffice' };
+      }
       return tree('s4');
     },
     find: async (request: unknown) => {
       calls.push({ kind: 'find', request });
       return (request as { app?: string }).app ? appTree('s5') : tree('s5');
+    },
+    windows: async () => {
+      const option = options.windows ?? [[]];
+      return option[Math.min(lists++, option.length - 1)]!;
     },
     actOnElement: async (request: { action: 'click' | 'set_text' }) => {
       calls.push({ kind: 'act', request });
@@ -133,7 +184,9 @@ function setup(
   return {
     calls,
     inspect: new DesktopInspectTool(desktop),
-    act: new DesktopActTool(desktop, () => options.owner ?? false),
+    act: new DesktopActTool(desktop, () => options.owner ?? false, {
+      pollMs: options.pollMs ?? 1,
+    }),
     tools: desktopA11yTools(desktop, () => options.owner ?? false),
   };
 }
@@ -247,34 +300,41 @@ describe('desktop.act (S54)', () => {
     const { act, calls } = setup();
     const output = await act.run({ snapshot: 's3', ref: 'e6', action: 'type', text: '42' }, ctx);
     expect(output.content).toContain('Typed 2 characters into [e6]');
+    expect(output.content).toContain(
+      'Focus: push button "Open" [e6] in "s54-folder - File Manager".',
+    );
+    expect(output.content).toContain('No window appeared or closed.');
+    expect(output.content).toContain('other refs from snapshot s3 still work');
+    expect(output.data).toMatchObject({ snapshot: 's3' });
     expect(calls).toEqual([
       { kind: 'act', request: { snapshot: 's3', ref: 'e6', action: 'click' } },
       { kind: 'xdotool', request: { kind: 'type', text: '42' } },
-      { kind: 'inspect', request: { window: WINDOW } },
     ]);
   });
 
-  it('presses an allow-listed key without a ref and re-reads the active window (S56)', async () => {
+  it('presses an allow-listed key and says the app does not confirm it (#151)', async () => {
     const { act, calls } = setup();
     const output = await act.run({ snapshot: 's3', action: 'key', key: 'ctrl+s' }, ctx);
-    expect(output.content).toContain('Pressed ctrl+s');
-    expect(calls).toEqual([
-      { kind: 'xdotool', request: { kind: 'key', key: 'ctrl+s' } },
-      { kind: 'inspect', request: {} },
-    ]);
+    expect(output.content).toContain('Pressed ctrl+s (sent; the app does not confirm a key).');
+    expect(output.content).toContain('No window appeared or closed.');
+    expect(calls).toEqual([{ kind: 'xdotool', request: { kind: 'key', key: 'ctrl+s' } }]);
     expect(
       act.input.safeParse({ snapshot: 's3', action: 'key', key: 'ctrl+alt+delete' }).success,
     ).toBe(false);
     expect(act.input.safeParse({ snapshot: 's3', action: 'key' }).success).toBe(false);
   });
 
-  it('launches an allowed app without computer.act or a vision model (S56 follow-up)', async () => {
-    const { act, calls } = setup();
+  it('launches an allowed app and reports the window it opens (S56, #151)', async () => {
+    const { act, calls } = setup({
+      windows: [[], [], [windowItem('0x2', 'LibreOffice Calc')]],
+    });
     const output = await act.run({ snapshot: 's1', action: 'launch_app', app: 'libreoffice' }, ctx);
     expect(output.content).toContain('Launched libreoffice');
+    expect(output.content).toContain('New window appeared: soffice — "LibreOffice Calc".');
+    expect(output.data).toMatchObject({ snapshot: 's4', appeared: ['LibreOffice Calc'] });
     expect(calls).toEqual([
       { kind: 'xdotool', request: { kind: 'launch_app', app: 'libreoffice' } },
-      { kind: 'inspect', request: {} },
+      { kind: 'inspect', request: { window: 'LibreOffice Calc' } },
     ]);
     expect(
       act.input.safeParse({ snapshot: 's1', action: 'launch_app', app: 'firefox' }).success,
@@ -289,12 +349,12 @@ describe('desktop.act (S54)', () => {
       ctx,
     );
     expect(output.content).toContain('Ran 3 steps after focusing [e3]');
+    expect(output.content).toContain('No window appeared or closed.');
     expect(calls).toEqual([
       { kind: 'act', request: { snapshot: 's1', ref: 'e3', action: 'click' } },
       { kind: 'xdotool', request: { kind: 'type', text: '42' } },
       { kind: 'xdotool', request: { kind: 'key', key: 'Tab' } },
       { kind: 'xdotool', request: { kind: 'type', text: '7' } },
-      { kind: 'inspect', request: {} },
     ]);
     expect(
       act.input.safeParse({
@@ -321,7 +381,8 @@ describe('desktop.act (S54)', () => {
     const tree = await inspect.run({ window: 'Thunar' }, ctx);
     expect(tree.content).toContain('snapshot s4');
   });
-  it('clicks a ref, then returns a fresh tree and snapshot', async () => {
+
+  it('clicks a ref and reports its focus without re-reading the window (#151)', async () => {
     const { act, calls } = setup();
     expect(act.target).toBe('desktop');
     expect(act.untrustedOutput).toBe(true);
@@ -329,11 +390,43 @@ describe('desktop.act (S54)', () => {
 
     const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);
     expect(output.content).toContain('Clicked [e5] push button "Open"');
-    expect(output.content).toContain('snapshot s4');
-    expect(output.data).toMatchObject({ action: 'click', ref: 'e5', snapshot: 's4' });
+    expect(output.content).toContain('Focus: push button "Open" [e5]');
+    expect(output.content).toContain('other refs from snapshot s3 still work');
+    expect(output.content).not.toContain('snapshot s4');
+    expect(output.data).toMatchObject({ action: 'click', ref: 'e5', snapshot: 's3' });
     expect(calls).toEqual([
       { kind: 'act', request: { snapshot: 's3', ref: 'e5', action: 'click' } },
-      { kind: 'inspect', request: { window: WINDOW } },
+    ]);
+  });
+
+  it('reports the modal alert a click opened, with its refs (#151)', async () => {
+    const { act, calls } = setup({
+      windows: [[], [windowItem('0x9', 'Replace?')]],
+    });
+    const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);
+    expect(output.content).toContain('New window appeared: soffice — "Replace?".');
+    expect(output.content).toContain('push button "Replace" [e2] (focused)');
+    expect(output.content).toContain('Focus: push button "Replace" [e2] in "Replace?"');
+    expect(output.content).not.toContain('other refs from snapshot s3');
+    expect(output.data).toMatchObject({
+      snapshot: 's4',
+      window: 'Replace?',
+      appeared: ['Replace?'],
+    });
+    expect(calls).toEqual([
+      { kind: 'act', request: { snapshot: 's3', ref: 'e5', action: 'click' } },
+      { kind: 'inspect', request: { window: 'Replace?' } },
+    ]);
+  });
+
+  it('reports a window that closed (#151)', async () => {
+    const { act, calls } = setup({
+      windows: [[windowItem('0x9', 'Replace?')], []],
+    });
+    const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'click' }, ctx);
+    expect(output.content).toContain('Closed window "Replace?".');
+    expect(calls).toEqual([
+      { kind: 'act', request: { snapshot: 's3', ref: 'e5', action: 'click' } },
     ]);
   });
 

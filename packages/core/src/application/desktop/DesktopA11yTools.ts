@@ -4,6 +4,7 @@ import type {
   DesktopA11yFindQuery,
   DesktopA11yTree,
   DesktopCapability,
+  DesktopWindow,
 } from '../../ports/SandboxDriver.js';
 import {
   BaseTool,
@@ -231,8 +232,9 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
   readonly name = 'desktop.act';
   readonly description =
     'Click an element, set its text, type into it, press a key, or launch an allowed app using a ref ' +
-    'from desktop.inspect. The result is a fresh tree and snapshot. A ref whose window changed is ' +
-    'refused with "stale, take a new snapshot".';
+    'from desktop.inspect. The result says what got the focus and which windows appeared or closed; ' +
+    'it does not re-read the whole window, so inspect again when you need fresh refs. A ref whose ' +
+    'window changed is refused with "stale, take a new snapshot".';
   readonly input = actSchema;
   override readonly target = 'desktop' as const;
   override readonly untrustedOutput = true;
@@ -241,6 +243,7 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
   constructor(
     private readonly desktop: DesktopCapability,
     private readonly isOwner: () => boolean = () => false,
+    private readonly options: { pollMs?: number } = {},
   ) {
     super();
   }
@@ -257,6 +260,7 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
     if (args.steps) return this.runSteps(args, ctx);
 
     const action = args.action!;
+    const before = await this.listWindows(ctx);
     let acted: string;
     let window = '';
     let app: string | undefined;
@@ -270,7 +274,7 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
         app = args.app;
       } else if (action === 'key') {
         await this.desktop.act({ kind: 'key', key: args.key! }, ctx.signal);
-        acted = `Pressed ${args.key}.`;
+        acted = `Pressed ${args.key} (sent; the app does not confirm a key).`;
       } else {
         const result = await this.desktop.actOnElement(
           {
@@ -305,29 +309,35 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
       };
     }
 
-    let tree: DesktopA11yTree | undefined;
-    try {
-      tree =
-        action === 'key' || action === 'launch_app'
-          ? await this.desktop.inspect({}, ctx.signal)
-          : await this.desktop.inspect({ window }, ctx.signal);
-      window ??= tree.window;
-    } catch {
-      // The action itself succeeded; a failed re-read only means no fresh tree to show.
+    const after =
+      action === 'launch_app' ? await this.waitForWindow(before, ctx) : await this.listWindows(ctx);
+    const changes = await this.reportChanges(before, after, ctx);
+    const focus =
+      changes.focus ??
+      (ref !== undefined && role !== 'keyboard'
+        ? `Focus: ${describe(role, name)} [${ref}] in "${window}".`
+        : undefined);
+    const lines = [acted, ...changes.lines];
+    if (focus) lines.push(focus);
+    if (!changes.snapshot && args.snapshot !== undefined) {
+      lines.push(
+        `The tree was not re-read: other refs from snapshot ${args.snapshot} still work; ` +
+          'inspect again when you need fresh ones.',
+      );
     }
     return {
-      content: [acted, tree ? formatA11yTree(tree) : 'The tree could not be read again.'].join(
-        '\n',
-      ),
+      content: lines.join('\n'),
       data: {
         action: args.action,
         ...(ref && { ref }),
         ...(args.key && { key: args.key }),
-        snapshot: tree?.snapshot ?? args.snapshot,
-        window: window ?? '',
-        ...(app && { app }),
+        snapshot: changes.snapshot ?? args.snapshot,
+        window: changes.window ?? window,
+        ...((changes.app ?? app) && { app: changes.app ?? app }),
         role,
         ...(name && { name }),
+        appeared: changes.appeared,
+        closed: changes.closed,
       },
     };
   }
@@ -335,10 +345,15 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
   /** One trust call for a short keyboard sequence; stops at the first failing step. */
   private async runSteps(args: ActArgs, ctx: ToolContext): Promise<ToolOutput> {
     const steps = args.steps!;
+    const before = await this.listWindows(ctx);
     try {
       if (args.ref !== undefined) {
         if (args.snapshot === undefined) {
-          return { content: 'Focusing a ref needs its snapshot.', isError: true };
+          return {
+            content:
+              'Focusing a ref needs its snapshot.\nRemedy: pass the snapshot the ref came from.',
+            isError: true,
+          };
         }
         await this.desktop.actOnElement(
           { snapshot: args.snapshot, ref: args.ref, action: 'click' },
@@ -366,25 +381,153 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
       }
     }
 
-    let tree: DesktopA11yTree | undefined;
-    try {
-      tree = await this.desktop.inspect({}, ctx.signal);
-    } catch {
-      // The steps succeeded; a failed re-read only means no fresh tree to show.
-    }
+    const after = await this.listWindows(ctx);
+    const changes = await this.reportChanges(before, after, ctx);
+    const lines = [
+      `Ran ${steps.length} steps${args.ref ? ` after focusing [${args.ref}]` : ''} ` +
+        '(keys and typed text are sent; the app does not confirm them).',
+      ...changes.lines,
+    ];
+    if (changes.focus) lines.push(changes.focus);
     return {
-      content: [
-        `Ran ${steps.length} steps${args.ref ? ` after focusing [${args.ref}]` : ''}.`,
-        tree ? formatA11yTree(tree) : 'The tree could not be read again.',
-      ].join('\n'),
+      content: lines.join('\n'),
       data: {
         steps: steps.length,
         ...(args.ref && { ref: args.ref }),
-        ...(tree && { snapshot: tree.snapshot, window: tree.window }),
+        ...(changes.snapshot && { snapshot: changes.snapshot }),
+        ...(changes.window && { window: changes.window }),
+        appeared: changes.appeared,
+        closed: changes.closed,
         role: 'keyboard',
       },
     };
   }
+
+  /** The top-level windows, or undefined when the list itself fails (never an action failure). */
+  private async listWindows(ctx: ToolContext): Promise<readonly DesktopWindow[] | undefined> {
+    try {
+      return await this.desktop.windows(ctx.signal);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * A launched app takes a moment to map its window; poll for a new one, bounded, then report what
+   * there is. This waits on the desktop, it does not repeat the launch.
+   */
+  private async waitForWindow(
+    before: readonly DesktopWindow[] | undefined,
+    ctx: ToolContext,
+  ): Promise<readonly DesktopWindow[] | undefined> {
+    let current = await this.listWindows(ctx);
+    if (!before || !current) return current;
+    const deadline = Date.now() + 5_000;
+    while (current && !hasNewWindow(before, current) && Date.now() < deadline) {
+      try {
+        await sleep(this.options.pollMs ?? 250, ctx.signal);
+      } catch {
+        break;
+      }
+      current = await this.listWindows(ctx);
+    }
+    return current;
+  }
+
+  /** What appeared or closed, with a small tree for each new window; never re-reads the old window. */
+  private async reportChanges(
+    before: readonly DesktopWindow[] | undefined,
+    after: readonly DesktopWindow[] | undefined,
+    ctx: ToolContext,
+  ): Promise<{
+    lines: string[];
+    appeared: string[];
+    closed: string[];
+    focus?: string;
+    snapshot?: string;
+    window?: string;
+    app?: string;
+  }> {
+    const lines: string[] = [];
+    if (!before || !after) {
+      return { lines, appeared: [], closed: [] };
+    }
+    const appearedWindows = interesting(after).filter((item) => !hasWindow(before, item));
+    const closed = interesting(before).filter((item) => !hasWindow(after, item));
+    const appeared: string[] = [];
+    let snapshot: string | undefined;
+    let window: string | undefined;
+    let app: string | undefined;
+    let focus: string | undefined;
+    for (const item of appearedWindows.slice(0, 3)) {
+      appeared.push(item.title);
+      let tree: DesktopA11yTree | undefined;
+      try {
+        tree = await this.desktop.inspect({ window: item.title }, ctx.signal);
+      } catch {
+        // The window may still be drawing; the model can inspect it next.
+      }
+      if (!tree) {
+        lines.push(`New window "${item.title}" appeared (its tree is not readable yet).`);
+        continue;
+      }
+      lines.push(`New window appeared: ${tree.app} — "${tree.window}".`);
+      lines.push(formatA11yTree(tree));
+      snapshot ??= tree.snapshot;
+      window ??= tree.window;
+      app ??= tree.app;
+      const focused = tree.nodes.find((node) => node.states.includes('focused'));
+      focus ??=
+        focused &&
+        `Focus: ${describe(focused.role, focused.name)} [${focused.ref}] in "${tree.window}".`;
+    }
+    for (const item of closed.slice(0, 3)) {
+      lines.push(`Closed window "${item.title}".`);
+    }
+    const closedTitles = closed.map((item) => item.title);
+    if (appeared.length === 0 && closedTitles.length === 0) {
+      lines.push('No window appeared or closed.');
+    }
+    return {
+      lines,
+      appeared,
+      closed: closedTitles,
+      ...(focus && { focus }),
+      ...(snapshot && { snapshot }),
+      ...(window && { window }),
+      ...(app && { app }),
+    };
+  }
+}
+
+function interesting(windows: readonly DesktopWindow[]): DesktopWindow[] {
+  return windows.filter((item) => item.title.trim() !== '' && item.title !== 'Desktop');
+}
+
+function hasWindow(windows: readonly DesktopWindow[], item: DesktopWindow): boolean {
+  return windows.some((candidate) => candidate.id === item.id);
+}
+
+function hasNewWindow(before: readonly DesktopWindow[], after: readonly DesktopWindow[]): boolean {
+  return interesting(after).some((item) => !hasWindow(before, item));
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('The wait was aborted.'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(new Error('The wait was aborted.'));
+    };
+    signal.addEventListener('abort', abort, { once: true });
+  });
 }
 
 /** The two structure-first tools, registered only when the driver advertises accessibility. */
