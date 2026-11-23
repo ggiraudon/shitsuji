@@ -477,6 +477,7 @@ export class DesktopWindowsTool extends BaseTool<typeof windowsSchema> {
     'Use desktop.window to move, resize or focus one.';
   readonly input = windowsSchema;
   override readonly target = 'desktop' as const;
+  override readonly untrustedOutput = true;
   readonly effect: ToolEffect = 'read';
 
   constructor(private readonly desktop: DesktopCapability) {
@@ -516,6 +517,7 @@ export class DesktopWindowTool extends BaseTool<typeof windowActionSchema> {
     'the change, so an off-screen window can be brought back without guessing a pixel.';
   readonly input = windowActionSchema;
   override readonly target = 'desktop' as const;
+  override readonly untrustedOutput = true;
   readonly effect: ToolEffect = 'write_local';
 
   constructor(

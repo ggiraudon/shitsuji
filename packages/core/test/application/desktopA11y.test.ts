@@ -529,6 +529,9 @@ describe('desktop.windows and desktop.window (#151)', () => {
   it('lists the windows with their app, geometry and id', async () => {
     const { tools } = setup({ windows: [[alert]] });
     const windowsTool = tools.find((tool) => tool.name === 'desktop.windows')!;
+    const windowTool = tools.find((tool) => tool.name === 'desktop.window')!;
+    expect(windowsTool.untrustedOutput).toBe(true);
+    expect(windowTool.untrustedOutput).toBe(true);
     const output = await windowsTool.run({}, ctx);
     expect(output.content).toContain('1 window:');
     expect(output.content).toContain('window "Replace?" (soffice) 100x100 at 0,0 [0x2]');
