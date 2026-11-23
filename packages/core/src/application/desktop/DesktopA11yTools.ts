@@ -508,11 +508,20 @@ export class DesktopWindowTool extends BaseTool<typeof windowActionSchema> {
   override readonly target = 'desktop' as const;
   readonly effect: ToolEffect = 'write_local';
 
-  constructor(private readonly desktop: DesktopCapability) {
+  constructor(
+    private readonly desktop: DesktopCapability,
+    private readonly isOwner: () => boolean = () => false,
+  ) {
     super();
   }
 
   async run(args: WindowActionArgs, ctx: ToolContext): Promise<ToolOutput> {
+    if (this.isOwner()) {
+      return errorWithRemedy(
+        'The owner has control of the desktop, so the agent cannot move, resize or focus windows.',
+        'list the windows or read the tree meanwhile, and ask the owner to give control back.',
+      );
+    }
     if (!this.desktop.windowAction) {
       return errorWithRemedy(
         'This desktop cannot move windows.',
@@ -897,7 +906,7 @@ export function desktopA11yTools(
     new DesktopInspectTool(desktop),
     new DesktopWaitTool(desktop),
     new DesktopWindowsTool(desktop),
-    new DesktopWindowTool(desktop),
+    new DesktopWindowTool(desktop, isOwner),
     new DesktopActTool(desktop, isOwner),
   ];
 }

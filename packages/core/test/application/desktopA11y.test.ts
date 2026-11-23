@@ -568,6 +568,22 @@ describe('desktop.windows and desktop.window (#151)', () => {
     expect(windowTool.input.safeParse({ window: 'x', action: 'focus', x: 1 }).success).toBe(false);
     expect(windowTool.input.safeParse({ window: 'x', action: 'focus' }).success).toBe(true);
   });
+
+  it('refuses to move or focus a window while the owner has control (#151)', async () => {
+    const { tools, calls } = setup({ owner: true, windows: [[alert]] });
+    const windowTool = tools.find((tool) => tool.name === 'desktop.window')!;
+    const windowsTool = tools.find((tool) => tool.name === 'desktop.windows')!;
+
+    const refused = await windowTool.run({ window: '0x2', action: 'focus' }, ctx);
+    expect(refused.isError).toBe(true);
+    expect(refused.content).toContain('owner has control');
+    expect(refused.content.split('\n')).toHaveLength(2);
+    expect(refused.content.split('\n')[1]).toMatch(/^Remedy: /);
+    expect(calls).toEqual([]);
+
+    const listed = await windowsTool.run({}, ctx);
+    expect(listed.content).toContain('window "Replace?"');
+  });
 });
 
 describe('desktop.wait (#151)', () => {
