@@ -404,6 +404,8 @@ WINDOW_ROLES = ("frame", "dialog", "window", "file chooser", "color chooser", "a
 DIALOG_ROLES = ("dialog", "alert", "file chooser", "color chooser")
 # `role: "dialog"` finds the app's popups whatever role they actually publish.
 ROLE_FAMILIES = {"dialog": DIALOG_ROLES}
+# A plain click tries these names before falling back to the element's first action (S54).
+LEGACY_CLICK_ACTIONS = ("click", "press", "activate", "open", "jump", "toggle")
 
 
 def windows():
@@ -769,6 +771,8 @@ def act_request(request):
     if truncate(text_value(element, entry["role"]), MAX_VALUE) != entry["value"]:
         raise HelperError("stale", "stale, take a new snapshot")
     action = request.get("action")
+    ran = None
+    confirmed = False
     if action == "set_text":
         text = request.get("text")
         if not isinstance(text, str):
@@ -784,41 +788,49 @@ def act_request(request):
         except Exception:
             pass
         try:
-            editable.setTextContents(text[:10000])
+            outcome = editable.setTextContents(text[:10000])
+            confirmed = outcome is not False
         except Exception:
             raise HelperError("failed", "The text could not be set.")
-    elif action == "click":
+        ran = "set text"
+    elif isinstance(action, str) and action:
         try:
             element.queryComponent().grabFocus()
         except Exception:
             pass
-        clicked = False
+        candidates = [name.strip().casefold() for name in action.split("|") if name.strip()]
+        if action == "click":
+            # A plain click keeps the permissive search from S54: many apps call it press/activate.
+            candidates += [name for name in LEGACY_CLICK_ACTIONS if name not in candidates]
         try:
             actions = element.queryAction()
-            for index in range(actions.nActions):
-                name = (actions.getName(index) or "").casefold()
-                if name in ("click", "press", "activate", "open", "jump", "toggle"):
-                    actions.doAction(index)
-                    clicked = True
-                    break
-            if not clicked and actions.nActions > 0:
-                actions.doAction(0)
-                clicked = True
         except Exception:
-            clicked = False
-        if not clicked:
-            try:
-                element.queryComponent().grabFocus()
-                clicked = True
-            except Exception:
-                clicked = False
-        if not clicked:
-            raise HelperError("invalid", "The element has no click action.")
+            actions = None
+        if actions is not None:
+            names = [actions.getName(index) or "" for index in range(actions.nActions)]
+            folded = [name.casefold() for name in names]
+            for candidate in candidates:
+                if candidate in folded:
+                    index = folded.index(candidate)
+                    outcome = actions.doAction(index)
+                    ran = names[index] or candidate
+                    confirmed = outcome is not False
+                    break
+            if ran is None and action == "click" and actions.nActions > 0:
+                # Last resort for a plain click, as before S56: a role with one unnamed action.
+                outcome = actions.doAction(0)
+                ran = names[0] or "click"
+                confirmed = outcome is not False
+        if ran is None:
+            ran = "focus"
+            confirmed = False
     else:
         raise HelperError("invalid", "Unknown action.")
     result = {
         "ok": True,
         "action": action,
+        "ran": ran,
+        "confirmed": bool(confirmed),
         "role": entry["role"],
         "window": window_name,
         "app": snapshot["app"],

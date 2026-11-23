@@ -1,5 +1,5 @@
 import { z } from 'zod/v4';
-import { DESKTOP_A11Y_ACTIONS, DESKTOP_APPS, DESKTOP_KEYS } from '@shitsuji/sandbox-protocol';
+import { DESKTOP_APPS, DESKTOP_KEYS, DESKTOP_A11Y_PRESS_ACTIONS } from '@shitsuji/sandbox-protocol';
 import type {
   DesktopA11yFindQuery,
   DesktopA11yTree,
@@ -123,13 +123,32 @@ const batchStepSchema = z
     message: 'give exactly one of type or key',
   });
 
+const pressAction = z
+  .string()
+  .max(200)
+  .regex(
+    new RegExp(
+      `^(${DESKTOP_A11Y_PRESS_ACTIONS.join('|')})(\\|(${DESKTOP_A11Y_PRESS_ACTIONS.join('|')})){0,3}$`,
+    ),
+    'is not a press action list',
+  );
+
 const actSchema = z
   .object({
     /** The snapshot the ref came from, as desktop.inspect reported it. */
     snapshot: snapshot.optional(),
     /** Required for click, set_text and type; a key press may act on the focused window. */
     ref: ref.optional(),
-    action: z.enum([...DESKTOP_A11Y_ACTIONS, 'type', 'key', 'launch_app'] as const).optional(),
+    /** A press list such as `press|click` tries each name in order; the result says which ran. */
+    action: z
+      .union([
+        pressAction,
+        z.literal('set_text'),
+        z.literal('type'),
+        z.literal('key'),
+        z.literal('launch_app'),
+      ])
+      .optional(),
     /** The replacement text for set_text or the characters to type. */
     text: z.string().max(10_000).optional(),
     /** The key or chord for `key`, from the desktop allow-list. */
@@ -456,7 +475,7 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
         app = args.app;
       } else if (action === 'key') {
         await this.desktop.act({ kind: 'key', key: args.key! }, ctx.signal);
-        acted = `Pressed ${args.key} (sent; the app does not confirm a key).`;
+        acted = `Pressed ${args.key} (sent, unconfirmed; no retry).`;
       } else {
         const result = await this.desktop.actOnElement(
           {
@@ -470,17 +489,25 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
         role = result.role;
         name = result.name;
         app = result.app;
+        const ran = result.ran ? ` (ran ${result.ran})` : '';
+        const unsure = result.confirmed === false ? ' (sent, unconfirmed; no retry)' : '';
         if (action === 'type') {
           await this.desktop.act({ kind: 'type', text: args.text! }, ctx.signal);
           acted =
             `Typed ${args.text!.length} characters into [${args.ref}] ` +
-            `${describe(result.role, result.name)} in "${result.window}".`;
+            `${describe(result.role, result.name)} in "${result.window}" (sent, unconfirmed; no retry).`;
         } else if (action === 'click') {
-          acted = `Clicked [${args.ref}] ${describe(result.role, result.name)} in "${result.window}".`;
-        } else {
+          acted =
+            `Clicked [${args.ref}] ${describe(result.role, result.name)} ` +
+            `in "${result.window}"${ran}${unsure}.`;
+        } else if (action === 'set_text') {
           acted =
             `Set the text of [${args.ref}] ${describe(result.role, result.name)} ` +
-            `(${args.text?.length ?? 0} characters).`;
+            `(${args.text?.length ?? 0} characters)${unsure}.`;
+        } else {
+          acted =
+            `Ran ${action} on [${args.ref}] ${describe(result.role, result.name)} ` +
+            `in "${result.window}"${ran}${unsure}.`;
         }
         window = result.window;
       }

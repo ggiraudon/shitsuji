@@ -141,6 +141,8 @@ function setup(
     windows?: DesktopWindow[][];
     /** Trees returned by each successive find, for the wait tool. */
     finds?: DesktopA11yTree[];
+    /** What actOnElement reports as its run action and confirmation. */
+    actResult?: { ran?: string; confirmed?: boolean };
     pollMs?: number;
   } = {},
 ) {
@@ -176,6 +178,7 @@ function setup(
       if (options.stale) throw new Error('stale, take a new snapshot');
       return {
         action: request.action,
+        ...(options.actResult ?? { ran: request.action, confirmed: true }),
         role: 'push button',
         name: 'Open',
         window: WINDOW,
@@ -323,7 +326,7 @@ describe('desktop.act (S54)', () => {
   it('presses an allow-listed key and says the app does not confirm it (#151)', async () => {
     const { act, calls } = setup();
     const output = await act.run({ snapshot: 's3', action: 'key', key: 'ctrl+s' }, ctx);
-    expect(output.content).toContain('Pressed ctrl+s (sent; the app does not confirm a key).');
+    expect(output.content).toContain('Pressed ctrl+s (sent, unconfirmed; no retry).');
     expect(output.content).toContain('No window appeared or closed.');
     expect(calls).toEqual([{ kind: 'xdotool', request: { kind: 'key', key: 'ctrl+s' } }]);
     expect(
@@ -407,6 +410,37 @@ describe('desktop.act (S54)', () => {
     expect(calls).toEqual([
       { kind: 'act', request: { snapshot: 's3', ref: 'e5', action: 'click' } },
     ]);
+  });
+
+  it('tries press|click in order and reports which ran, or unconfirmed (#151)', async () => {
+    const { act, calls } = setup({ actResult: { ran: 'press', confirmed: true } });
+    const output = await act.run({ snapshot: 's3', ref: 'e5', action: 'press|click' }, ctx);
+    expect(output.content).toContain('Ran press|click on [e5]');
+    expect(output.content).toContain('(ran press)');
+    expect(output.content).not.toContain('unconfirmed');
+    expect(calls[0]).toEqual({
+      kind: 'act',
+      request: { snapshot: 's3', ref: 'e5', action: 'press|click' },
+    });
+
+    const { act: unsure } = setup({ actResult: { ran: 'focus', confirmed: false } });
+    const unsureOut = await unsure.run({ snapshot: 's3', ref: 'e5', action: 'press|click' }, ctx);
+    expect(unsureOut.content).toContain('(ran focus)');
+    expect(unsureOut.content).toContain('sent, unconfirmed; no retry');
+  });
+
+  it('only accepts known press names in a fallback list (#151)', () => {
+    const { act } = setup();
+    expect(act.input.safeParse({ snapshot: 's3', ref: 'e5', action: 'press|click' }).success).toBe(
+      true,
+    );
+    expect(act.input.safeParse({ snapshot: 's3', ref: 'e5', action: 'press|nope' }).success).toBe(
+      false,
+    );
+    expect(act.input.safeParse({ snapshot: 's3', ref: 'e5', action: 'click' }).success).toBe(true);
+    expect(act.input.safeParse({ snapshot: 's3', ref: 'e5', action: 'set_text' }).success).toBe(
+      false,
+    );
   });
 
   it('reports the modal alert a click opened, with its refs (#151)', async () => {

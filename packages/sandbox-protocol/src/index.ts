@@ -417,9 +417,27 @@ export type DesktopOcrReply = z.infer<typeof desktopOcrReplySchema>;
 
 // ---- accessibility tree (S54) ------------------------------------------------------------------
 
-/** Actions `desktop.act` may run on an element ref; both are local desktop writes. */
+/** AT-SPI action names `desktop.act` may try, in the order the model writes them (S56, #151). */
+export const DESKTOP_A11Y_PRESS_ACTIONS = [
+  'click',
+  'press',
+  'activate',
+  'open',
+  'jump',
+  'toggle',
+] as const;
+/** The act actions that write through the tree; `set_text` is the other one. */
 export const DESKTOP_A11Y_ACTIONS = ['click', 'set_text'] as const;
-export const desktopA11yActionSchema = z.enum(DESKTOP_A11Y_ACTIONS);
+const a11yPressPattern = new RegExp(
+  `^(${DESKTOP_A11Y_PRESS_ACTIONS.join('|')})(\\|(${DESKTOP_A11Y_PRESS_ACTIONS.join('|')})){0,3}$`,
+);
+/** A press list like `press|click`, or `set_text`; the helper reports which one ran. */
+export const desktopA11yActionSchema = z
+  .string()
+  .max(200)
+  .refine((value) => value === 'set_text' || a11yPressPattern.test(value), {
+    message: 'is not a press action list or set_text',
+  });
 export type DesktopA11yAction = z.infer<typeof desktopA11yActionSchema>;
 
 /** A ref is snapshot-scoped and never an AT-SPI object path. */
@@ -524,6 +542,10 @@ export const desktopA11yActReplySchema = z
   .object({
     ok: z.literal(true),
     action: desktopA11yActionSchema,
+    /** The AT-SPI action that actually ran, or `focus` when none did (#151). */
+    ran: z.string().max(80).optional(),
+    /** False when the app did not confirm the action; the tool says "sent, unconfirmed". */
+    confirmed: z.boolean().optional(),
     role: z.string().min(1).max(200),
     name: z.string().max(500).optional(),
     /** The window and app the element belongs to, so the caller can take a fresh snapshot. */

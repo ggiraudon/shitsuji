@@ -460,8 +460,8 @@ export interface DesktopA11yActRequest {
   snapshot: string;
   /** The node to act on. */
   ref: string;
-  /** The action to perform. */
-  action: 'click' | 'set_text';
+  /** A press list like `press|click`, or `set_text`. */
+  action: string;
   /** The replacement text for `set_text`, as one value; never a shell string. */
   text?: string;
 }
@@ -469,7 +469,11 @@ export interface DesktopA11yActRequest {
 /** What acting on a node did, and which window to re-read afterwards. */
 export interface DesktopA11yActResult {
   /** The action that ran. */
-  action: 'click' | 'set_text';
+  action: string;
+  /** The AT-SPI action that actually ran, or `focus` when none did (#151). */
+  ran?: string;
+  /** False when the app did not confirm the action. */
+  confirmed?: boolean;
   /** The role of the node it ran on. */
   role: string;
   /** The node's accessible name, when it had one. */
