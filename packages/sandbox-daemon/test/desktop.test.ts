@@ -26,9 +26,11 @@ const service = (runner: DesktopCommandRunner) => new DesktopService({ runner })
 
 const fake = () => {
   const calls: string[][] = [];
+  const inputs: (string | Uint8Array | undefined)[] = [];
   const runner: DesktopCommandRunner = {
-    async run(argv) {
+    async run(argv, options) {
       calls.push([...argv]);
+      if (argv[0] === 'xclip' && argv.includes('-i')) inputs.push(options?.input);
       if (argv[0] === 'xdpyinfo') {
         return ok('  dimensions:    1440x900 pixels (381x238 millimeters)');
       }
@@ -49,7 +51,7 @@ const fake = () => {
       calls.push([...argv]);
     },
   };
-  return { runner, calls };
+  return { runner, calls, inputs };
 };
 
 describe('sandboxd desktop service (S53)', () => {
@@ -116,6 +118,16 @@ describe('sandboxd desktop service (S53)', () => {
     ]);
     await desktop.keyboard({ action: 'key', key: 'ctrl+l' });
     expect(calls.at(-1)).toEqual(['xdotool', 'key', '--clearmodifiers', 'ctrl+l']);
+  });
+
+  it('pastes é ç ü through the clipboard and restores the previous text (#151)', async () => {
+    const { runner, calls, inputs } = fake();
+    const desktop = service(runner);
+    await desktop.keyboard({ action: 'type', text: 'éçü' });
+    expect(calls.some((call) => call[0] === 'xdotool' && call[1] === 'type')).toBe(false);
+    expect(calls).toContainEqual(['xclip', '-selection', 'clipboard', '-o']);
+    expect(calls).toContainEqual(['xdotool', 'key', '--clearmodifiers', 'ctrl+v']);
+    expect(inputs).toEqual(['éçü', 'clip text']);
   });
 
   it('launches only an allowed app, detached', async () => {

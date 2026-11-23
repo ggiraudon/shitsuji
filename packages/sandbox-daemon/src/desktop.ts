@@ -343,6 +343,12 @@ export class DesktopService {
     action: { action: 'type'; text: string } | { action: 'key'; key: DesktopKey },
   ): Promise<void> {
     if (action.action === 'type') {
+      // xdotool cannot type non-ASCII ("Invalid multi-byte sequence"); those go through the
+      // clipboard, which is restored afterwards (#151).
+      if (NON_ASCII.test(action.text)) {
+        await this.pasteText(action.text);
+        return;
+      }
       await this.run(
         ['xdotool', 'type', '--clearmodifiers', '--delay', '20', '--', action.text],
         10_000,
@@ -350,6 +356,22 @@ export class DesktopService {
       return;
     }
     await this.run(['xdotool', 'key', '--clearmodifiers', action.key]);
+  }
+
+  /** Pastes accented or other non-ASCII text, then puts the previous clipboard text back. */
+  private async pasteText(text: string): Promise<void> {
+    const previous = (await this.run(['xclip', '-selection', 'clipboard', '-o'], 3_000)).stdout;
+    try {
+      const written = await this.run(['xclip', '-selection', 'clipboard', '-i'], 3_000, text);
+      if (written.code !== 0) {
+        throw invalidRequest('The text could not be put on the clipboard for pasting.');
+      }
+      await this.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+v'], 5_000);
+      // The app reads the selection asynchronously; give it a moment before taking it back.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    } finally {
+      await this.run(['xclip', '-selection', 'clipboard', '-i'], 3_000, previous);
+    }
   }
 
   async windows(): Promise<DesktopWindowsReply> {
@@ -484,6 +506,9 @@ export class DesktopService {
 
 const button = (name: 'left' | 'right' | 'middle'): string =>
   name === 'right' ? '3' : name === 'middle' ? '2' : '1';
+
+/** Anything xdotool cannot type as a key sequence: accented letters, CJK, emoji (#151). */
+const NON_ASCII = /[^\t\n\r\x20-\x7e]/;
 
 /** The window a selector names: an id, an exact title, or a title substring (#151). */
 function resolveWindow(
