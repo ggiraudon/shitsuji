@@ -225,6 +225,8 @@ export interface DesktopCapability {
   screenshot(opts?: { scale?: number }, signal?: AbortSignal): Promise<DesktopImage>;
   /** The top-level windows, so the model can aim at one rather than guess coordinates. */
   windows(signal?: AbortSignal): Promise<DesktopWindow[]>;
+  /** Moves, resizes or focuses one window and returns the updated list (#151). */
+  windowAction?(request: DesktopWindowAction, signal?: AbortSignal): Promise<DesktopWindow[]>;
   /** Performs one pointer, keyboard or launch action; the signal stops a slow one. */
   act(action: DesktopAction, signal: AbortSignal): Promise<void>;
   /** Text found on screen, optionally inside a region; read-only, for the model to inspect. */
@@ -287,6 +289,24 @@ export interface DesktopWindow {
   height: number;
   /** The virtual desktop the window is on. */
   desktop: number;
+  /** The WM_CLASS application, e.g. `soffice` (#151). */
+  app?: string;
+}
+
+/** Move, resize or focus one window (#151). */
+export interface DesktopWindowAction {
+  /** The window id (`0x…`) or a title substring. */
+  window: string;
+  /** What to change; move needs x/y, resize needs width/height. */
+  action: 'move' | 'resize' | 'focus';
+  /** Left edge for move. */
+  x?: number;
+  /** Top edge for move. */
+  y?: number;
+  /** Width for resize. */
+  width?: number;
+  /** Height for resize. */
+  height?: number;
 }
 
 /** A rectangle on the display, in pixels. */

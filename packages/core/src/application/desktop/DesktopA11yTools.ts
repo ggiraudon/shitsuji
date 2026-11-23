@@ -111,6 +111,40 @@ const waitSchema = z
     }
   });
 
+const windowsSchema = z.object({}).strict();
+
+const windowActionSchema = z
+  .object({
+    /** The window id (`0x…`) or a title substring. */
+    window: windowName,
+    action: z.enum(['move', 'resize', 'focus']),
+    x: z.number().int().min(-100_000).max(100_000).optional(),
+    y: z.number().int().min(-100_000).max(100_000).optional(),
+    width: z.number().int().min(50).max(100_000).optional(),
+    height: z.number().int().min(50).max(100_000).optional(),
+  })
+  .strict()
+  .superRefine((args, ctx) => {
+    if (args.action === 'move' && (args.x === undefined || args.y === undefined)) {
+      ctx.addIssue({ code: 'custom', path: ['x'], message: 'is required for move' });
+    }
+    if (args.action === 'resize' && (args.width === undefined || args.height === undefined)) {
+      ctx.addIssue({ code: 'custom', path: ['width'], message: 'is required for resize' });
+    }
+    if (args.action !== 'move' && args.y !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['y'], message: 'is only for move' });
+    }
+    if (args.action === 'focus' && args.x !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['x'], message: 'is only for move' });
+    }
+    if (args.action !== 'resize' && args.width !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['width'], message: 'is only for resize' });
+    }
+    if (args.action !== 'resize' && args.height !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['height'], message: 'is only for resize' });
+    }
+  });
+
 const batchStepSchema = z
   .object({
     /** Characters to type in this step. */
@@ -219,6 +253,7 @@ const actSchema = z
 
 type InspectArgs = z.infer<typeof inspectSchema>;
 type WaitArgs = z.infer<typeof waitSchema>;
+type WindowActionArgs = z.infer<typeof windowActionSchema>;
 type ActArgs = z.infer<typeof actSchema>;
 
 /**
@@ -390,7 +425,7 @@ export class DesktopWaitTool extends BaseTool<typeof waitSchema> {
       met,
       ...(met &&
         present && {
-          content: matches.map((item) => formatWindow(item)).join('\n'),
+          content: matches.map((item) => windowLine(item)).join('\n'),
         }),
     };
   }
@@ -411,10 +446,6 @@ function targetOf(args: WaitArgs): string {
   return `a window titled "${args.window ?? ''}"`;
 }
 
-function formatWindow(item: DesktopWindow): string {
-  return `window "${item.title}" ${item.width}x${item.height} at ${item.x},${item.y}`;
-}
-
 function toWaitFindQuery(args: WaitArgs): DesktopA11yFindQuery {
   return {
     ...(args.window && { window: args.window }),
@@ -423,6 +454,124 @@ function toWaitFindQuery(args: WaitArgs): DesktopA11yFindQuery {
     ...(args.find?.role && { role: args.find.role }),
     ...(args.find?.exact !== undefined && { exact: args.find.exact }),
   };
+}
+
+/**
+ * `desktop.windows` (#151): the open windows with their app, size, position and id, dialogs
+ * included, so the model can pick the window it means or fix one that is off screen.
+ */
+export class DesktopWindowsTool extends BaseTool<typeof windowsSchema> {
+  readonly name = 'desktop.windows';
+  readonly description =
+    'List the desktop windows with their application, size, position and id, dialogs included. ' +
+    'Use desktop.window to move, resize or focus one.';
+  readonly input = windowsSchema;
+  override readonly target = 'desktop' as const;
+  readonly effect: ToolEffect = 'read';
+
+  constructor(private readonly desktop: DesktopCapability) {
+    super();
+  }
+
+  async run(_args: z.infer<typeof windowsSchema>, ctx: ToolContext): Promise<ToolOutput> {
+    let windows: readonly DesktopWindow[];
+    try {
+      windows = await this.desktop.windows(ctx.signal);
+    } catch (error) {
+      return errorWithRemedy(
+        `The windows could not be listed: ${messageOf(error)}.`,
+        'try again; if it still fails, take a screenshot with computer.act.',
+      );
+    }
+    const shown = windows.filter(isShownWindow);
+    if (shown.length === 0) return { content: 'No windows are open.', data: { windows: 0 } };
+    return {
+      content: [
+        `${shown.length} window${shown.length === 1 ? '' : 's'}:`,
+        ...shown.map((item) => windowLine(item)),
+      ].join('\n'),
+      data: { windows: shown.length },
+    };
+  }
+}
+
+/**
+ * `desktop.window` (#151): moves, resizes or focuses one window, on top of S56's automatic fitting.
+ * The reply is the window's geometry after the change.
+ */
+export class DesktopWindowTool extends BaseTool<typeof windowActionSchema> {
+  readonly name = 'desktop.window';
+  readonly description =
+    'Move, resize or focus one window by id or title substring. The result is its geometry after ' +
+    'the change, so an off-screen window can be brought back without guessing a pixel.';
+  readonly input = windowActionSchema;
+  override readonly target = 'desktop' as const;
+  readonly effect: ToolEffect = 'write_local';
+
+  constructor(private readonly desktop: DesktopCapability) {
+    super();
+  }
+
+  async run(args: WindowActionArgs, ctx: ToolContext): Promise<ToolOutput> {
+    if (!this.desktop.windowAction) {
+      return errorWithRemedy(
+        'This desktop cannot move windows.',
+        'use desktop.inspect to work in the window as it is, or take a screenshot with computer.act.',
+      );
+    }
+    let windows: readonly DesktopWindow[];
+    try {
+      windows = await this.desktop.windowAction(
+        {
+          window: args.window,
+          action: args.action,
+          ...(args.x !== undefined && { x: args.x }),
+          ...(args.y !== undefined && { y: args.y }),
+          ...(args.width !== undefined && { width: args.width }),
+          ...(args.height !== undefined && { height: args.height }),
+        },
+        ctx.signal,
+      );
+    } catch (error) {
+      return errorWithRemedy(
+        `The window was not ${args.action === 'move' ? 'moved' : args.action === 'resize' ? 'resized' : 'focused'}: ${messageOf(error)}.`,
+        'run desktop.windows and use the window id or a longer title substring.',
+      );
+    }
+    const target =
+      windows.find((item) => item.id === args.window) ??
+      windows.find((item) => item.title.toLowerCase().includes(args.window.toLowerCase()));
+    const what = target ? windowLine(target) : `window "${args.window}"`;
+    const acted =
+      args.action === 'focus'
+        ? `Focused ${what}.`
+        : args.action === 'move'
+          ? `Moved ${what} to ${args.x},${args.y}.`
+          : `Resized ${what} to ${args.width}x${args.height}.`;
+    return {
+      content: acted,
+      data: {
+        action: args.action,
+        window: target?.title ?? args.window,
+        ...(target && {
+          geometry: { x: target.x, y: target.y, width: target.width, height: target.height },
+        }),
+      },
+    };
+  }
+}
+
+function isShownWindow(item: DesktopWindow): boolean {
+  return (
+    item.title.trim() !== '' &&
+    item.title !== 'Desktop' &&
+    !['xfce4-panel', 'xfwm4', 'xfdesktop', 'xfsettingsd'].includes(item.app ?? '')
+  );
+}
+
+function windowLine(item: DesktopWindow): string {
+  const app = item.app ? ` (${item.app})` : '';
+  return `window "${item.title}"${app} ${item.width}x${item.height} at ${item.x},${item.y} [${item.id}]`;
 }
 
 /**
@@ -747,6 +896,8 @@ export function desktopA11yTools(
   return [
     new DesktopInspectTool(desktop),
     new DesktopWaitTool(desktop),
+    new DesktopWindowsTool(desktop),
+    new DesktopWindowTool(desktop),
     new DesktopActTool(desktop, isOwner),
   ];
 }

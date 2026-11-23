@@ -24,6 +24,7 @@ import {
   desktopScreenshotQuerySchema,
   desktopScreenshotReplySchema,
   desktopStateReplySchema,
+  desktopWindowActionRequestSchema,
   desktopWindowsReplySchema,
   errorReplySchema,
   execEventSchema,
@@ -230,6 +231,14 @@ export function createSandboxServer(deps: SandboxServerDeps): http.Server {
           const request = parse(desktopLaunchRequestSchema, body);
           await desktop().launch(request.app);
           return send(res, 200, desktopLaunchReplySchema.parse({ launched: true }));
+        }
+        case SANDBOX_ROUTES.desktopWindow: {
+          const request = parse(desktopWindowActionRequestSchema, body);
+          return send(
+            res,
+            200,
+            desktopWindowsReplySchema.parse(await desktop().windowAction(request)),
+          );
         }
         case SANDBOX_ROUTES.desktopClipboard: {
           const request = parse(desktopClipboardRequestSchema, body);

@@ -16,6 +16,7 @@ import {
   desktopOkReplySchema,
   desktopScreenshotReplySchema,
   desktopStateReplySchema,
+  desktopWindowActionRequestSchema,
   desktopWindowsReplySchema,
   errorReplySchema,
   execEventSchema,
@@ -49,6 +50,7 @@ import type {
   DesktopRect,
   DesktopState,
   DesktopWindow,
+  DesktopWindowAction,
   ExecEvent,
   ExecRequest,
   FullViewerCredentials,
@@ -465,6 +467,15 @@ export class ShitsujiDesktop implements DesktopCapability {
 
   async windows(): Promise<DesktopWindow[]> {
     const reply = await this.client.call(SANDBOX_ROUTES.desktopWindows, desktopWindowsReplySchema);
+    return reply.windows;
+  }
+
+  async windowAction(request: DesktopWindowAction): Promise<DesktopWindow[]> {
+    const reply = await this.client.call(
+      SANDBOX_ROUTES.desktopWindow,
+      desktopWindowsReplySchema,
+      desktopWindowActionRequestSchema.parse(request),
+    );
     return reply.windows;
   }
 

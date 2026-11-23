@@ -173,6 +173,10 @@ function setup(
       const option = options.windows ?? [[]];
       return option[Math.min(lists++, option.length - 1)]!;
     },
+    windowAction: async (request: unknown) => {
+      calls.push({ kind: 'window', request });
+      return options.windows ? options.windows.at(-1)! : [];
+    },
     actOnElement: async (request: { action: 'click' | 'set_text' }) => {
       calls.push({ kind: 'act', request });
       if (options.stale) throw new Error('stale, take a new snapshot');
@@ -507,13 +511,62 @@ describe('desktop.act (S54)', () => {
     expect(readLines[1]).toMatch(/^Remedy: /);
   });
 
-  it('registers exactly the three structure-first tools', () => {
+  it('registers exactly the five desktop tools', () => {
     const { tools } = setup();
     expect(tools.map((tool) => tool.name)).toEqual([
       'desktop.inspect',
       'desktop.wait',
+      'desktop.windows',
+      'desktop.window',
       'desktop.act',
     ]);
+  });
+});
+
+describe('desktop.windows and desktop.window (#151)', () => {
+  const alert = { ...windowItem('0x2', 'Replace?'), app: 'soffice' };
+
+  it('lists the windows with their app, geometry and id', async () => {
+    const { tools } = setup({ windows: [[alert]] });
+    const windowsTool = tools.find((tool) => tool.name === 'desktop.windows')!;
+    const output = await windowsTool.run({}, ctx);
+    expect(output.content).toContain('1 window:');
+    expect(output.content).toContain('window "Replace?" (soffice) 100x100 at 0,0 [0x2]');
+  });
+
+  it('moves, resizes and focuses a window by id, reporting the geometry', async () => {
+    const { tools, calls } = setup({ windows: [[alert]] });
+    const windowTool = tools.find((tool) => tool.name === 'desktop.window')!;
+
+    const moved = await windowTool.run({ window: '0x2', action: 'move', x: 10, y: 20 }, ctx);
+    expect(moved.content).toContain(
+      'Moved window "Replace?" (soffice) 100x100 at 0,0 [0x2] to 10,20.',
+    );
+    expect(calls).toContainEqual({
+      kind: 'window',
+      request: { window: '0x2', action: 'move', x: 10, y: 20 },
+    });
+
+    const resized = await windowTool.run(
+      { window: 'Replace?', action: 'resize', width: 800, height: 600 },
+      ctx,
+    );
+    expect(resized.content).toContain('Resized window "Replace?"');
+    expect(resized.content).toContain('to 800x600');
+
+    const focused = await windowTool.run({ window: '0x2', action: 'focus' }, ctx);
+    expect(focused.content).toContain('Focused window "Replace?"');
+  });
+
+  it('requires coordinates for move and a size for resize (#151)', () => {
+    const { tools } = setup();
+    const windowTool = tools.find((tool) => tool.name === 'desktop.window')!;
+    expect(windowTool.input.safeParse({ window: 'x', action: 'move' }).success).toBe(false);
+    expect(windowTool.input.safeParse({ window: 'x', action: 'resize', width: 800 }).success).toBe(
+      false,
+    );
+    expect(windowTool.input.safeParse({ window: 'x', action: 'focus', x: 1 }).success).toBe(false);
+    expect(windowTool.input.safeParse({ window: 'x', action: 'focus' }).success).toBe(true);
   });
 });
 

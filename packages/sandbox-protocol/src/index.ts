@@ -378,6 +378,8 @@ export const desktopWindowSchema = z
     width: z.number().int().nonnegative(),
     height: z.number().int().nonnegative(),
     desktop: z.number().int(),
+    /** The window's WM_CLASS application, e.g. `soffice` (#151). */
+    app: z.string().max(200).optional(),
   })
   .strict();
 export type DesktopWindow = z.infer<typeof desktopWindowSchema>;
@@ -386,6 +388,51 @@ export const desktopWindowsReplySchema = z
   .object({ windows: z.array(desktopWindowSchema) })
   .strict();
 export type DesktopWindowsReply = z.infer<typeof desktopWindowsReplySchema>;
+
+/** Move, resize or focus one window; the reply is the window list after the change (#151). */
+export const desktopWindowActionRequestSchema = z
+  .object({
+    /** The window id (`0x…`) or a title substring. */
+    window: z.string().min(1).max(500),
+    action: z.enum(['move', 'resize', 'focus']),
+    x: z.number().int().min(-100_000).max(100_000).optional(),
+    y: z.number().int().min(-100_000).max(100_000).optional(),
+    width: z.number().int().min(50).max(100_000).optional(),
+    height: z.number().int().min(50).max(100_000).optional(),
+  })
+  .strict()
+  .superRefine((request, ctx) => {
+    if (request.action === 'move' && (request.x === undefined || request.y === undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['x'], message: 'is required for move' });
+    }
+    if (
+      request.action === 'resize' &&
+      (request.width === undefined || request.height === undefined)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['width'],
+        message: 'is required for resize',
+      });
+    }
+    if (request.action === 'focus' && request.x !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['x'], message: 'is only for move' });
+    }
+    if (request.action !== 'move' && request.y !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['y'], message: 'is only for move' });
+    }
+    if (request.action !== 'resize' && request.width !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['width'], message: 'is only for resize' });
+    }
+    if (request.action !== 'resize' && request.height !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['height'],
+        message: 'is only for resize',
+      });
+    }
+  });
+export type DesktopWindowActionRequest = z.infer<typeof desktopWindowActionRequestSchema>;
 
 export const desktopLaunchRequestSchema = z.object({ app: desktopAppSchema }).strict();
 export type DesktopLaunchRequest = z.infer<typeof desktopLaunchRequestSchema>;
@@ -627,6 +674,7 @@ export const SANDBOX_ROUTES = {
   desktopInputMouse: '/desktop/input/mouse',
   desktopInputKeyboard: '/desktop/input/keyboard',
   desktopWindows: '/desktop/windows',
+  desktopWindow: '/desktop/window',
   desktopLaunch: '/desktop/apps/launch',
   desktopClipboard: '/desktop/clipboard',
   desktopOcr: '/desktop/ocr',

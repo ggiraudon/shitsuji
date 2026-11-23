@@ -11,6 +11,7 @@ import {
   type DesktopScreenshotReply,
   type DesktopStateReply,
   type DesktopWindow,
+  type DesktopWindowActionRequest,
   type DesktopWindowsReply,
 } from '@shitsuji/sandbox-protocol';
 import { invalidRequest, SandboxHttpError } from './errors.js';
@@ -352,13 +353,15 @@ export class DesktopService {
   }
 
   async windows(): Promise<DesktopWindowsReply> {
-    const result = await this.run(['wmctrl', '-l', '-G'], 5_000);
+    const result = await this.run(['wmctrl', '-l', '-x', '-G'], 5_000);
     const windows: DesktopWindow[] = [];
     for (const line of result.stdout.split('\n')) {
-      const match = /^(\S+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s?(.*)$/.exec(
-        line.trim(),
-      );
+      const match =
+        /^(\S+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s?(.*)$/.exec(
+          line.trim(),
+        );
       if (!match) continue;
+      const identifier = match[8]!;
       windows.push({
         id: match[1]!,
         desktop: Number(match[2]),
@@ -366,10 +369,33 @@ export class DesktopService {
         y: Number(match[4]),
         width: Number(match[5]),
         height: Number(match[6]),
-        title: match[8] ?? '',
+        title: match[9] ?? '',
+        ...(identifier !== 'N/A' && {
+          app: identifier.split('.')[0]?.toLowerCase() || undefined,
+        }),
       });
     }
     return { windows };
+  }
+
+  /** Moves, resizes or focuses one window; the reply is the list after the change (#151). */
+  async windowAction(request: DesktopWindowActionRequest): Promise<DesktopWindowsReply> {
+    const windows = (await this.windows()).windows;
+    const target = resolveWindow(windows, request.window);
+    if (!target) throw invalidRequest(`No window matches "${request.window}".`);
+    if (request.action === 'focus') {
+      await this.run(['wmctrl', '-i', '-a', target.id], 5_000);
+    } else {
+      const x = request.action === 'move' ? String(request.x) : '-1';
+      const y = request.action === 'move' ? String(request.y) : '-1';
+      const width = request.action === 'resize' ? String(request.width) : '-1';
+      const height = request.action === 'resize' ? String(request.height) : '-1';
+      await this.run(
+        ['wmctrl', '-i', '-r', target.id, '-e', `0,${x},${y},${width},${height}`],
+        5_000,
+      );
+    }
+    return this.windows();
   }
 
   async launch(app: DesktopApp): Promise<void> {
@@ -458,3 +484,16 @@ export class DesktopService {
 
 const button = (name: 'left' | 'right' | 'middle'): string =>
   name === 'right' ? '3' : name === 'middle' ? '2' : '1';
+
+/** The window a selector names: an id, an exact title, or a title substring (#151). */
+function resolveWindow(
+  windows: readonly DesktopWindow[],
+  selector: string,
+): DesktopWindow | undefined {
+  const byId = windows.find((item) => item.id === selector);
+  if (byId) return byId;
+  const needle = selector.toLowerCase();
+  const exact = windows.find((item) => item.title.toLowerCase() === needle);
+  if (exact) return exact;
+  return windows.find((item) => item.title.toLowerCase().includes(needle));
+}

@@ -34,7 +34,7 @@ const fake = () => {
       }
       if (argv[0] === 'wmctrl') {
         return ok(
-          '0x01e00028  0 0 0 1440 900 host Desktop\n0x02e00033  0 10 20 500 400 host s53-folder - File Manager\n',
+          '0x01e00028  0 0 0 1440 900 host xfdesktop.Xfdesktop Desktop\n0x02e00033  0 10 20 500 400 host thunar.Thunar s53-folder - File Manager\n',
         );
       }
       if (argv[0] === 'xclip') return ok('clip text');
@@ -132,7 +132,16 @@ describe('sandboxd desktop service (S53)', () => {
     const desktop = service(runner);
     await expect(desktop.windows()).resolves.toEqual({
       windows: [
-        { id: '0x01e00028', desktop: 0, x: 0, y: 0, width: 1440, height: 900, title: 'Desktop' },
+        {
+          id: '0x01e00028',
+          desktop: 0,
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          title: 'Desktop',
+          app: 'xfdesktop',
+        },
         {
           id: '0x02e00033',
           desktop: 0,
@@ -141,10 +150,34 @@ describe('sandboxd desktop service (S53)', () => {
           width: 500,
           height: 400,
           title: 's53-folder - File Manager',
+          app: 'thunar',
         },
       ],
     });
     await expect(desktop.readClipboard()).resolves.toEqual({ text: 'clip text' });
+  });
+
+  it('moves, resizes and focuses a window by id or title (#151)', async () => {
+    const { runner, calls } = fake();
+    const desktop = service(runner);
+
+    await desktop.windowAction({ window: '0x02e00033', action: 'move', x: 40, y: 60 });
+    expect(calls).toContainEqual(['wmctrl', '-i', '-r', '0x02e00033', '-e', '0,40,60,-1,-1']);
+
+    await desktop.windowAction({
+      window: 'File Manager',
+      action: 'resize',
+      width: 800,
+      height: 600,
+    });
+    expect(calls).toContainEqual(['wmctrl', '-i', '-r', '0x02e00033', '-e', '0,-1,-1,800,600']);
+
+    await desktop.windowAction({ window: 'file manager', action: 'focus' });
+    expect(calls).toContainEqual(['wmctrl', '-i', '-a', '0x02e00033']);
+
+    await expect(
+      desktop.windowAction({ window: 'no such window', action: 'focus' }),
+    ).rejects.toBeInstanceOf(SandboxHttpError);
   });
 
   it('OCRs through ffmpeg stdin and tesseract stdin, with no temp path', async () => {
