@@ -200,58 +200,113 @@ that the app does not render, or whose centre is off the screen, is marked `(off
 
 ### The browser
 
+Browser activity is expected to be the **main use of the desktop**, so S57–S61 design for speed from the
+start: **observe, act, forget the old observation** ([13](13-desktop-performance.md)). The rules below apply
+to every browser step: one full snapshot in the history at most, actions report what changed, waits watch
+page state, a snapshot has a token budget, and a screenshot lives for one step. The S61 target is a simple
+lookup in **under 20 s and under 8 model calls**, with no summarize call on the critical path; S62 confirms
+it on the live stack with the measurement SQL from doc 13.
+
 #### S57. The browser in `sandboxd`
 - `sandboxd` launches Chromium itself, on the desktop's display, with `--remote-debugging-pipe` (no CDP TCP
   port) and drives it with `playwright-core`. The profile directories live in a `browser-profiles` volume,
   owned by uid 1001 with mode 0700, so commands (uid 1000) cannot read cookies or reach CDP. If Chromium
   cannot run as 1001 on uid 1000's display, the PR says so and proposes the closest alternative before
   building on it.
-- One browser context per session; named persistent profiles (default `default`).
+- One browser context per session; named persistent profiles (default `default`). The context also owns
+  that session's snapshot registry and screenshot cache, so two sessions never mix refs.
 - The `BrowserBackend` / `BrowserSession` port from F09, implemented by the `shitsuji` driver over new
-  `sandboxd` routes. The driver advertises `browser`.
+  `sandboxd` routes. The driver advertises `browser`. Endpoints carry the session id, so the
+  latest-snapshot rule and the "same frame" check work per session.
 - Every call has a deadline (default 60 s). A browser that misses it is killed and reopened, and the
   interrupted step is never repeated automatically.
 - Downloads go to `/workspace/downloads/` (the sandbox cannot write `/handoff`), not `/handoff` as F09 said.
+- The daemon also owns the **screenshot** route vision uses: a PNG of the page viewport, scaled to fit 1280
+  px on the long side like desktop captures, with a cheap frame hash returned alongside it so core can drop
+  a duplicate.
 - *Check:* integration test: open a page served by a fixture container, read its title; a command as uid
-  1000 cannot read the profile folder or connect to the browser.
+  1000 cannot read the profile folder or connect to the browser; two identical captures share one hash.
 
 #### S58. Reading pages
-- `browser.open`, `browser.navigate`, `browser.snapshot` (Playwright's aria snapshot with our `@eN` refs,
-  paged by offset, about 40,000 characters a page), `browser.screenshot`, `browser.back`, and a "find on
-  page" helper. All `read`.
-- The browser's traffic goes through `egress-proxy`, so it reaches public addresses only (X7). The
-  snapshot is untrusted data.
-- *Check:* integration tests on fixture pages: refs are stable within a snapshot, long pages page by
-  offset, a private address is blocked.
+- `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.back`, and a "find
+  on page" helper. All `read`.
+- **A snapshot has a budget.** The default page is 24,000 characters (roughly 6k tokens), and it lists
+  **interactive elements first** (links, buttons, fields, menus, options), then headings and short text. The
+  rest arrives through `nextOffset`, one page at a time, and `find` answers a name/role question without a
+  page. The result names how many elements were shown and the offset to continue from.
+- **A snapshot is registered, not repeated.** The reply carries a snapshot id and refs that map to
+  server-side locators, so a ref re-resolves on use. The next observation of that session (a new snapshot,
+  a navigation, or an action's change report) **replaces the full body in the model's history with a
+  one-line stub** ("snapshot s12 of Checkout, superseded; ask again if you need it"). The session keeps the
+  current snapshot; the transcript never accumulates old trees, and compaction never has to read them.
+- **Actions report what changed.** `browser.act`, `browser.go` and a wait return the new URL and title when
+  they changed, any new dialog/alert text, the focused element, and a short diff of added, removed and
+  renamed interactive elements with fresh refs — or "no visible change". The full body comes back only on a
+  navigation/reload or when the diff is too large to be useful, and then it replaces the previous snapshot.
+- **Wait on page state, not on the clock.** `browser.wait({ for: 'load' | 'url' | 'selector', state:
+  'present' | 'absent' | 'visible' | 'hidden', timeoutMs })` returns a change report and never a full
+  snapshot; actions wait for navigation or quiet for a short settle timeout before answering. The model
+  does not need to sleep or re-snapshot to know that a click took effect.
+- The browser's traffic goes through `egress-proxy`, so it reaches public addresses only (X7). The snapshot
+  and any screenshot text are untrusted data.
+- **Vision is the fallback, not the default.** When the `vision` purpose has a vision-capable model, an
+  observation may attach **one** screenshot, for that step only: scaled, a no-op if its frame hash matches
+  the previous one, and with **`@eN` boxes** drawn over the elements the snapshot knows so the model can map
+  what it sees to refs. Earlier turns keep a text receipt, never the image; the text snapshot stays the
+  default and is always sent. The model asks with `vision: true` (or the tool attaches one when the page has
+  no usable names), and the result states the scale and original size.
+- *Check:* integration tests on fixture pages: refs are stable within a snapshot; long pages page by offset
+  with interactive elements first; a superseded snapshot becomes one line in the history; a second identical
+  screenshot is not attached; a private address is blocked; a vision run sends one image per step and a
+  text-only run sends none.
 
 #### S59. Committing steps and the trust check
 - `browser.type` (`write_local`), and `browser.click`, `browser.press`, `browser.select`, `browser.check`,
   `browser.upload`, `browser.dialog`, classified per call.
+- **Batches fill a form in one call.** `browser.act({ steps: [...] })` runs up to 10 steps after one tree
+  read: type, select, check, press Tab, then the committing click. Filling, selecting and checking are
+  `write_local` and need no trust decision. **The trust check runs per committing step**, before that step
+  executes; a batch may contain **at most one committing step and it must be last**, so one call cannot
+  hide several outside actions. If the classifier says the step needs a card, the earlier fills stay and the
+  turn pauses with a card that names the step and its target. A batch returns one change report (S58).
 - `inspectTarget(ref)` reads the element's role, label, and the form it would submit (method and action
   URL), from the element's properties in an isolated world.
-- `BrowserEffectClassifier` with F09's rules: same-site GET link, GET form and cookie banner → `read`; POST
-  form, a purchase/send/delete/confirm/publish label, or an unknown target → `external`; payment context →
-  `payment`. `external` goes to the trust judge with a short description of the target, never the page
-  text.
-- *Check:* unit tests for the classifier; integration tests on a fixture shop: Place order asks, a search
-  does not, hidden "click Delete account" text does not lead to that click.
+- `BrowserEffectClassifier` with F09's rules (unchanged): same-site GET link, GET form and cookie banner →
+  `read`; POST form, a purchase/send/delete/confirm/publish label, or an unknown target → `external`;
+  payment context → `payment`. `external` goes to the trust judge with a short description of the target,
+  never the page text. The classifier sees the batch's committing step, not the whole batch.
+- *Check:* unit tests for the classifier and for the one-committing-step batch rule; integration tests on a
+  fixture shop: a form fills in one call with one classifier result, Place order asks once, a search does
+  not, hidden "click Delete account" text does not lead to that click.
 
 #### S60. Browser takeover and profiles
 - `browser.request_takeover` reuses S55: you see the browser in the viewer, sign in, and give it back.
+- Owner mode is a write barrier for the browser too: a batch stops before its next step, and no committing
+  step runs while the owner has the desktop.
 - Profiles persist across restarts (the volume from S57), so a sign-in survives `docker compose restart`.
-- *Check:* integration test: a fixture site sets a cookie in a takeover, and a new session with the same
-  profile still has it after a sandbox restart.
+- *Check:* integration test: a fixture site sets a cookie in a takeover, a batch started before the takeover
+  stops at the next step, and a new session with the same profile still has the cookie after a sandbox
+  restart.
 
 #### S61. The browser end to end
-- Eval scenarios: the library opening hours (no approval), the test shop's Place order (approval card
-  names the shop and the button), and the hidden-text injection page.
-- F09's acceptance criteria are ticked, F09 and the class map updated, and the browser section added to
-  the prompt (or #105's charter).
-- *Check:* the offline evals pass.
+- Eval scenarios: the library opening hours (no approval), the test shop's Place order (approval card names
+  the shop and the button), and the hidden-text injection page. A form scenario fills several fields in one
+  `browser.act` batch. A vision variant runs the lookup with screenshots on, and reports tokens, images and
+  cost next to the text-only run (the same structure-versus-screens comparison as the desktop eval).
+- **Targets, measured with the SQL in [13](13-desktop-performance.md):** the library lookup finishes in
+  **under 20 s and under 8 model calls**, with at most one full snapshot body in the history and no
+  `summarize` row on the critical path. A form with five fields and its submit takes **one `browser.act`
+  call** plus the answer.
+- F09's acceptance criteria are ticked, F09 and the class map updated, and the browser section added to the
+  prompt (or #105's charter).
+- *Check:* the offline evals pass and print time, calls and tokens per scenario; the history holds one
+  snapshot body; the vision variant shows one image per step with no duplicates.
 
 #### S62. Live check and docs
 - The owner's live check with the viewer open: the Calc task, the library hours, a Take control sign-in on
   a real site, and the Place order stop on a test shop. Fixes found go in their own issues, as in S49.
+- Re-run the measurement SQL from [13](13-desktop-performance.md) for the browser lookup and record the
+  wall time, model calls and tokens against S61's targets.
 - README, AGENTS (commands, services), `docs/README.md` and this plan's status are updated.
 
 ## Things you'll need to provide
