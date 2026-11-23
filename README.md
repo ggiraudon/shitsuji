@@ -56,9 +56,19 @@ point `SHITSUJI_SANDBOX_TOKEN_FILE` at its token.
 
 ## Desktop viewer
 
-`core` serves the watch-only desktop at `http://127.0.0.1:3001/desktop`; sign in there with the owner
-key. The page and the noVNC client come from core, and the stream goes through core and
-`sandboxd-gateway`, never directly to the sandbox (F10, S51).
+`core` serves the desktop at `http://127.0.0.1:3001/desktop`; sign in there with the owner key. The page
+and the noVNC client come from core, and the stream goes through core and `sandboxd-gateway`, never
+directly to the sandbox (F10, S51). The agent's screen is **1920×1080** by default (`SCREEN` on the
+sandbox service; a Compose override can change it), and a small `fit-windows` watcher keeps a window an
+app opens past an edge on the screen (S56).
+
+The viewer is **watch-only** until someone takes control. The page's **Take control** button switches it
+to the full-control stream and pauses every running turn, so the agent cannot write while you type. The
+agent can also ask: `computer.request_takeover` pauses its turn with a question that contains the reason
+and this link, sent to the same chat (Telegram or the TUI). **Give back** returns the desktop to the agent
+and resumes the paused turns with a note and, when a vision model is configured, a fresh screenshot. If
+you never give it back, it returns to the agent after **15 minutes**. In owner mode `computer.act` keeps
+only screenshots and OCR, and `desktop.act` is refused, so the agent can still look but not act.
 
 To watch from another device on your LAN, publish the API beyond loopback and tell core the address
 the owner will use (Y2):
