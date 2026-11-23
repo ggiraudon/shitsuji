@@ -20,6 +20,7 @@ import { DRAIN_JOB } from '../runtime/MessageIntake.js';
 
 /** The runner stores this prefix as the pause question, so a restart can recognise it. */
 export const AGENT_TAKEOVER_PREFIX = 'The agent asked for control of the desktop.';
+/** The runner stores this prefix when the owner pressed Take control; a restart recognises it too. */
 export const OWNER_TAKEOVER_PREFIX = 'The owner took control of the desktop.';
 
 /** How long the owner may keep control without giving it back: 15 minutes. */
@@ -30,20 +31,33 @@ export const DEFAULT_TAKEOVER_TIMEOUT_MS = 15 * 60_000;
  * owns the mode, the full credential and the screenshot.
  */
 export interface ControlSandbox {
+  /** Who drives now; `owner` refuses the agent's writes, not its reads. */
   readonly desktopMode: DesktopControlMode;
+  /** Switches to owner mode; `requestedBy` says whether the agent asked or the owner pressed. */
   enterOwnerControl(input: { requestedBy: 'agent' | 'owner'; reason?: string; since: Date }): void;
+  /** Returns to agent mode; the viewer's full streams close from the mode-change listener. */
   leaveOwnerControl(): void;
+  /** The display's control password, read from sandboxd only while owner mode holds. */
   fullViewerCredentials(): Promise<FullViewerCredentials>;
+  /** A fresh screenshot for the resumed turn, when vision is available. */
   captureScreenshot(sessionId: SessionId, turnId: TurnId): Promise<ToolImage | undefined>;
+  /** Notifies on every mode change; returns the unsubscribe function. */
   onDesktopModeChange(listener: (mode: DesktopControlMode) => void): () => void;
 }
 
+/** What the control service needs: the sandbox, storage, jobs, events, the clock and the limits. */
 export interface DesktopControlDeps {
+  /** The part of the sandbox service that owns the mode and the credentials. */
   sandbox: ControlSandbox;
+  /** Turns, sessions and messages: pausing a turn and queueing its resume. */
   repos: Repositories;
+  /** The drain queue a resumed turn goes through. */
   jobs: JobQueue;
+  /** `turn.status`: resumed takeover turns follow a pending turn becoming `waiting`. */
   events: EventBus;
+  /** Injected clock: the owner-mode start, the timeout and every resume timestamp use it. */
   clock: Clock;
+  /** Structured logger; every take and give-back is reported here. */
   log: Logger;
   /** The viewer's URL, when the deployment has one; included in the owner's message. */
   viewerUrl?: string;
@@ -62,24 +76,53 @@ export interface DesktopControlDeps {
  * and resumes the turn with a note rather than leaving either stuck.
  */
 export class DesktopControlService implements DesktopControl {
-  private info?: { requestedBy: 'agent' | 'owner'; reason?: string; since: Date };
+  /** Who entered owner mode, why and when; cleared on Give back. */
+  private info?: {
+    /** Whether the agent asked or the owner pressed Take control. */
+    requestedBy: 'agent' | 'owner';
+    /** The agent's words, when it asked. */
+    reason?: string;
+    /** When owner mode began. */
+    since: Date;
+  };
+  /** When an owner who never gives back is returned to the agent; absent when the limit is off. */
   private expiresAt?: Date;
+  /** The pending timeout; unref'd, so a test process can exit. */
   private timer?: NodeJS.Timeout;
+  /** Unsubscribes the `turn.status` watcher; kept so `stop()` leaves no listener behind. */
   private offTurnStatus?: () => void;
   /** Turns paused by this process; Give back resumes them. */
-  private readonly paused = new Map<TurnId, { sessionId: SessionId }>();
+  private readonly paused = new Map<
+    TurnId,
+    {
+      /** The session the paused turn belongs to; its resume turn is created there. */
+      sessionId: SessionId;
+    }
+  >();
   /** Turns that were not waiting yet when Give back ran; the waiting event resumes them. */
   private readonly pending = new Map<
     TurnId,
-    { sessionId: SessionId; note: string; image?: ToolImage }
+    {
+      /** The session that owns the pending turn. */
+      sessionId: SessionId;
+      /** The note the resume turn gets, written when Give back ran. */
+      note: string;
+      /** The screenshot taken then, when vision was available. */
+      image?: ToolImage;
+    }
   >();
 
-  constructor(private readonly deps: DesktopControlDeps) {}
+  constructor(
+    /** The sandbox, storage, jobs, events, clock and limits. */
+    private readonly deps: DesktopControlDeps,
+  ) {}
 
+  /** The mode the sandbox currently holds; `agent` when nobody took over. */
   get mode(): DesktopControlMode {
     return this.deps.sandbox.desktopMode;
   }
 
+  /** What the viewer banner and `/status` show, including the expiry and the viewer URL. */
   status(): DesktopControlStatus {
     return {
       mode: this.mode,
@@ -112,6 +155,7 @@ export class DesktopControlService implements DesktopControl {
     await this.resumeAfterRestart();
   }
 
+  /** Stops watching turn status, drops the paused turns and returns the desktop to the agent. */
   stop(): void {
     this.clearExpiry();
     this.offTurnStatus?.();
@@ -213,10 +257,12 @@ export class DesktopControlService implements DesktopControl {
     return this.deps.sandbox.fullViewerCredentials();
   }
 
+  /** Forwards the sandbox's mode changes, so the viewer can swap streams without polling. */
   onModeChange(listener: (mode: DesktopControlMode) => void): () => void {
     return this.deps.sandbox.onDesktopModeChange(listener);
   }
 
+  /** Pauses every turn that is running when the owner presses Take control. */
   private async pauseRunning(): Promise<void> {
     const running = await this.deps.repos.turns.listByStatus('running');
     for (const turn of running) {
@@ -360,6 +406,7 @@ export class DesktopControlService implements DesktopControl {
     }
   }
 
+  /** Starts the owner-mode timeout, replacing any previous one; a zero or negative limit is off. */
   private armExpiry(): void {
     this.clearExpiry();
     const timeout = this.deps.timeoutMs ?? DEFAULT_TAKEOVER_TIMEOUT_MS;
@@ -371,12 +418,14 @@ export class DesktopControlService implements DesktopControl {
     this.timer.unref?.();
   }
 
+  /** Cancels the timeout and forgets its expiry, e.g. after Give back or a restart. */
   private clearExpiry(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     this.expiresAt = undefined;
   }
 
+  /** The pause question for a request the agent made, quoting its reason as unverified. */
   private agentQuestion(reason: string): string {
     return [
       AGENT_TAKEOVER_PREFIX,
@@ -388,30 +437,35 @@ export class DesktopControlService implements DesktopControl {
     ].join('\n');
   }
 
+  /** The pause question for a turn the owner's Take control interrupted. */
   private ownerQuestion(): string {
     return `${OWNER_TAKEOVER_PREFIX} This turn is paused until you give it back.\n\n${this.viewerLine(
       'Viewer',
     )}`;
   }
 
+  /** The viewer link, or a plain line when the deployment has no viewer. */
   private viewerLine(label: string): string {
     return this.deps.viewerUrl
       ? `${label}: ${this.deps.viewerUrl}`
       : 'The desktop viewer is not available on this deployment.';
   }
 
+  /** What the resumed turn is told after the owner gives the desktop back. */
   private ownerNote(hasImage: boolean): string {
     return hasImage
       ? 'The owner gave the desktop back. The screen may have changed while they had control; the attached screenshot shows it now. Use desktop.inspect for an exact tree.'
       : 'The owner gave the desktop back. The screen may have changed while they had control; take a fresh desktop.inspect snapshot before continuing.';
   }
 
+  /** What the resumed turn is told when the owner-mode timeout returned the desktop. */
   private timeoutNote(hasImage: boolean): string {
     return hasImage
       ? 'The owner did not give the desktop back in time, so the desktop returned to the agent. The screen may have changed; the attached screenshot shows it now.'
       : 'The owner did not give the desktop back in time, so the desktop returned to the agent. The screen may have changed; take a fresh desktop.inspect snapshot before continuing.';
   }
 
+  /** What the resumed turn is told when core restarted while the owner held the desktop. */
   private restartNote(hasImage: boolean): string {
     return hasImage
       ? 'Core restarted while the desktop was with the owner. The desktop is back with the agent; the attached screenshot shows the current screen.'

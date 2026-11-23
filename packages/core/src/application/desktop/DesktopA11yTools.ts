@@ -25,13 +25,16 @@ const inspectSchema = z
     /** Find elements by name and/or role instead of reading the whole tree. */
     find: z
       .object({
+        /** Match the element's accessible name; a substring. */
         name: z.string().min(1).max(200).optional(),
+        /** Match the element's role, e.g. `push button` or `cell`. */
         role: z.string().min(1).max(200).optional(),
       })
       .strict()
       .optional(),
     /** Start at this element of the current snapshot (a sub-tree). */
     ref: ref.optional(),
+    /** How many levels below the start to read; the whole tree when omitted. */
     depth: z.number().int().min(0).max(50).optional(),
   })
   .strict()
@@ -70,6 +73,7 @@ const actSchema = z
     snapshot: snapshot.optional(),
     /** Required for click, set_text and type; a key press may act on the focused window. */
     ref: ref.optional(),
+    /** One action: click, set_text, type, key or launch_app; the batch form uses `steps` instead. */
     action: z.enum([...DESKTOP_A11Y_ACTIONS, 'type', 'key', 'launch_app'] as const).optional(),
     /** The replacement text for set_text or the characters to type. */
     text: z.string().max(10_000).optional(),
@@ -158,7 +162,10 @@ export class DesktopInspectTool extends BaseTool<typeof inspectSchema> {
   override readonly untrustedOutput = true;
   readonly effect: ToolEffect = 'read';
 
-  constructor(private readonly desktop: DesktopCapability) {
+  constructor(
+    /** The driver's desktop: the tree routes this tool reads. */
+    private readonly desktop: DesktopCapability,
+  ) {
     super();
   }
 
@@ -186,6 +193,7 @@ export class DesktopInspectTool extends BaseTool<typeof inspectSchema> {
     }
   }
 
+  /** Reads the matching tree; a find query uses the find route, everything else the tree route. */
   private read(args: InspectArgs, ctx: ToolContext): Promise<DesktopA11yTree> {
     if (args.find) {
       return this.desktop.find(toFindQuery(args), ctx.signal);
@@ -219,7 +227,9 @@ export class DesktopActTool extends BaseTool<typeof actSchema> {
   readonly effect: ToolEffect = 'write_local';
 
   constructor(
+    /** The driver's desktop: element actions and the fresh tree after them. */
     private readonly desktop: DesktopCapability,
+    /** True while the owner holds the desktop, which refuses every write. */
     private readonly isOwner: () => boolean = () => false,
   ) {
     super();

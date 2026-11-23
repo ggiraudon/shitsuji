@@ -12,6 +12,7 @@
     "packages/core/src/application/budget",
     "packages/core/src/application/channels",
     "packages/core/src/application/context",
+    "packages/core/src/application/desktop",
     "packages/core/src/application/modelCalls.ts",
     "packages/core/src/application/models",
     "packages/core/src/application/runtime",
