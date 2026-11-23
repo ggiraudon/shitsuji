@@ -22,7 +22,8 @@ four passes are done, including the live Telegram checks ([10-live-checks.md](10
 | 12 | [10-live-checks.md](10-live-checks.md) | The live check only you can run: Telegram on your phone, approvals, `/stop` |
 | 13 | [11-fourth-pass-plan.md](11-fourth-pass-plan.md) | The fourth pass (done): F08 sandbox drivers as steps S40–S49 |
 | 14 | [12-fifth-pass-plan.md](12-fifth-pass-plan.md) | The fifth pass: F10 desktop and F09 browser as steps S50–S62 |
-| 15 | [PROGRESS.md](PROGRESS.md) | The checklist: every pass's steps and every feature's acceptance criteria |
+| 15 | [13-desktop-performance.md](13-desktop-performance.md) | Desktop performance (parked): measurements, causes and candidate optimisations |
+| 16 | [PROGRESS.md](PROGRESS.md) | The checklist: every pass's steps and every feature's acceptance criteria |
 
 Rules for working on the code (commits, layers, tests) are in [AGENTS.md](../AGENTS.md).
 
