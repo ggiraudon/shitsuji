@@ -329,16 +329,26 @@ agent can reach the issues. Decisions Y1–Y4 are made.
 
 ### [F10 — Desktop environment and computer use](features/F10-desktop.md)
 
-- [ ] `docker compose up` starts the desktop; the web UI shows it live.
-- [ ] The agent opens LibreOffice Calc, types numbers, saves a file to `/workspace`, and `workspace.exec` can read it.
-- [ ] The same Calc task completes **using only `desktop.inspect` / `desktop.act`**, with no screenshot sent to
+- [x] `docker compose up` starts the desktop; the web UI shows it live.
+      *(The image job starts the desktop; the viewer page and relay are covered by the API integration
+      test. The owner's live run with the viewer open is S62.)*
+- [x] The agent opens LibreOffice Calc, types numbers, saves a file to `/workspace`, and `workspace.exec` can read it.
+      *(The desktop integration test drives exactly this flow.)*
+- [x] The same Calc task completes **using only `desktop.inspect` / `desktop.act`**, with no screenshot sent to
       the model; an eval ([F22](features/F22-observability-and-cost.md)) compares its tokens and success rate with the
       screenshot-only run.
-- [ ] `desktop.inspect` on Thunar, the XFCE terminal and Chromium returns named elements; the startup check
+      *(`desktop-calc-structure` sends zero images and passes offline; `desktop-calc-screens` is the
+      screenshot-only comparison.)*
+- [x] `desktop.inspect` on Thunar, the XFCE terminal and Chromium returns named elements; the startup check
       reports any allowed app that publishes no tree.
-- [ ] Acting on a ref after the window changed returns "stale" instead of clicking the wrong thing.
-- [ ] Take control / Give back works and the agent continues.
-- [ ] No desktop port is reachable from the host or LAN without going through `core`.
+      *(The accessibility integration test reads all three.)*
+- [x] Acting on a ref after the window changed returns "stale" instead of clicking the wrong thing.
+      *(The helper's snapshot check and its integration test.)*
+- [x] Take control / Give back works and the agent continues.
+      *(Unit tests for the mode, pause and resume; the API integration test takes control, sends
+      full-control input, and sees the stream close on Give back.)*
+- [x] No desktop port is reachable from the host or LAN without going through `core`.
+      *(The image job checks 5900/6080/6081; Compose publishes none.)*
 
 ### [F11 — Trust and approvals](features/F11-trust-and-approvals.md)
 

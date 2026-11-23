@@ -32,7 +32,10 @@ export class RequestTakeoverTool extends BaseTool<typeof schema> {
   override readonly target = 'desktop' as const;
   readonly effect: ToolEffect = 'write_local';
 
-  constructor(private readonly control: TakeControlPort) {
+  constructor(
+    /** The control service the request goes through; it enters owner mode or refuses. */
+    private readonly control: TakeControlPort,
+  ) {
     super();
   }
 
