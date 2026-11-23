@@ -197,6 +197,8 @@ past an edge, because xfwm4 has no setting that fits an oversized window; on the
 dialog lands at (403,150) 1124x888, and a forced 2600x2300 window is clamped to the work area. A node
 that the app does not render, or whose centre is off the screen, is marked `(offscreen)`: on a
 1440x900 display the Save dialog's Save and Cancel buttons carry it, and on 1920x1080 they do not.
+`desktop.act` keeps the AT-SPI element of a snapshot ref instead of walking the tree again, and accepts
+up to 20 `{ type }`/`{ key }` steps as one trusted call, so a cell and its commit cost one decision.
 Follow-up #151 then added the app-wide search, `desktop.wait`, the focus/window report after an act,
 two-line errors with a remedy, `press|click` fallbacks, `desktop.windows`/`desktop.window`, and
 clipboard typing for accented text; the prompt was kept to one extra bullet.

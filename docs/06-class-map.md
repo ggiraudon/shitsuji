@@ -718,7 +718,9 @@ classDiagram
     +screenshots bool
     +state() DesktopState
     +screenshot(opts) DesktopImage
-    +act(action) ActionResult
+    +windows() DesktopWindow[]
+    +act(action) void
+    +ocr(opts) DesktopOcrResult
     +inspect(query) DesktopA11yTree
     +find(query) DesktopA11yTree
     +actOnElement(request) DesktopA11yActResult

@@ -26,35 +26,124 @@ const region = z
   .strict();
 
 const actionSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('screenshot') }).strict(),
-  z.object({ action: z.literal('click'), x: point, y: point, button }).strict(),
-  z.object({ action: z.literal('double_click'), x: point, y: point }).strict(),
-  z.object({ action: z.literal('right_click'), x: point, y: point }).strict(),
-  z.object({ action: z.literal('move'), x: point, y: point }).strict(),
   z
     .object({
-      action: z.literal('drag'),
-      fromX: point,
-      fromY: point,
-      toX: point,
-      toY: point,
+      /** Take a fresh screenshot, no input. */
+      action: z.literal('screenshot'),
+    })
+    .strict(),
+  z
+    .object({
+      /** Click once at a point. */
+      action: z.literal('click'),
+      /** X in the latest screenshot's pixels. */
+      x: point,
+      /** Y in the latest screenshot's pixels. */
+      y: point,
+      /** Mouse button; left when omitted. */
       button,
     })
     .strict(),
   z
     .object({
-      action: z.literal('scroll'),
+      /** Click twice quickly at a point. */
+      action: z.literal('double_click'),
+      /** X in the latest screenshot's pixels. */
       x: point,
+      /** Y in the latest screenshot's pixels. */
       y: point,
+    })
+    .strict(),
+  z
+    .object({
+      /** Click with the right button at a point. */
+      action: z.literal('right_click'),
+      /** X in the latest screenshot's pixels. */
+      x: point,
+      /** Y in the latest screenshot's pixels. */
+      y: point,
+    })
+    .strict(),
+  z
+    .object({
+      /** Move the pointer, which also reveals hover menus. */
+      action: z.literal('move'),
+      /** X in the latest screenshot's pixels. */
+      x: point,
+      /** Y in the latest screenshot's pixels. */
+      y: point,
+    })
+    .strict(),
+  z
+    .object({
+      /** Press, move and release, for selection and drag and drop. */
+      action: z.literal('drag'),
+      /** Start X in the latest screenshot's pixels. */
+      fromX: point,
+      /** Start Y in the latest screenshot's pixels. */
+      fromY: point,
+      /** End X in the latest screenshot's pixels. */
+      toX: point,
+      /** End Y in the latest screenshot's pixels. */
+      toY: point,
+      /** Mouse button; left when omitted. */
+      button,
+    })
+    .strict(),
+  z
+    .object({
+      /** Turn the wheel at a point. */
+      action: z.literal('scroll'),
+      /** X in the latest screenshot's pixels. */
+      x: point,
+      /** Y in the latest screenshot's pixels. */
+      y: point,
+      /** Which way the wheel turns. */
       direction: z.enum(['up', 'down', 'left', 'right']),
+      /** Wheel notches; one when omitted. */
       amount: z.number().int().min(1).max(20).default(1),
     })
     .strict(),
-  z.object({ action: z.literal('type'), text: z.string().min(1).max(10_000) }).strict(),
-  z.object({ action: z.literal('key'), key: z.enum(DESKTOP_KEYS) }).strict(),
-  z.object({ action: z.literal('wait'), ms: z.number().int().min(1).max(10_000) }).strict(),
-  z.object({ action: z.literal('launch_app'), app: z.enum(DESKTOP_APPS) }).strict(),
-  z.object({ action: z.literal('ocr'), region: region.optional() }).strict(),
+  z
+    .object({
+      /** Type text into whatever has keyboard focus. */
+      action: z.literal('type'),
+      /** The characters, passed as one argument and never as a shell string. */
+      text: z.string().min(1).max(10_000),
+    })
+    .strict(),
+  z
+    .object({
+      /** Press one allow-listed key or chord. */
+      action: z.literal('key'),
+      /** The chord, from the protocol's desktop allow-list. */
+      key: z.enum(DESKTOP_KEYS),
+    })
+    .strict(),
+  z
+    .object({
+      /** Wait for the screen to settle, without input. */
+      action: z.literal('wait'),
+      /** How long, up to ten seconds. */
+      ms: z.number().int().min(1).max(10_000),
+    })
+    .strict(),
+  z
+    .object({
+      /** Open an allowed app; works without a vision model. */
+      action: z.literal('launch_app'),
+      /** One of the four apps the daemon allows. */
+      app: z.enum(DESKTOP_APPS),
+    })
+    .strict(),
+  z
+    .object({
+      /** Read the screen as text, for apps whose tree is missing. */
+      action: z.literal('ocr'),
+      /** Limit OCR to part of the screen. */
+      region: region.optional(),
+    })
+    .strict(),
 ]);
 
 type ComputerAction = z.infer<typeof actionSchema>;
@@ -74,13 +163,17 @@ export class ComputerActTool extends BaseTool<typeof actionSchema> {
   readonly input = actionSchema;
   override readonly target = 'desktop' as const;
   override readonly untrustedOutput = true;
+  /** How many screenshots this process has written, so two in one turn get different names. */
   private shots = 0;
   /** The scale of the last screenshot the model saw, per session; input coordinates use it. */
   private readonly screenshotScales = new Map<string, number>();
 
   constructor(
+    /** Where the screenshot bytes are written, under the session's images folder. */
     private readonly files: SandboxFiles,
+    /** The driver's desktop: the pixels, input and OCR routes. */
     private readonly desktop: DesktopCapability,
+    /** True while the owner holds the desktop; then only screenshot and OCR are allowed. */
     private readonly isOwner: () => boolean = () => false,
   ) {
     super();
@@ -162,6 +255,7 @@ export class ComputerActTool extends BaseTool<typeof actionSchema> {
   }
 }
 
+/** The pixel-level tool, registered only when the driver has a desktop and the vision model can see. */
 export function computerActTools(
   files: SandboxFiles,
   desktop: DesktopCapability,

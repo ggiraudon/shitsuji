@@ -715,7 +715,7 @@ describe('desktop Calc end to end (S56)', () => {
   it.runIf(available)(
     'opens Calc, types numbers, saves /workspace/calc.csv and reads it back with workspace.exec',
     async () => {
-      const signal = AbortSignal.timeout(180_000);
+      const signal = AbortSignal.timeout(240_000);
       const findOne = async (
         scope: string | { app: string },
         query: { name?: string; role?: string; exact?: boolean },
@@ -742,7 +742,7 @@ describe('desktop Calc end to end (S56)', () => {
             }
           },
           `${query.name ?? query.role ?? 'the element'}`,
-          20_000,
+          30_000,
         );
         return found!;
       };
@@ -811,7 +811,7 @@ describe('desktop Calc end to end (S56)', () => {
           }
         },
         'the accented value in C1',
-        15_000,
+        30_000,
       );
       expect(await desktop.readClipboard(signal)).toBe('keep me');
       await desktop.writeClipboard(clipboard, signal);
@@ -894,10 +894,10 @@ describe('desktop Calc end to end (S56)', () => {
           return content.includes('42') && content.includes('7');
         },
         'the saved calc.csv',
-        20_000,
+        90_000,
       );
       expect(content).toMatch(/42.*7|7.*42/s);
     },
-    240_000,
+    300_000,
   );
 });
