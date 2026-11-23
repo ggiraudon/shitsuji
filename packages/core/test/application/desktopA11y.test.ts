@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DesktopActTool,
   DesktopInspectTool,
+  DesktopWaitTool,
   desktopA11yTools,
 } from '../../src/application/desktop/DesktopA11yTools.js';
 import {
@@ -138,11 +139,14 @@ function setup(
     failXdotool?: boolean;
     /** Windows returned by each successive list: before, after, and the poll after a launch. */
     windows?: DesktopWindow[][];
+    /** Trees returned by each successive find, for the wait tool. */
+    finds?: DesktopA11yTree[];
     pollMs?: number;
   } = {},
 ) {
   const calls: { kind: string; request: unknown }[] = [];
   let lists = 0;
+  let finds = 0;
   const desktop = {
     accessibility: true,
     screenshots: true,
@@ -158,6 +162,9 @@ function setup(
     },
     find: async (request: unknown) => {
       calls.push({ kind: 'find', request });
+      if (options.finds) {
+        return options.finds[Math.min(finds++, options.finds.length - 1)]!;
+      }
       return (request as { app?: string }).app ? appTree('s5') : tree('s5');
     },
     windows: async () => {
@@ -184,6 +191,7 @@ function setup(
   return {
     calls,
     inspect: new DesktopInspectTool(desktop),
+    wait: new DesktopWaitTool(desktop, options.pollMs ?? 1),
     act: new DesktopActTool(desktop, () => options.owner ?? false, {
       pollMs: options.pollMs ?? 1,
     }),
@@ -448,8 +456,67 @@ describe('desktop.act (S54)', () => {
     expect(output.content).toContain('stale, take a new snapshot');
   });
 
-  it('registers exactly the two structure-first tools', () => {
+  it('registers exactly the three structure-first tools', () => {
     const { tools } = setup();
-    expect(tools.map((tool) => tool.name)).toEqual(['desktop.inspect', 'desktop.act']);
+    expect(tools.map((tool) => tool.name)).toEqual([
+      'desktop.inspect',
+      'desktop.wait',
+      'desktop.act',
+    ]);
+  });
+});
+
+describe('desktop.wait (#151)', () => {
+  it('waits for an element and returns its refs without another inspect', async () => {
+    const { wait, calls } = setup();
+    const output = await wait.run({ find: { name: 'OK' } }, ctx);
+    expect(output.content).toContain('Present after');
+    expect(output.content).toContain('Matches for name "OK"');
+    expect(output.data).toMatchObject({ state: 'present', present: true, timedOut: false });
+    expect(calls[0]).toEqual({ kind: 'find', request: { name: 'OK' } });
+    expect(effectOf(wait, { find: { name: 'OK' } })).toBe('read');
+  });
+
+  it('polls until the element appears', async () => {
+    const empty: DesktopA11yTree = { ...tree('s5'), nodes: [], total: 0 };
+    const { wait, calls } = setup({ finds: [empty, empty, appTree('s9')] });
+    const output = await wait.run({ find: { name: 'OK' }, timeoutMs: 5_000 }, ctx);
+    expect(output.content).toContain('Present after');
+    expect(output.content).toContain('Matches for name "OK"');
+    expect(calls.filter((call) => call.kind === 'find')).toHaveLength(3);
+  });
+
+  it('treats a timeout as a normal result, not an error', async () => {
+    const empty: DesktopA11yTree = { ...tree('s5'), nodes: [], total: 0 };
+    const { wait } = setup({ finds: [empty] });
+    const output = await wait.run({ find: { name: 'Nope' }, timeoutMs: 50 }, ctx);
+    expect(output.isError).toBeUndefined();
+    expect(output.content).toContain('Timed out after');
+    expect(output.content).toContain('name "Nope"');
+    expect(output.data).toMatchObject({ present: false, timedOut: true });
+  });
+
+  it('waits for a window to appear, and for one to disappear', async () => {
+    const { wait } = setup({ windows: [[], [windowItem('0x3', 'Save')]] });
+    const present = await wait.run({ window: 'Save', timeoutMs: 5_000 }, ctx);
+    expect(present.content).toContain('Present after');
+    expect(present.content).toContain('window "Save" 100x100 at 0,0');
+
+    const { wait: disappearing } = setup({
+      windows: [[windowItem('0x3', 'Save')], []],
+    });
+    const gone = await disappearing.run({ window: 'Save', state: 'absent', timeoutMs: 5_000 }, ctx);
+    expect(gone.content).toContain('Gone after');
+    expect(gone.data).toMatchObject({ state: 'absent', present: false, timedOut: false });
+  });
+
+  it('requires a target and a timeout in range (#151)', () => {
+    const { wait } = setup();
+    expect(wait.input.safeParse({}).success).toBe(false);
+    expect(wait.input.safeParse({ find: { name: 'OK' }, timeoutMs: 1 }).success).toBe(false);
+    expect(wait.input.safeParse({ find: { name: 'OK' }, app: 'soffice' }).success).toBe(true);
+    expect(
+      wait.input.safeParse({ window: 'Save', app: 'soffice', find: { name: 'OK' } }).success,
+    ).toBe(false);
   });
 });

@@ -71,6 +71,46 @@ const inspectSchema = z
     }
   });
 
+const waitSchema = z
+  .object({
+    /** A window title substring to wait for; required without find. */
+    window: windowName.optional(),
+    /** Search every window of this app; only with find. */
+    app: z.string().min(1).max(200).optional(),
+    /** An element to wait for, by name and/or role. */
+    find: z
+      .object({
+        name: z.string().min(1).max(200).optional(),
+        role: z.string().min(1).max(200).optional(),
+        exact: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    /** Wait for the target to be there (the default) or gone. */
+    state: z.enum(['present', 'absent']).optional(),
+    /** How long to wait; a timeout is a normal result. 10 s when unset, at most 60 s. */
+    timeoutMs: z.number().int().min(100).max(60_000).optional(),
+  })
+  .strict()
+  .superRefine((args, ctx) => {
+    if (args.find && args.find.name === undefined && args.find.role === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['find'], message: 'give a name or a role' });
+    }
+    if (args.find === undefined && args.window === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['window'], message: 'or find is required' });
+    }
+    if (args.app !== undefined && args.find === undefined) {
+      ctx.addIssue({ code: 'custom', path: ['app'], message: 'is only allowed with find' });
+    }
+    if (args.app !== undefined && args.window !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['app'],
+        message: 'searches the whole app; drop the window',
+      });
+    }
+  });
+
 const batchStepSchema = z
   .object({
     /** Characters to type in this step. */
@@ -159,6 +199,7 @@ const actSchema = z
   });
 
 type InspectArgs = z.infer<typeof inspectSchema>;
+type WaitArgs = z.infer<typeof waitSchema>;
 type ActArgs = z.infer<typeof actSchema>;
 
 /**
@@ -220,6 +261,147 @@ export class DesktopInspectTool extends BaseTool<typeof inspectSchema> {
       ctx.signal,
     );
   }
+}
+
+/**
+ * `desktop.wait` (#151): waits until an element (find) or a window title is present or absent. A
+ * timeout is a normal result, not an error: it names what was being waited for so the model can
+ * decide what to do next, and it replaces inspect → inspect after a launch or a Save click.
+ */
+export class DesktopWaitTool extends BaseTool<typeof waitSchema> {
+  readonly name = 'desktop.wait';
+  readonly description =
+    'Wait until an element (find by name or role, optionally across an app) or a window title is ' +
+    'present or absent, then return it. A timeout is a normal result, not an error. Use this after ' +
+    'launching an app or clicking a button that opens a dialog instead of inspecting in a loop.';
+  readonly input = waitSchema;
+  override readonly target = 'desktop' as const;
+  override readonly untrustedOutput = true;
+  readonly effect: ToolEffect = 'read';
+
+  constructor(
+    private readonly desktop: DesktopCapability,
+    private readonly pollMs = 250,
+  ) {
+    super();
+  }
+
+  async run(args: WaitArgs, ctx: ToolContext): Promise<ToolOutput> {
+    const state = args.state ?? 'present';
+    const timeoutMs = args.timeoutMs ?? 10_000;
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+    for (;;) {
+      const check = await this.check(args, state, ctx);
+      if (check.met) {
+        const waitedMs = Date.now() - started;
+        const head =
+          state === 'present'
+            ? `Present after ${seconds(waitedMs)}.`
+            : `Gone after ${seconds(waitedMs)}.`;
+        const content = check.content ? `${head}\n${check.content}` : head;
+        return {
+          content,
+          data: {
+            state,
+            present: state === 'present',
+            timedOut: false,
+            waitedMs,
+            ...(check.tree && {
+              snapshot: check.tree.snapshot,
+              window: check.tree.window,
+              app: check.tree.app,
+            }),
+          },
+        };
+      }
+      if (Date.now() >= deadline) break;
+      try {
+        await sleep(this.pollMs, ctx.signal);
+      } catch {
+        break;
+      }
+    }
+    const waitedMs = Date.now() - started;
+    return {
+      content:
+        `Timed out after ${seconds(waitedMs)} waiting for ${targetOf(args)} to be ${state}. ` +
+        'The desktop did not show it; check the window title or inspect the app again.',
+      data: { state, present: false, timedOut: true, waitedMs },
+    };
+  }
+
+  private async check(
+    args: WaitArgs,
+    state: 'present' | 'absent',
+    ctx: ToolContext,
+  ): Promise<{ met: boolean; content?: string; tree?: DesktopA11yTree }> {
+    if (args.find) {
+      const query = toWaitFindQuery(args);
+      let tree: DesktopA11yTree;
+      try {
+        tree = await this.desktop.find(query, ctx.signal);
+      } catch {
+        return { met: false }; // the window may not exist yet; keep waiting
+      }
+      const present = tree.nodes.length > 0;
+      const met = state === 'present' ? present : !present;
+      if (!met || !present) return { met, tree };
+      return {
+        met,
+        tree,
+        content: formatA11yFind(tree, query),
+      };
+    }
+    const needle = (args.window ?? '').toLowerCase();
+    let windows: readonly DesktopWindow[];
+    try {
+      windows = await this.desktop.windows(ctx.signal);
+    } catch {
+      return { met: false };
+    }
+    const matches = windows.filter(
+      (item) => item.title.trim() !== '' && item.title.toLowerCase().includes(needle),
+    );
+    const present = matches.length > 0;
+    const met = state === 'present' ? present : !present;
+    return {
+      met,
+      ...(met &&
+        present && {
+          content: matches.map((item) => formatWindow(item)).join('\n'),
+        }),
+    };
+  }
+}
+
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+function targetOf(args: WaitArgs): string {
+  if (args.find) {
+    const parts = [
+      args.find.name && `name "${args.find.name}"`,
+      args.find.role && `role "${args.find.role}"`,
+    ].filter(Boolean);
+    return `an element matching ${parts.join(' and ')}`;
+  }
+  return `a window titled "${args.window ?? ''}"`;
+}
+
+function formatWindow(item: DesktopWindow): string {
+  return `window "${item.title}" ${item.width}x${item.height} at ${item.x},${item.y}`;
+}
+
+function toWaitFindQuery(args: WaitArgs): DesktopA11yFindQuery {
+  return {
+    ...(args.window && { window: args.window }),
+    ...(args.app && { app: args.app }),
+    ...(args.find?.name && { name: args.find.name }),
+    ...(args.find?.role && { role: args.find.role }),
+    ...(args.find?.exact !== undefined && { exact: args.find.exact }),
+  };
 }
 
 /**
@@ -535,7 +717,11 @@ export function desktopA11yTools(
   desktop: DesktopCapability,
   isOwner: () => boolean = () => false,
 ): Tool[] {
-  return [new DesktopInspectTool(desktop), new DesktopActTool(desktop, isOwner)];
+  return [
+    new DesktopInspectTool(desktop),
+    new DesktopWaitTool(desktop),
+    new DesktopActTool(desktop, isOwner),
+  ];
 }
 
 function toFindQuery(args: InspectArgs): DesktopA11yFindQuery {
