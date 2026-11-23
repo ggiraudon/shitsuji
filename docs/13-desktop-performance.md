@@ -99,18 +99,23 @@ Ordered by expected impact. Fill in the status as work lands.
 
 | # | Change | Expected effect | Status |
 |---|---|---|---|
-| 1 | **Keep only the latest tree in full.** Replace older `desktop.inspect` / `desktop.act` tree results in the history with a one-line stub ("snapshot s5 of Calc, superseded"). Same later for browser trees. | Removes most of the compaction work; smaller input on every call | Not filed |
+| 1 | **Keep only the latest tree in full.** Replace older `desktop.inspect` / `desktop.act` tree results in the history with a one-line stub ("snapshot s5 of Calc, superseded"). Same later for browser trees. | Removes most of the compaction work; smaller input on every call | Browser rule in S58 |
 | 2 | **Compaction triggered by tokens, off the critical path.** Token or exchange trigger instead of a count of 40; compact after the turn or once at turn start with a time budget; summarise tool results as one short line; enforce the summary size (re-ask when cut, never store a cut summary); record summarize time in turn_events. | −66 s in turn 1, −48 s in turn 3 | #153 |
 | 3 | **Desktop scripting from `workspace.exec`.** Give exec `DISPLAY` (plus the D-Bus/AT-SPI env), and a prompt line that it can use xdotool or a short Python AT-SPI script for a known sequence. For Calc data entry, consider driving LibreOffice directly. **Needs an owner decision on security:** the takeover pause must block exec too (#154), and scripted desktop input must pass the same trust check as `desktop.act`. | A Calc task in seconds, like the 4.5 s script | Not filed (needs a decision) |
 | 4 | **Find new dialogs reliably.** The no-window default should pick the focused app window or dialog, not the xfwm4 frame; app search should include alert / file chooser roles; prefer an app's modal dialog. | Ends the popup loop | #151 (with t2) |
-| 5 | **Report what changed after an act instead of re-reading the window.** List new and closed windows plus the focused element. | −3.6 s per act on Calc, fewer re-inspects | #151 item 3 |
+| 5 | **Report what changed after an act instead of re-reading the window.** List new and closed windows plus the focused element. | −3.6 s per act on Calc, fewer re-inspects | #151 item 3; browser rule in S58 |
 | 6 | **Faster large-window reads.** Profile `a11y_helper.py` on the Calc frame (3.6 s): cache the frame subtree between reads, skip the sheet table unless asked, use cheaper state queries. | −2–3 s per Calc read | Not filed |
 | 7 | **Batch input** (`desktop.act` `steps`, up to 20). | Fewer round trips for typing | Done in S56 |
 | 8 | **A bigger screen and windows fitted to it** (1920x1080, fit-windows). | No off-screen buttons | Done in S56 |
-| 9 | **A vision model for `computer.act`**, with screenshots kept for one step only (openfuse pattern), duplicate frames suppressed (OpenMausBot pattern), and scale mapping stated. | Option for apps without a usable tree | Later |
+| 9 | **A vision model for `computer.act`**, with screenshots kept for one step only (openfuse pattern), duplicate frames suppressed (OpenMausBot pattern), and scale mapping stated. | Option for apps without a usable tree | Designed for the browser in S58; desktop later |
+
+The browser steps (S57–S61 in [12-fifth-pass-plan.md](12-fifth-pass-plan.md)) apply items 1, 5, 7 and 9 from
+the start, because browser activity is expected to be the main use of the desktop: one live snapshot, actions
+that report a diff, batches for forms, waits on page state, and one-step screenshots with element boxes.
 
 Target for the next measured run: the Calc task finishes without help, in **under 60 s and under 15 model
-calls**, with no summarize call on the critical path.
+calls**, with no summarize call on the critical path. For the browser, a simple lookup runs in **under 20 s
+and under 8 model calls** with one snapshot body in the history (S61).
 
 ## How to measure a run
 

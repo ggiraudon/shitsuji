@@ -76,7 +76,7 @@ capability (F15).
 | Y3 | **Playwright runs inside `sandboxd`**, against a Chromium it launches with a CDP pipe. CDP never leaves the container and is out of the commands' reach; `core` stays off the sandbox network and uses browser endpoints on the token-protected API |
 | Y4 | The desktop is **always on** in the fifth pass. Idle stop and start-on-demand come later |
 
-Still open: D2 for the web UI, D3–D5, M2, M4, P3–P5.
+Still open: D2 for the web UI, D3–D5, M2, M4, M5, P3–P5.
 
 ## Architecture
 
@@ -106,6 +106,7 @@ Still open: D2 for the web UI, D3–D5, M2, M4, P3–P5.
 | M2 | Vision for computer use: is DeepSeek V4.1 Flash good enough at reading screenshots (small text, finding where to click)? | Use V4.1 Flash for `purpose: vision` (it accepts images); test it on desktop scenarios in the eval suite, and switch only that purpose if it falls short | F03, F10, F22 |
 | M3 | Cheap classification model? | A small model on OpenRouter now; local Qwen-class model on Ollama later | F03, F17 |
 | M4 | Embeddings: API or local? | Local `nomic-embed-text` on Ollama if the CPU allows, else an API | F13 |
+| M5 | **Browser vision:** which model reads the screenshots, and what may a screenshot cost per step? | Start with the M2 choice for `purpose: vision` (DeepSeek V4.1 Flash), one scaled screenshot per step and no repeats, and compare it with a stronger vision model in S61's eval before paying for one. Open because browser steps are frequent and one image per step can dominate the bill | F03, F09, F22 |
 
 ## Product
 
