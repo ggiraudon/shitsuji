@@ -19,6 +19,10 @@ browser to you when a sign-in or CAPTCHA needs a person. Profiles persist, so lo
   checker; deadlines on every browser call; a browser that hangs is killed and reopened fresh; secrets are
   masked in snapshots and screenshots; the browser only reaches public addresses; passkeys fail fast.
 - **openbot:** `request_takeover` when a sign-in page blocks the agent; a multi-step `run_script` tool.
+- **openbot:** a CDP snapshot over `Accessibility.getFullAXTree`, refs that carry the page revision and the
+  node's `backendNodeId`, and visible viewport text first with truncation stated; a script tool exists but each
+  action is still checked.
+- **nod:** the same backend-node refs and a page-text read next to the tree.
 - **openfuse:** persistent Chromium profiles; public page reads; PDF downloads moved into documents; a
   screenshot attached for one step only, with a short text receipt left in the chat.
 - **OpenMausBot:** a screenshot byte-identical to the previous one is not sent again; batch runners exist
@@ -40,6 +44,19 @@ commands in the sandbox can read neither cookies nor CDP.
 One **browser context per session** (chat, each task, each helper), so tasks do not fight over tabs. Named
 **profiles** (a persistent user-data directory per profile) hold cookies for sites you signed in to.
 
+### Driver layering
+
+Playwright is the driver for launch, navigation, lifecycle waits and input (its actionability checks make a
+click land on a real, enabled element). On the same page it opens a **raw CDP session** for the things it
+does better: refs come from `Accessibility.getFullAXTree` and are the DOM's `backendNodeId`, bound to a page
+revision; `DOM.*` and `Input.*` calls address that node directly; a screenshot is one capture with a frame
+hash. A ref from an older revision is refused with "take a new snapshot" rather than clicked.
+
+Playwright is itself a CDP client, so the speed comes from **what we observe and how often**, not from the
+wire: one tree, diffs afterwards, a text read for lookups. Calls on one session are serialized — one
+navigation, action, snapshot or screenshot at a time — so a batch and a stray snapshot never interleave;
+separate sessions still run in parallel.
+
 ### Port
 
 ```ts
@@ -50,6 +67,7 @@ export interface BrowserBackend {
 export interface BrowserSession {
   navigate(url: string, opts?: { waitUntil?: 'load' | 'domcontentloaded' }): Promise<PageChange>;
   snapshot(opts?: { offset?: number; vision?: boolean }): Promise<PageSnapshot>;  // budgeted text + refs
+  read(opts?: { offset?: number }): Promise<PageText>;                             // visible text, no refs
   act(steps: BrowserStep[], opts?: { settleMs?: number }): Promise<PageChange>;   // 1..10, one committing
   wait(condition: WaitCondition): Promise<PageChange>;                            // load/url/selector state
   inspectTarget(ref: ElementRef): Promise<TargetInfo>;                            // label, role, form method + action URL
@@ -71,18 +89,26 @@ export interface PageChange {
 }
 ```
 
-A snapshot is **registered** under an id; refs map to server-side locators that Playwright re-resolves on
-use, and an element that is gone is refused as stale rather than clicked.
+A snapshot is **registered** under an id; refs are the DOM's `backendNodeId` bound to the page revision, and
+an element from an older revision is refused as stale ("take a new snapshot") rather than clicked.
 
 ```ts
 export interface PageSnapshot {
   snapshotId: string;
   url: string;
   title: string;
-  lines: SnapshotLine[];            // interactive elements first, then text
+  lines: SnapshotLine[];            // viewport elements, then interactive, then text
   total: number;                    // interactive elements on the page
   nextOffset?: number;              // absent when everything was shown
   image?: Image;                    // at most one, for this step only, when vision is on
+}
+
+export interface PageText {
+  url: string;
+  title: string;
+  text: string;                     // visible text of the main content
+  truncated: boolean;               // more at nextOffset
+  nextOffset?: number;
 }
 
 export interface SnapshotLine {
@@ -122,10 +148,16 @@ snapshot s12 — 24 interactive elements, showing 1–24, next offset 24
 Built from Playwright's accessibility tree (`ariaSnapshot`) plus our own ref mapping. Known secrets are
 replaced by `•••` ([F12](F12-secrets-vault.md)). The whole snapshot is **untrusted data**.
 
-**Budget and order.** One snapshot call sends at most 24,000 characters (about 6k tokens): interactive
-elements (links, buttons, fields, menus, options) first, then headings and short text. The rest is paged by
-`offset`; the result says how many elements exist, which are shown and the next offset. `find` answers a
-name/role question without a page. The model never receives the whole page by default.
+**Budget and order.** One snapshot call sends at most 24,000 characters (about 6k tokens), in this order: the
+elements whose box is **in the viewport**, the remaining interactive elements (links, buttons, fields,
+menus, options), then headings and the rest of the text. The rest is paged by `offset`; the result says how
+many elements exist, which are shown and the next offset. `find` answers a name/role question without a
+page. The model never receives the whole page by default.
+
+**A read is not a snapshot.** `browser.read` returns the title, URL and the visible text of the main content
+(`innerText`), budgeted and paged the same way, with no refs and no tree. A lookup (the library hours) or a
+plain article is one `browser.read`; the prompt prefers it whenever the task is to read, and reaches for
+`snapshot` only to act or when the text does not answer the question.
 
 **One full snapshot in history.** The snapshot is registered under its id; the tool result keeps one body
 per session. When a later observation of that session replaces it, core rewrites the older tool result to a
@@ -139,13 +171,15 @@ not about fitting.
 The loop is **observe, act, forget the old observation** ([13](../13-desktop-performance.md)):
 
 1. `browser.snapshot` (or `browser.open`/`navigate` on a new page) sends one budgeted body and registers it.
-2. Every action answers a **`PageChange`**: new URL/title, a new dialog, the focused element, and a small
-   diff of added/removed/renamed interactive elements with fresh refs — or "no visible change". It sends
-   the full body again only after a navigation/reload or when the diff is too big to be useful, and then
-   the previous body becomes the stub.
+2. Every action answers a **short status** ("Clicked 'Search'") and a **`PageChange`**: new URL/title, a new
+   dialog, the focused element, and a small diff of added/removed/renamed interactive elements with fresh
+   refs — or "no visible change". An input **never** sends a new snapshot; the full body comes back again
+   only after a navigation/reload or when the diff is too big to be useful, and then the previous body
+   becomes the stub. The prompt says not to re-snapshot to confirm and not to add sleeps.
 3. `browser.wait` watches **page state** (`load`, `url`, a selector present/absent/visible/hidden) and
    answers the same change report; it never returns a snapshot. Actions wait for navigation or quiet for a
-   short settle timeout, so the model does not sleep or re-snapshot to see that a click worked.
+   short settle timeout, and a document that has already settled is not waited on again, so the model does
+   not sleep or re-snapshot to see that a click worked.
 
 ### Vision
 
@@ -172,7 +206,7 @@ vision run next to the text-only one.
 
 | Tool | Effect |
 |------|--------|
-| `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.back`, `browser.wait`, `browser.find` | `read` |
+| `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.read`, `browser.screenshot`, `browser.back`, `browser.wait`, `browser.find` | `read` |
 | `browser.type` (into a field, without submitting) | `write_local` |
 | `browser.act` (1–10 steps; filling a form, then at most one committing step last) | **classified per committing step** (below) |
 | `browser.click`, `browser.press`, `browser.select`, `browser.check`, `browser.upload`, `browser.dialog` | **classified per call** (below) |
@@ -204,10 +238,14 @@ or `core`. The browser may reach only public addresses.
 
 ### Reliability
 
+- Calls on one browser session are **serialized**: one navigation, action, snapshot or screenshot at a time.
+  Two sessions run in parallel; within a session nothing interleaves.
 - Every call has a deadline (e.g. 60 s). A browser that misses it is killed and reopened; the interrupted step
   is never repeated automatically.
-- A confirmed step replays only if the page, its refs and its form target are unchanged.
-- A wait ends on the condition or its timeout, with a change report either way; it is not retried.
+- A confirmed step replays only if the page revision, its refs and its form target are unchanged; a ref from
+  an older revision fails with "take a new snapshot".
+- A wait ends on the condition or its timeout, with a change report either way; it is not retried. A document
+  that has already settled is not waited on again.
 - One screenshot per step at most, skipped when the frame is identical to the previous one; a dead browser
   answers with a text error, never an empty image.
 
@@ -216,15 +254,15 @@ or `core`. The browser may reach only public addresses.
 The browser is expected to be the main use of the desktop. S61 measures, with the SQL in
 [13](../13-desktop-performance.md):
 
-- a simple lookup (open, read, answer) in **under 20 s and under 8 model calls**, with **one full snapshot**
-  in the history and **no summarize call on the critical path**;
+- a simple lookup (open, `browser.read`, answer) in **under 20 s and under 8 model calls**, with **no tree
+  call**, at most one full snapshot in the history, and **no summarize call on the critical path**;
 - a five-field form and its submit in **one `browser.act` call** plus the answer;
 - for vision, the token and image cost of the same lookup next to the text-only run.
 
 ## Acceptance criteria
 
-- "Find the opening hours of the town library" works end to end with no approval, in **under 20 s and under
-  8 model calls**, holding one full snapshot in the history and no summarize call on the critical path.
+- "Find the opening hours of the town library" works end to end with no approval, through one `browser.read`
+  rather than a tree, in **under 20 s and under 8 model calls**, with no summarize call on the critical path.
 - "Order this item" stops at **Place order** with an approval card that names the shop and the button.
 - A form with five fields fills in **one `browser.act` call**, with its committing step judged once.
 - A sign-in page triggers Take control; after you sign in, the profile keeps the session next time.
