@@ -62,12 +62,25 @@ describe('loadConfig defaults', () => {
       baseUrl: 'https://api.deepseek.com/v1',
     });
     expect(config.models.providers.deepseek!.apiKey!.reveal()).toBe('ds-key');
-    expect(config.models.purposes.chat).toBe('deepseek/deepseek-flash');
+    expect(config.models.purposes).toMatchObject({
+      chat: 'deepseek/deepseek-flash',
+      task: 'deepseek/deepseek-flash',
+      summarize: 'deepseek/deepseek-flash',
+      vision: 'deepseek/deepseek-flash',
+      trust: 'deepseek/deepseek-flash',
+    });
+    expect(config.models.catalog['deepseek/deepseek-flash']).toEqual({
+      capabilities: ['tools', 'vision', 'reasoning'],
+      contextWindow: 1_048_576,
+    });
   });
 
   it('keeps the old OpenAI fallback when it is the only key', () => {
     const { config } = load({ OPENAI_API_KEY: 'sk' });
     expect(config.models.purposes.chat).toBe('openai/gpt-4o-mini');
+    // Without a decision for OpenAI, only chat and task are filled and nothing is claimed.
+    expect(config.models.purposes.vision).toBeUndefined();
+    expect(config.models.catalog).toEqual({});
   });
 });
 

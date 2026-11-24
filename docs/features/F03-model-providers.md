@@ -138,7 +138,16 @@ models:
     trust:     deepseek/deepseek-flash
   fallbacks:
     chat: [openrouter/<another model>]
+  catalog:
+    deepseek/deepseek-flash:
+      capabilities: [tools, vision, reasoning]
+      contextWindow: 1048576
 ```
+
+Without a `models` section, a bare `DEEPSEEK_API_KEY` builds exactly this DeepSeek default: it fills
+the `summarize`, `vision` and `trust` purposes and the catalogue entry (`tools`, `vision`, `reasoning`,
+1,048,576 tokens). Images therefore reach the model and compaction has a window without any config file
+(#157).
 
 ### Decorators
 

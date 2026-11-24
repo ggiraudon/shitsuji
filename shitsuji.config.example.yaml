@@ -44,6 +44,7 @@ models:
   catalog:
     deepseek/deepseek-flash:
       capabilities: [tools, vision, reasoning]
+      contextWindow: 1048576
       # price: { currency: USD, inputPerMTok: 0, cachedInputPerMTok: 0, outputPerMTok: 0 }
   retry:
     maxAttempts: 3 # transient failures only, and never after the model has started answering

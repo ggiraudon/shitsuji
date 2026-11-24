@@ -206,6 +206,8 @@ function hasModels(raw: Record<string, unknown>): boolean {
  */
 function modelsFromEnv(env: Env): Record<string, unknown> {
   const providers: Record<string, unknown> = {};
+  const catalog: Record<string, unknown> = {};
+  const extra: Record<string, string> = {};
   let chat: string | undefined;
   const add = (id: string, key: string | undefined, entry: object, model: string) => {
     if (!key) return;
@@ -225,7 +227,24 @@ function modelsFromEnv(env: Env): Record<string, unknown> {
     'gpt-4o-mini',
   );
   add('anthropic', env.ANTHROPIC_API_KEY, { kind: 'anthropic' }, 'claude-3-5-sonnet-20241022');
-  return chat ? { providers, purposes: { chat, task: chat } } : {};
+  if (!chat) return {};
+  if (env.DEEPSEEK_API_KEY) {
+    // The owner's decision (M1): DeepSeek V4.1 Flash is the vision model too. A bare .env gets the
+    // same purposes and catalogue entry as the example config, so images and compaction work (#157).
+    const ref = 'deepseek/deepseek-flash';
+    extra.summarize = ref;
+    extra.vision = ref;
+    extra.trust = ref;
+    catalog[ref] = {
+      capabilities: ['tools', 'vision', 'reasoning'],
+      contextWindow: 1_048_576,
+    };
+  }
+  return {
+    providers,
+    purposes: { chat, task: chat, ...extra },
+    ...(Object.keys(catalog).length > 0 && { catalog }),
+  };
 }
 
 /** "true"/"false" (also 1/0, yes/no); anything else is left as text so the schema reports it. */
