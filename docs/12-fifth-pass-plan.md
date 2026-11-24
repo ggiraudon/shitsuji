@@ -213,11 +213,20 @@ it on the live stack with the measurement SQL from doc 13.
   owned by uid 1001 with mode 0700, so commands (uid 1000) cannot read cookies or reach CDP. If Chromium
   cannot run as 1001 on uid 1000's display, the PR says so and proposes the closest alternative before
   building on it.
+- **Two layers over one page.** Playwright stays the driver for launch, navigation, lifecycle waits and
+  robust input (its actionability checks). Where it is faster or exposes more, the same page opens a raw CDP
+  session (`newCDPSession`): refs come from `Accessibility.getFullAXTree` and are bound to the DOM's
+  `backendNodeId` and to a page revision, so a ref from a page that changed fails with "take a new snapshot";
+  `DOM.*` and `Input.*` calls address the node by `backendNodeId`; screenshots come from the page capture
+  with a frame hash. Playwright is itself a CDP client, so the wire is not where the speed comes from —
+  observing less, and less often, is.
 - One browser context per session; named persistent profiles (default `default`). The context also owns
   that session's snapshot registry and screenshot cache, so two sessions never mix refs.
 - The `BrowserBackend` / `BrowserSession` port from F09, implemented by the `shitsuji` driver over new
   `sandboxd` routes. The driver advertises `browser`. Endpoints carry the session id, so the
   latest-snapshot rule and the "same frame" check work per session.
+- **Calls on one session are serialized**: one navigation, action, snapshot or screenshot at a time, so a
+  batch and a stray snapshot cannot interleave. Two sessions still run in parallel.
 - Every call has a deadline (default 60 s). A browser that misses it is killed and reopened, and the
   interrupted step is never repeated automatically.
 - Downloads go to `/workspace/downloads/` (the sandbox cannot write `/handoff`), not `/handoff` as F09 said.
@@ -225,29 +234,38 @@ it on the live stack with the measurement SQL from doc 13.
   px on the long side like desktop captures, with a cheap frame hash returned alongside it so core can drop
   a duplicate.
 - *Check:* integration test: open a page served by a fixture container, read its title; a command as uid
-  1000 cannot read the profile folder or connect to the browser; two identical captures share one hash.
+  1000 cannot read the profile folder or connect to the browser; a reload makes an old ref fail with "take a
+  new snapshot"; two identical captures share one hash; two calls on one session run one after the other.
 
 #### S58. Reading pages
-- `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.screenshot`, `browser.back`, and a "find
-  on page" helper. All `read`.
-- **A snapshot has a budget.** The default page is 24,000 characters (roughly 6k tokens), and it lists
-  **interactive elements first** (links, buttons, fields, menus, options), then headings and short text. The
-  rest arrives through `nextOffset`, one page at a time, and `find` answers a name/role question without a
-  page. The result names how many elements were shown and the offset to continue from.
+- `browser.open`, `browser.navigate`, `browser.snapshot`, `browser.read`, `browser.screenshot`, `browser.back`,
+  and a "find on page" helper. All `read`.
+- **Read the page without a tree when the task is to read.** `browser.read` returns the title, URL and the
+  visible text of the main content (`innerText`, budgeted and paged like a snapshot), with no refs and no
+  tree. A lookup like the library hours is one `browser.read`; the prompt prefers it to a snapshot when the
+  task is to read, and uses `snapshot` only to act or when the text is not enough.
+- **A snapshot has a budget and a priority.** The default page is 24,000 characters (roughly 6k tokens), and
+  it lists, in order: the elements whose box is **in the viewport**, then the remaining **interactive**
+  elements (links, buttons, fields, menus, options), then headings and the rest of the text. The rest arrives
+  through `nextOffset`, one page at a time, and `find` answers a name/role question without a page. The
+  result names how many elements were shown and the offset to continue from.
 - **A snapshot is registered, not repeated.** The reply carries a snapshot id and refs that map to
   server-side locators, so a ref re-resolves on use. The next observation of that session (a new snapshot,
   a navigation, or an action's change report) **replaces the full body in the model's history with a
   one-line stub** ("snapshot s12 of Checkout, superseded; ask again if you need it"). The session keeps the
   current snapshot; the transcript never accumulates old trees, and compaction never has to read them. The
   model's window is 1,048,576 tokens (Y5), so this is about time and cost, not fitting.
-- **Actions report what changed.** `browser.act`, `browser.go` and a wait return the new URL and title when
-  they changed, any new dialog/alert text, the focused element, and a short diff of added, removed and
-  renamed interactive elements with fresh refs — or "no visible change". The full body comes back only on a
+- **Actions report what changed.** `browser.act`, `browser.navigate` and a wait return a **short status**
+  ("Clicked 'Search'") plus the new URL and title when they changed, any new dialog/alert text, the focused
+  element, and a short diff of added, removed and renamed interactive elements with fresh refs — or "no
+  visible change". An input action **never** returns a new snapshot; the full body comes back only on a
   navigation/reload or when the diff is too large to be useful, and then it replaces the previous snapshot.
+  The prompt says not to re-snapshot to confirm an action and not to add sleeps.
 - **Wait on page state, not on the clock.** `browser.wait({ for: 'load' | 'url' | 'selector', state:
   'present' | 'absent' | 'visible' | 'hidden', timeoutMs })` returns a change report and never a full
-  snapshot; actions wait for navigation or quiet for a short settle timeout before answering. The model
-  does not need to sleep or re-snapshot to know that a click took effect.
+  snapshot; actions wait for navigation or quiet for a short settle timeout before answering. A document
+  that has already settled (`readyState` complete, no pending navigation) is not waited on again, and the
+  model does not need to sleep or re-snapshot to know that a click took effect.
 - The browser's traffic goes through `egress-proxy`, so it reaches public addresses only (X7). The snapshot
   and any screenshot text are untrusted data.
 - **Vision is the fallback, not the default.** The chat model is the vision model (M1, Y5), so the screenshot
@@ -258,11 +276,13 @@ it on the live stack with the measurement SQL from doc 13.
   model can map what it sees to refs. Earlier turns keep a text receipt, never the image. The model asks with
   `vision: true` (or the tool attaches one when the page has no usable names), and the result states the
   scale and original size.
-- *Check:* integration tests on fixture pages: refs are stable within a snapshot; long pages page by offset
-  with interactive elements first; a superseded snapshot becomes one line in the history; a second identical
-  screenshot is not attached; a private address is blocked; a vision run sends one image on the same chat
-  call and a text-only run sends none; a full 1920×1080 capture and the scaled one are both measured for
-  input tokens, so the default scale is a number, not a guess.
+- *Check:* integration tests on fixture pages: a lookup is answered by `browser.read` with no tree; refs
+  are stable within a snapshot and fail after a reload; long pages page by offset with viewport elements
+  first; a superseded snapshot becomes one line in the history; an input action answers a status and a
+  change report, not a snapshot; a second identical screenshot is not attached; a private address is
+  blocked; a vision run sends one image on the same chat call and a text-only run sends none; a full
+  1920×1080 capture and the scaled one are both measured for input tokens, so the default scale is a
+  number, not a guess.
 
 #### S59. Committing steps and the trust check
 - `browser.type` (`write_local`), and `browser.click`, `browser.press`, `browser.select`, `browser.check`,
@@ -272,9 +292,11 @@ it on the live stack with the measurement SQL from doc 13.
   `write_local` and need no trust decision. **The trust check runs per committing step**, before that step
   executes; a batch may contain **at most one committing step and it must be last**, so one call cannot
   hide several outside actions. If the classifier says the step needs a card, the earlier fills stay and the
-  turn pauses with a card that names the step and its target. A batch returns one change report (S58).
+  turn pauses with a card that names the step and its target. A batch returns one short status plus one
+  change report (S58), never a snapshot.
 - `inspectTarget(ref)` reads the element's role, label, and the form it would submit (method and action
-  URL), from the element's properties in an isolated world.
+  URL), from the element's properties in an isolated world. The ref is the `backendNodeId` from the page's
+  last revision, so the read is a DOM call, not a tree walk.
 - `BrowserEffectClassifier` with F09's rules (unchanged): same-site GET link, GET form and cookie banner →
   `read`; POST form, a purchase/send/delete/confirm/publish label, or an unknown target → `external`;
   payment context → `payment`. `external` goes to the trust judge with a short description of the target,
@@ -298,14 +320,15 @@ it on the live stack with the measurement SQL from doc 13.
   `browser.act` batch. A vision variant runs the lookup with screenshots on and reports tokens, images and
   cost next to the text-only run; since the chat model is the vision model (Y5), it adds no model call, only
   input tokens.
-- **Targets, measured with the SQL in [13](13-desktop-performance.md):** the library lookup finishes in
-  **under 20 s and under 8 model calls**, with at most one full snapshot body in the history and no
-  `summarize` row on the critical path. A form with five fields and its submit takes **one `browser.act`
-  call** plus the answer.
+- **Targets, measured with the SQL in [13](13-desktop-performance.md):** the library lookup runs through one
+  `browser.read` (no tree) and finishes in **under 20 s and under 8 model calls**, with no full snapshot body
+  in the history and no `summarize` row on the critical path. A form with five fields and its submit takes
+  **one `browser.act` call** plus the answer.
 - F09's acceptance criteria are ticked, F09 and the class map updated, and the browser section added to the
-  prompt (or #105's charter).
-- *Check:* the offline evals pass and print time, calls and tokens per scenario; the history holds one
-  snapshot body; the vision variant shows one image per step, no duplicates, on the same chat call.
+  prompt (or #105's charter): read before snapshot, do not re-snapshot to confirm an action, do not add
+  sleeps, one batch for a form.
+- *Check:* the offline evals pass and print time, calls and tokens per scenario; the lookup uses no tree; the
+  vision variant shows one image per step, no duplicates, on the same chat call.
 
 #### S62. Live check and docs
 - The owner's live check with the viewer open: the Calc task, the library hours, a Take control sign-in on
