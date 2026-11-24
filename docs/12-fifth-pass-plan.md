@@ -238,7 +238,8 @@ it on the live stack with the measurement SQL from doc 13.
   server-side locators, so a ref re-resolves on use. The next observation of that session (a new snapshot,
   a navigation, or an action's change report) **replaces the full body in the model's history with a
   one-line stub** ("snapshot s12 of Checkout, superseded; ask again if you need it"). The session keeps the
-  current snapshot; the transcript never accumulates old trees, and compaction never has to read them.
+  current snapshot; the transcript never accumulates old trees, and compaction never has to read them. The
+  model's window is 1,048,576 tokens (Y5), so this is about time and cost, not fitting.
 - **Actions report what changed.** `browser.act`, `browser.go` and a wait return the new URL and title when
   they changed, any new dialog/alert text, the focused element, and a short diff of added, removed and
   renamed interactive elements with fresh refs — or "no visible change". The full body comes back only on a
@@ -249,16 +250,19 @@ it on the live stack with the measurement SQL from doc 13.
   does not need to sleep or re-snapshot to know that a click took effect.
 - The browser's traffic goes through `egress-proxy`, so it reaches public addresses only (X7). The snapshot
   and any screenshot text are untrusted data.
-- **Vision is the fallback, not the default.** When the `vision` purpose has a vision-capable model, an
-  observation may attach **one** screenshot, for that step only: scaled, a no-op if its frame hash matches
-  the previous one, and with **`@eN` boxes** drawn over the elements the snapshot knows so the model can map
-  what it sees to refs. Earlier turns keep a text receipt, never the image; the text snapshot stays the
-  default and is always sent. The model asks with `vision: true` (or the tool attaches one when the page has
-  no usable names), and the result states the scale and original size.
+- **Vision is the fallback, not the default.** The chat model is the vision model (M1, Y5), so the screenshot
+  is part of the same chat request: there is no separate vision round trip. The text snapshot stays the
+  default. When it is not enough or the page is visual (a canvas, a map, an image gallery, an unlabelled
+  control), the observation may attach **one** screenshot for that step only: scaled, a no-op if its frame
+  hash matches the previous one, and with **`@eN` boxes** drawn over the elements the snapshot knows so the
+  model can map what it sees to refs. Earlier turns keep a text receipt, never the image. The model asks with
+  `vision: true` (or the tool attaches one when the page has no usable names), and the result states the
+  scale and original size.
 - *Check:* integration tests on fixture pages: refs are stable within a snapshot; long pages page by offset
   with interactive elements first; a superseded snapshot becomes one line in the history; a second identical
-  screenshot is not attached; a private address is blocked; a vision run sends one image per step and a
-  text-only run sends none.
+  screenshot is not attached; a private address is blocked; a vision run sends one image on the same chat
+  call and a text-only run sends none; a full 1920×1080 capture and the scaled one are both measured for
+  input tokens, so the default scale is a number, not a guess.
 
 #### S59. Committing steps and the trust check
 - `browser.type` (`write_local`), and `browser.click`, `browser.press`, `browser.select`, `browser.check`,
@@ -291,8 +295,9 @@ it on the live stack with the measurement SQL from doc 13.
 #### S61. The browser end to end
 - Eval scenarios: the library opening hours (no approval), the test shop's Place order (approval card names
   the shop and the button), and the hidden-text injection page. A form scenario fills several fields in one
-  `browser.act` batch. A vision variant runs the lookup with screenshots on, and reports tokens, images and
-  cost next to the text-only run (the same structure-versus-screens comparison as the desktop eval).
+  `browser.act` batch. A vision variant runs the lookup with screenshots on and reports tokens, images and
+  cost next to the text-only run; since the chat model is the vision model (Y5), it adds no model call, only
+  input tokens.
 - **Targets, measured with the SQL in [13](13-desktop-performance.md):** the library lookup finishes in
   **under 20 s and under 8 model calls**, with at most one full snapshot body in the history and no
   `summarize` row on the critical path. A form with five fields and its submit takes **one `browser.act`
@@ -300,7 +305,7 @@ it on the live stack with the measurement SQL from doc 13.
 - F09's acceptance criteria are ticked, F09 and the class map updated, and the browser section added to the
   prompt (or #105's charter).
 - *Check:* the offline evals pass and print time, calls and tokens per scenario; the history holds one
-  snapshot body; the vision variant shows one image per step with no duplicates.
+  snapshot body; the vision variant shows one image per step, no duplicates, on the same chat call.
 
 #### S62. Live check and docs
 - The owner's live check with the viewer open: the Calc task, the library hours, a Take control sign-in on

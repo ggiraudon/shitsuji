@@ -107,11 +107,13 @@ Ordered by expected impact. Fill in the status as work lands.
 | 6 | **Faster large-window reads.** Profile `a11y_helper.py` on the Calc frame (3.6 s): cache the frame subtree between reads, skip the sheet table unless asked, use cheaper state queries. | −2–3 s per Calc read | Not filed |
 | 7 | **Batch input** (`desktop.act` `steps`, up to 20). | Fewer round trips for typing | Done in S56 |
 | 8 | **A bigger screen and windows fitted to it** (1920x1080, fit-windows). | No off-screen buttons | Done in S56 |
-| 9 | **A vision model for `computer.act`**, with screenshots kept for one step only (openfuse pattern), duplicate frames suppressed (OpenMausBot pattern), and scale mapping stated. | Option for apps without a usable tree | Designed for the browser in S58; desktop later |
+| 9 | **A vision model for `computer.act`**, with screenshots kept for one step only (openfuse pattern), duplicate frames suppressed (OpenMausBot pattern), and scale mapping stated. | Option for apps without a usable tree | Decided (Y5): the chat model reads the image on the same call; S58 measures full vs scaled cost |
 
 The browser steps (S57–S61 in [12-fifth-pass-plan.md](12-fifth-pass-plan.md)) apply items 1, 5, 7 and 9 from
 the start, because browser activity is expected to be the main use of the desktop: one live snapshot, actions
-that report a diff, batches for forms, waits on page state, and one-step screenshots with element boxes.
+that report a diff, batches for forms, waits on page state, and one-step screenshots with element boxes. The
+chat model reads the screenshot (Y5), so vision adds input tokens, not a model call; a small test image cost
+about 230 tokens, and S58 measures a full 1920×1080 capture against the scaled one.
 
 Target for the next measured run: the Calc task finishes without help, in **under 60 s and under 15 model
 calls**, with no summarize call on the critical path. For the browser, a simple lookup runs in **under 20 s
