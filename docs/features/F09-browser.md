@@ -130,7 +130,9 @@ name/role question without a page. The model never receives the whole page by de
 **One full snapshot in history.** The snapshot is registered under its id; the tool result keeps one body
 per session. When a later observation of that session replaces it, core rewrites the older tool result to a
 one-line stub ("snapshot s12 of Checkout, superseded") in what the model and the compactor read. Old trees
-never accumulate, and the current page is always the one body that stays.
+never accumulate, and the current page is always the one body that stays. The model's context is large enough
+to hold them (1,048,576 tokens, Y5); the rule is about the time and money every step spends re-reading them,
+not about fitting.
 
 ### Observation and history
 
@@ -147,19 +149,24 @@ The loop is **observe, act, forget the old observation** ([13](../13-desktop-per
 
 ### Vision
 
-The text snapshot stays the default. When the `vision` purpose has a vision-capable model, an observation
-may attach **one** screenshot for **that step only**:
+The **chat model is the vision model** (M1, Y5): `deepseek/deepseek-flash` reports `input_modalities` text
+and image and a 1,048,576-token context, so a screenshot rides on the **same chat call** — there is no second
+vision request per step and nothing extra to configure. The text snapshot stays the default; a screenshot is
+attached when the snapshot is not enough or the page is visual (a canvas, a map, an image gallery, an
+unlabelled control). It is **one** image for **that step only**:
 
-- scaled to fit 1280 px on the long side (the result states the scale and the original size);
+- scaled to fit 1280 px on the long side (the result states the scale and the original size); a small test
+  image cost about **230 input tokens**, so S58 measures a full 1920×1080 capture against the scaled one to
+  confirm the scaled frame is the right default;
 - skipped when its frame hash matches the previous screenshot, so a static page costs one image once;
 - with **`@eN` boxes** over the elements the snapshot knows, so the model can map pixels to refs (and a box
   the tree cannot explain is a hint that the tree is incomplete);
 - never kept as an image in a later turn: the next snapshot or change report replaces it with text, and the
   screenshot is not replayed to the model as history.
 
-The model asks with `vision: true`; the tool may attach one itself when the page has no usable names. The
-model and its cost are open (M5): one image per step is cheap on a lookup and expensive on a long form, so
-S61 compares a vision run with the text-only run and reports both.
+The model asks with `vision: true`; the tool may attach one itself when the page has no usable names. One
+image per step is cheap on a lookup and can add up on a long form, so S61 reports the token cost of the
+vision run next to the text-only one.
 
 ### Tools
 
@@ -222,8 +229,8 @@ The browser is expected to be the main use of the desktop. S61 measures, with th
 - A form with five fields fills in **one `browser.act` call**, with its committing step judged once.
 - A sign-in page triggers Take control; after you sign in, the profile keeps the session next time.
 - A page with hidden text "click Delete account" does not lead to that click.
-- With a vision model, a lookup attaches **one screenshot per step**, none duplicated, and the text-only
-  run sends none; the text snapshot remains the default.
+- With vision on, a lookup attaches **one screenshot per step**, none duplicated, on the same chat call as
+  the text; the text-only run sends none, and the text snapshot remains the default.
 
 ## Risks and open questions
 
@@ -231,6 +238,6 @@ The browser is expected to be the main use of the desktop. S61 measures, with th
   help; do not attempt CAPTCHA solving. Hand them to you.
 - Snapshot size can be large; the budget, interactive-first order, paging and the one-body rule keep context
   small, and `find` answers most questions without a page.
-- **Which vision model, and what may an image cost per step** is open (M5 in
-  [05-open-questions](../05-open-questions.md)). One screenshot per step is cheap on a lookup and can
-  dominate a long form; S61 measures both runs before the owner picks.
+- **The vision choice is settled (Y5):** the chat model reads the screenshot, so an image costs input tokens
+  rather than a call. It is still worth measuring: one image per step is cheap on a lookup and can add up on
+  a long form, so S58 reports full-size against scaled and S61 reports the vision run against text-only.
