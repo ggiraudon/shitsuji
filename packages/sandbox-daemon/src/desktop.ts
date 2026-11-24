@@ -11,6 +11,7 @@ import {
   type DesktopScreenshotReply,
   type DesktopStateReply,
   type DesktopWindow,
+  type DesktopWindowActionRequest,
   type DesktopWindowsReply,
 } from '@shitsuji/sandbox-protocol';
 import { invalidRequest, SandboxHttpError } from './errors.js';
@@ -44,6 +45,8 @@ export interface DesktopCommandRunner {
     options?: { timeoutMs?: number; input?: string | Uint8Array; maxOutputBytes?: number },
   ): Promise<DesktopBinaryResult>;
   startDetached(argv: readonly string[]): Promise<void>;
+  /** Starts a detached process and writes its stdin, without waiting for it to exit (xclip). */
+  startDetachedInput(argv: readonly string[], input: string): Promise<void>;
 }
 
 export interface DesktopRunnerOptions {
@@ -173,6 +176,33 @@ export class SetprivDesktopRunner implements DesktopCommandRunner {
       child.once('spawn', () => {
         child.unref();
         resolve();
+      });
+    });
+  }
+
+  /**
+   * Like `startDetached`, but with stdin. xclip forks a child that owns the selection and keeps
+   * running, so waiting for exit would hang (and killing the group would drop the selection);
+   * this resolves once the input is written and leaves the process alone.
+   */
+  async startDetachedInput(argv: readonly string[], input: string): Promise<void> {
+    const command = setprivCommand([...argv], {
+      uid: this.options.uid,
+      gid: this.options.gid,
+      setprivPath: this.options.setprivPath,
+    });
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(command[0]!, command.slice(1), {
+        env: this.options.env,
+        detached: true,
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      child.once('error', reject);
+      child.once('spawn', () => {
+        child.stdin?.end(input, () => {
+          child.unref();
+          resolve();
+        });
       });
     });
   }
@@ -342,6 +372,12 @@ export class DesktopService {
     action: { action: 'type'; text: string } | { action: 'key'; key: DesktopKey },
   ): Promise<void> {
     if (action.action === 'type') {
+      // xdotool cannot type non-ASCII ("Invalid multi-byte sequence"); those go through the
+      // clipboard, which is restored afterwards (#151).
+      if (NON_ASCII.test(action.text)) {
+        await this.pasteText(action.text);
+        return;
+      }
       await this.run(
         ['xdotool', 'type', '--clearmodifiers', '--delay', '20', '--', action.text],
         10_000,
@@ -351,14 +387,40 @@ export class DesktopService {
     await this.run(['xdotool', 'key', '--clearmodifiers', action.key]);
   }
 
+  /** Pastes accented or other non-ASCII text, then puts the previous clipboard text back. */
+  private async pasteText(text: string): Promise<void> {
+    const previous = (await this.run(['xclip', '-selection', 'clipboard', '-o'], 3_000)).stdout;
+    try {
+      try {
+        await this.options.runner.startDetachedInput(
+          ['/usr/bin/xclip', '-selection', 'clipboard', '-i'],
+          text,
+        );
+      } catch {
+        throw invalidRequest('The text could not be put on the clipboard for pasting.');
+      }
+      // Let the forked xclip take the selection before the app asks for it.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await this.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+v'], 5_000);
+      // The app reads the selection asynchronously; give it a moment before taking it back.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    } finally {
+      await this.options.runner
+        .startDetachedInput(['/usr/bin/xclip', '-selection', 'clipboard', '-i'], previous)
+        .catch(() => undefined);
+    }
+  }
+
   async windows(): Promise<DesktopWindowsReply> {
-    const result = await this.run(['wmctrl', '-l', '-G'], 5_000);
+    const result = await this.run(['wmctrl', '-l', '-x', '-G'], 5_000);
     const windows: DesktopWindow[] = [];
     for (const line of result.stdout.split('\n')) {
-      const match = /^(\S+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s?(.*)$/.exec(
-        line.trim(),
-      );
+      const match =
+        /^(\S+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s?(.*)$/.exec(
+          line.trim(),
+        );
       if (!match) continue;
+      const identifier = match[8]!;
       windows.push({
         id: match[1]!,
         desktop: Number(match[2]),
@@ -366,10 +428,33 @@ export class DesktopService {
         y: Number(match[4]),
         width: Number(match[5]),
         height: Number(match[6]),
-        title: match[8] ?? '',
+        title: match[9] ?? '',
+        ...(identifier !== 'N/A' && {
+          app: identifier.split('.')[0]?.toLowerCase() || undefined,
+        }),
       });
     }
     return { windows };
+  }
+
+  /** Moves, resizes or focuses one window; the reply is the list after the change (#151). */
+  async windowAction(request: DesktopWindowActionRequest): Promise<DesktopWindowsReply> {
+    const windows = (await this.windows()).windows;
+    const target = resolveWindow(windows, request.window);
+    if (!target) throw invalidRequest(`No window matches "${request.window}".`);
+    if (request.action === 'focus') {
+      await this.run(['wmctrl', '-i', '-a', target.id], 5_000);
+    } else {
+      const x = request.action === 'move' ? String(request.x) : '-1';
+      const y = request.action === 'move' ? String(request.y) : '-1';
+      const width = request.action === 'resize' ? String(request.width) : '-1';
+      const height = request.action === 'resize' ? String(request.height) : '-1';
+      await this.run(
+        ['wmctrl', '-i', '-r', target.id, '-e', `0,${x},${y},${width},${height}`],
+        5_000,
+      );
+    }
+    return this.windows();
   }
 
   async launch(app: DesktopApp): Promise<void> {
@@ -389,7 +474,11 @@ export class DesktopService {
   }
 
   async writeClipboard(text: string): Promise<void> {
-    await this.run(['xclip', '-selection', 'clipboard', '-i'], 3_000, text);
+    // xclip keeps a child alive as the selection owner, so this must not wait for exit.
+    await this.options.runner.startDetachedInput(
+      ['/usr/bin/xclip', '-selection', 'clipboard', '-i'],
+      text,
+    );
   }
 
   async ocr(request: DesktopOcrRequest): Promise<DesktopOcrReply> {
@@ -458,3 +547,19 @@ export class DesktopService {
 
 const button = (name: 'left' | 'right' | 'middle'): string =>
   name === 'right' ? '3' : name === 'middle' ? '2' : '1';
+
+/** Anything xdotool cannot type as a key sequence: accented letters, CJK, emoji (#151). */
+const NON_ASCII = /[^\t\n\r\x20-\x7e]/;
+
+/** The window a selector names: an id, an exact title, or a title substring (#151). */
+function resolveWindow(
+  windows: readonly DesktopWindow[],
+  selector: string,
+): DesktopWindow | undefined {
+  const byId = windows.find((item) => item.id === selector);
+  if (byId) return byId;
+  const needle = selector.toLowerCase();
+  const exact = windows.find((item) => item.title.toLowerCase() === needle);
+  if (exact) return exact;
+  return windows.find((item) => item.title.toLowerCase().includes(needle));
+}

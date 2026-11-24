@@ -304,13 +304,14 @@ export interface DesktopCapability {
   state(signal?: AbortSignal): Promise<DesktopState>;    // display, width, height
   screenshot(opts?: { scale?: number }, signal?: AbortSignal): Promise<DesktopImage>;
   windows(signal?: AbortSignal): Promise<DesktopWindow[]>;
+  windowAction?(request: DesktopWindowAction, signal?: AbortSignal): Promise<DesktopWindow[]>; // #151
   act(action: DesktopAction, signal: AbortSignal): Promise<void>;
   ocr(opts?: { region?: DesktopRect }, signal?: AbortSignal): Promise<DesktopOcrResult>;
   readClipboard(signal?: AbortSignal): Promise<string>;
   writeClipboard(text: string, signal?: AbortSignal): Promise<void>;
   inspect(request: DesktopA11yTreeQuery, signal?: AbortSignal): Promise<DesktopA11yTree>;   // S54
-  find(request: DesktopA11yFindQuery, signal?: AbortSignal): Promise<DesktopA11yTree>;      // S54
-  actOnElement(request: DesktopA11yActRequest, signal?: AbortSignal): Promise<DesktopA11yActResult>; // S54
+  find(request: DesktopA11yFindQuery, signal?: AbortSignal): Promise<DesktopA11yTree>;      // S54; app/exact #151
+  actOnElement(request: DesktopA11yActRequest, signal?: AbortSignal): Promise<DesktopA11yActResult>; // S54; press list #151
   accessibilityStatus(signal?: AbortSignal): Promise<DesktopA11yStatus>;                    // S54
 }
 ```
@@ -324,31 +325,58 @@ or macOS desktop (for example through cua's driver), or (much later, opt-in) you
 
 ### Computer-use tool
 
-Two tools, matching the levels above:
+Five structure tools plus the screenshot one, matching the levels above:
 
-- `desktop.inspect({ window?, find?, ref?, depth? })` returns the AT-SPI tree or matching elements, with refs
-  and a snapshot id, and `desktop.act({ snapshot, ref, action, text?, key?, app? })` clicks an element, sets
-  its text, types into it, presses a key, or launches an allowed app. After an action, the result holds a
-  fresh tree and snapshot. `type` focuses the ref and sends the characters with the desktop keyboard;
-  `key` presses one of the allow-listed chords. This is what commits a Calc cell: the cell itself is not
-  an editable-text object, but it accepts typing once focused. `launch_app` is here as well as in
-  `computer.act`, so a model without vision can still open the app.
+- `desktop.inspect({ window?, app?, find?, ref?, depth? })` returns the AT-SPI tree or matching
+  elements, with refs and a snapshot id. `find` takes `{ name?, role?, exact? }`; `app` searches every
+  window of that application (dialogs and popups included) and each match carries its window, while
+  `role: "dialog"` also matches the `alert` and `file chooser` roles GTK and LibreOffice publish.
+  Without a window, the focused titled window or dialog wins over xfwm4's unnamed frame; an app name
+  prefers its modal dialog over the main window (#151).
+- `desktop.wait({ window?, app?, find?, state?, timeoutMs? })` waits until an element or a window
+  title is present (the default) or absent, then returns the matches or geometry. A timeout is a
+  normal result that names the target, so a launch or a Save click needs one call, not inspect after
+  inspect (#151).
+- `desktop.windows({})` lists the windows with their WM_CLASS app, size, position and id, and
+  `desktop.window({ window, action: 'move' | 'resize' | 'focus', x?, y?, width?, height? })` changes
+  one by id or title substring and returns its new geometry. This is the manual complement to the S56
+  automatic fitting (#151).
+- `desktop.act({ snapshot, ref, action, text?, key?, app? })` clicks an element, sets its text, types
+  into it, presses a key, or launches an allowed app. A press action may be a list such as
+  `press|click`: the helper tries each AT-SPI action name in order, runs the first the element offers,
+  and reports which one ran and whether the app confirmed it. `type` focuses the ref and sends the
+  characters with the desktop keyboard; `key` presses one of the allow-listed chords; `launch_app` is
+  here as well as in `computer.act`. This is what commits a Calc cell: the cell itself is not an
+  editable-text object, but it accepts typing once focused (#151).
+- **After an action, what changed, not the whole tree:** the result names the focused element and
+  every window that appeared (with the new dialog's tree and refs) or closed. It does not re-read the
+  acted window, which took 3.6-4.1 s for the Calc frame while a dialog read takes 0.2-0.5 s. Keys and
+  typed text are `sent, unconfirmed`, and nothing is retried automatically (#151).
 - **One input sequence per call (S56):** instead of `action`, `desktop.act` accepts `steps`, up to 20
   `{ type }` or `{ key }` entries run in order after an optional `ref` click, and stops at the first
-  failure. The model spends one trust decision and one tree walk on a cell plus its commit, and reads the
-  tree again only when it is unsure or a ref went stale.
+  failure. The model spends one trust decision and one tree walk on a cell plus its commit, and reads
+  the tree again only when it is unsure or a ref went stale.
+- Every desktop tool error is two lines: what failed, then a `Remedy:` naming the next call (inspect
+  again after a stale ref, use the window id, ask the owner to give control back). The model is never
+  left with a dead end (#151).
+- `type` handles accented text: xdotool cannot type non-ASCII, so the daemon saves the clipboard text,
+  pastes through `ctrl+v`, waits for the app to read the selection, and restores the clipboard in a
+  `finally` block (#151).
 - `computer.act` with actions `screenshot`, `click`, `double_click`, `right_click`, `move`, `drag`, `scroll`,
   `type`, `key`, `wait`, `launch_app`, `ocr`. The result always includes a fresh scaled screenshot, so the
   model sees the effect.
 
 - `computer.request_takeover({ reason })` asks the owner for the desktop and pauses the turn with
   the question and viewer link (S55).
-- **Tree registration:** `desktop.inspect` and `desktop.act` are registered only when the active driver
-  advertises `accessibility`, which means the helper answered; structure does not need a vision model.
-  `desktop.inspect` is `read`, `desktop.act` is `write_local`, and both mark their output untrusted. A
-  ref whose window changed is refused with "stale, take a new snapshot" rather than clicked.
-- In owner mode `computer.act` keeps only `screenshot` and `ocr`, and `desktop.act` is refused; the
-  agent can still read the tree and screenshots.
+- **Tree registration:** the structure tools (`desktop.inspect`, `desktop.wait`, `desktop.windows`,
+  `desktop.window`, `desktop.act`) are registered only when the active driver advertises
+  `accessibility`, which means the helper answered; structure does not need a vision model.
+  `desktop.inspect`, `desktop.wait` and `desktop.windows` are `read`; `desktop.act` and
+  `desktop.window` are `write_local`. All mark their output untrusted. A ref whose window changed is
+  refused with "stale, take a new snapshot" rather than clicked.
+- In owner mode `computer.act` keeps only `screenshot` and `ocr`; `desktop.act` and `desktop.window`
+  (move, resize, focus) are refused, while `desktop.inspect`, `desktop.wait`, `desktop.windows`,
+  screenshots and OCR still work, so the agent can look but not act.
 - Needs a **vision-capable model** for `computer.act`; the router selects `purpose: vision`
   ([F03](F03-model-providers.md)). DeepSeek V4.1 Flash accepts images, so computer use can run on the same
   model as chat. Keeping `purpose: vision` separate still lets you point it at a stronger or local vision
@@ -402,9 +430,10 @@ not the window that opened it; that a save dialog takes a plain name or a full p
 The desktop has two modes, held by `SandboxService` and reset to `agent` in every new process:
 
 - In **agent** mode the agent drives the desktop and the viewer is watch-only.
-- In **owner** mode the viewer gets the full-control stream. Every writing action of `computer.act`
-  and `desktop.act` is refused with a clear message; `screenshot`, `ocr`, `desktop.inspect` (including
-  its `find` query) still work, so the agent can look but not act. The full-control VNC password is
+- In **owner** mode the viewer gets the full-control stream. Every writing action of `computer.act`,
+  `desktop.act` and `desktop.window` is refused with a clear message; `screenshot`, `ocr`,
+  `desktop.inspect` (including its `find` query), `desktop.wait` and `desktop.windows` still work, so
+  the agent can look but not act. The full-control VNC password is
   only returned by core's cookie-gated credentials route while the mode is owner, and the stream
   only goes through core.
 

@@ -107,12 +107,32 @@ export function formatA11yFind(tree: DesktopA11yTree, query: DesktopA11yFindQuer
   ]
     .filter(Boolean)
     .join(' and ');
-  const header = `Matches for ${target} in window "${escape(tree.window)}" — snapshot ${tree.snapshot}`;
+  const exact = query.exact ? ' (exact match)' : '';
+  const windows = tree.windows ?? [];
+  const windowCount = windows.length || countWindows(tree);
+  const scope = query.app
+    ? `in app "${escape(query.app)}" (${windowCount} window${windowCount === 1 ? '' : 's'})`
+    : `in window "${escape(tree.window)}"`;
+  const header = `Matches for ${target}${exact} ${scope} — snapshot ${tree.snapshot}`;
   const lines = [header];
   let used = header.length + 1;
   let cut = false;
+  let currentWindow: string | undefined;
+  // An app-wide search includes several windows; keep each window's matches under its title.
+  const grouped = tree.nodes.some((node) => node.window !== undefined);
+  const indent = grouped ? '    ' : '  ';
   for (const node of tree.nodes) {
-    const line = `  ${nodeLine(node)}`;
+    if (grouped && node.window !== currentWindow) {
+      currentWindow = node.window;
+      const line = `  window "${escape(currentWindow ?? '')}"`;
+      if (used + line.length + 1 > A11Y_TREE_MAX_CHARS - NOTE_RESERVE) {
+        cut = true;
+        break;
+      }
+      lines.push(line);
+      used += line.length + 1;
+    }
+    const line = `${indent}${nodeLine(node)}`;
     if (used + line.length + 1 > A11Y_TREE_MAX_CHARS - NOTE_RESERVE) {
       cut = true;
       break;
@@ -137,6 +157,10 @@ export function formatA11yFind(tree: DesktopA11yTree, query: DesktopA11yFindQuer
       'a ref goes stale when the window changes.',
   );
   return lines.join('\n');
+}
+
+function countWindows(tree: DesktopA11yTree): number {
+  return new Set(tree.nodes.map((node) => node.window).filter(Boolean)).size;
 }
 
 /** One node as `role "name" [eN] = "value" (disabled)`, with a ref only when it is actionable. */

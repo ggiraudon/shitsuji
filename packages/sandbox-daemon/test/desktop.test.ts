@@ -26,15 +26,17 @@ const service = (runner: DesktopCommandRunner) => new DesktopService({ runner })
 
 const fake = () => {
   const calls: string[][] = [];
+  const inputs: (string | Uint8Array | undefined)[] = [];
   const runner: DesktopCommandRunner = {
-    async run(argv) {
+    async run(argv, options) {
       calls.push([...argv]);
+      if (argv[0] === 'xclip' && argv.includes('-i')) inputs.push(options?.input);
       if (argv[0] === 'xdpyinfo') {
         return ok('  dimensions:    1440x900 pixels (381x238 millimeters)');
       }
       if (argv[0] === 'wmctrl') {
         return ok(
-          '0x01e00028  0 0 0 1440 900 host Desktop\n0x02e00033  0 10 20 500 400 host s53-folder - File Manager\n',
+          '0x01e00028  0 0 0 1440 900 host xfdesktop.Xfdesktop Desktop\n0x02e00033  0 10 20 500 400 host thunar.Thunar s53-folder - File Manager\n',
         );
       }
       if (argv[0] === 'xclip') return ok('clip text');
@@ -48,8 +50,12 @@ const fake = () => {
     async startDetached(argv) {
       calls.push([...argv]);
     },
+    async startDetachedInput(argv, input) {
+      calls.push([...argv]);
+      inputs.push(input);
+    },
   };
-  return { runner, calls };
+  return { runner, calls, inputs };
 };
 
 describe('sandboxd desktop service (S53)', () => {
@@ -118,6 +124,16 @@ describe('sandboxd desktop service (S53)', () => {
     expect(calls.at(-1)).toEqual(['xdotool', 'key', '--clearmodifiers', 'ctrl+l']);
   });
 
+  it('pastes é ç ü through the clipboard and restores the previous text (#151)', async () => {
+    const { runner, calls, inputs } = fake();
+    const desktop = service(runner);
+    await desktop.keyboard({ action: 'type', text: 'éçü' });
+    expect(calls.some((call) => call[0] === 'xdotool' && call[1] === 'type')).toBe(false);
+    expect(calls).toContainEqual(['xclip', '-selection', 'clipboard', '-o']);
+    expect(calls).toContainEqual(['xdotool', 'key', '--clearmodifiers', 'ctrl+v']);
+    expect(inputs).toEqual(['éçü', 'clip text']);
+  });
+
   it('launches only an allowed app, detached', async () => {
     const { runner, calls } = fake();
     const desktop = service(runner);
@@ -128,11 +144,20 @@ describe('sandboxd desktop service (S53)', () => {
   });
 
   it('lists windows and reads the clipboard', async () => {
-    const { runner } = fake();
+    const { runner, inputs } = fake();
     const desktop = service(runner);
     await expect(desktop.windows()).resolves.toEqual({
       windows: [
-        { id: '0x01e00028', desktop: 0, x: 0, y: 0, width: 1440, height: 900, title: 'Desktop' },
+        {
+          id: '0x01e00028',
+          desktop: 0,
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          title: 'Desktop',
+          app: 'xfdesktop',
+        },
         {
           id: '0x02e00033',
           desktop: 0,
@@ -141,10 +166,36 @@ describe('sandboxd desktop service (S53)', () => {
           width: 500,
           height: 400,
           title: 's53-folder - File Manager',
+          app: 'thunar',
         },
       ],
     });
     await expect(desktop.readClipboard()).resolves.toEqual({ text: 'clip text' });
+    await desktop.writeClipboard('new text');
+    expect(inputs.at(-1)).toBe('new text');
+  });
+
+  it('moves, resizes and focuses a window by id or title (#151)', async () => {
+    const { runner, calls } = fake();
+    const desktop = service(runner);
+
+    await desktop.windowAction({ window: '0x02e00033', action: 'move', x: 40, y: 60 });
+    expect(calls).toContainEqual(['wmctrl', '-i', '-r', '0x02e00033', '-e', '0,40,60,-1,-1']);
+
+    await desktop.windowAction({
+      window: 'File Manager',
+      action: 'resize',
+      width: 800,
+      height: 600,
+    });
+    expect(calls).toContainEqual(['wmctrl', '-i', '-r', '0x02e00033', '-e', '0,-1,-1,800,600']);
+
+    await desktop.windowAction({ window: 'file manager', action: 'focus' });
+    expect(calls).toContainEqual(['wmctrl', '-i', '-a', '0x02e00033']);
+
+    await expect(
+      desktop.windowAction({ window: 'no such window', action: 'focus' }),
+    ).rejects.toBeInstanceOf(SandboxHttpError);
   });
 
   it('OCRs through ffmpeg stdin and tesseract stdin, with no temp path', async () => {

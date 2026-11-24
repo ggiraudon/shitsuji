@@ -378,6 +378,8 @@ export const desktopWindowSchema = z
     width: z.number().int().nonnegative(),
     height: z.number().int().nonnegative(),
     desktop: z.number().int(),
+    /** The window's WM_CLASS application, e.g. `soffice` (#151). */
+    app: z.string().max(200).optional(),
   })
   .strict();
 export type DesktopWindow = z.infer<typeof desktopWindowSchema>;
@@ -386,6 +388,51 @@ export const desktopWindowsReplySchema = z
   .object({ windows: z.array(desktopWindowSchema) })
   .strict();
 export type DesktopWindowsReply = z.infer<typeof desktopWindowsReplySchema>;
+
+/** Move, resize or focus one window; the reply is the window list after the change (#151). */
+export const desktopWindowActionRequestSchema = z
+  .object({
+    /** The window id (`0x…`) or a title substring. */
+    window: z.string().min(1).max(500),
+    action: z.enum(['move', 'resize', 'focus']),
+    x: z.number().int().min(-100_000).max(100_000).optional(),
+    y: z.number().int().min(-100_000).max(100_000).optional(),
+    width: z.number().int().min(50).max(100_000).optional(),
+    height: z.number().int().min(50).max(100_000).optional(),
+  })
+  .strict()
+  .superRefine((request, ctx) => {
+    if (request.action === 'move' && (request.x === undefined || request.y === undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['x'], message: 'is required for move' });
+    }
+    if (
+      request.action === 'resize' &&
+      (request.width === undefined || request.height === undefined)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['width'],
+        message: 'is required for resize',
+      });
+    }
+    if (request.action === 'focus' && request.x !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['x'], message: 'is only for move' });
+    }
+    if (request.action !== 'move' && request.y !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['y'], message: 'is only for move' });
+    }
+    if (request.action !== 'resize' && request.width !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['width'], message: 'is only for resize' });
+    }
+    if (request.action !== 'resize' && request.height !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['height'],
+        message: 'is only for resize',
+      });
+    }
+  });
+export type DesktopWindowActionRequest = z.infer<typeof desktopWindowActionRequestSchema>;
 
 export const desktopLaunchRequestSchema = z.object({ app: desktopAppSchema }).strict();
 export type DesktopLaunchRequest = z.infer<typeof desktopLaunchRequestSchema>;
@@ -417,9 +464,27 @@ export type DesktopOcrReply = z.infer<typeof desktopOcrReplySchema>;
 
 // ---- accessibility tree (S54) ------------------------------------------------------------------
 
-/** Actions `desktop.act` may run on an element ref; both are local desktop writes. */
+/** AT-SPI action names `desktop.act` may try, in the order the model writes them (S56, #151). */
+export const DESKTOP_A11Y_PRESS_ACTIONS = [
+  'click',
+  'press',
+  'activate',
+  'open',
+  'jump',
+  'toggle',
+] as const;
+/** The act actions that write through the tree; `set_text` is the other one. */
 export const DESKTOP_A11Y_ACTIONS = ['click', 'set_text'] as const;
-export const desktopA11yActionSchema = z.enum(DESKTOP_A11Y_ACTIONS);
+const a11yPressPattern = new RegExp(
+  `^(${DESKTOP_A11Y_PRESS_ACTIONS.join('|')})(\\|(${DESKTOP_A11Y_PRESS_ACTIONS.join('|')})){0,3}$`,
+);
+/** A press list like `press|click`, or `set_text`; the helper reports which one ran. */
+export const desktopA11yActionSchema = z
+  .string()
+  .max(200)
+  .refine((value) => value === 'set_text' || a11yPressPattern.test(value), {
+    message: 'is not a press action list or set_text',
+  });
 export type DesktopA11yAction = z.infer<typeof desktopA11yActionSchema>;
 
 /** A ref is snapshot-scoped and never an AT-SPI object path. */
@@ -436,6 +501,8 @@ export const desktopA11yNodeSchema = z
     /** The AT-SPI role name, e.g. `push button`. */
     role: z.string().min(1).max(200),
     name: z.string().max(500).optional(),
+    /** The window the node belongs to, for a search across an app's windows. */
+    window: z.string().max(500).optional(),
     /** Editable or displayed text, truncated by the helper. */
     value: z.string().max(2_000).optional(),
     states: z.array(z.string().max(40)).max(20),
@@ -451,6 +518,8 @@ export const desktopA11yTreeReplySchema = z
   .object({
     app: z.string().max(200),
     window: z.string().max(500),
+    /** The windows a single search covered (an app search); absent for one window. */
+    windows: z.array(z.string().max(500)).max(50).optional(),
     snapshot: snapshotSchema,
     nodes: z.array(desktopA11yNodeSchema).max(10_000),
     /** How many interesting nodes the tree had before any cap. */
@@ -476,12 +545,19 @@ export type DesktopA11yTreeQuery = z.infer<typeof desktopA11yTreeQuerySchema>;
 export const desktopA11yFindQuerySchema = z
   .object({
     window: z.string().min(1).max(500).optional(),
+    /** Search every window of this app, dialogs included, instead of one window. */
+    app: z.string().min(1).max(200).optional(),
     name: z.string().min(1).max(200).optional(),
     role: z.string().min(1).max(200).optional(),
+    /** Match the whole name/role instead of a substring. */
+    exact: z.boolean().optional(),
   })
   .strict()
   .refine((query) => query.name !== undefined || query.role !== undefined, {
     message: 'name or role is required',
+  })
+  .refine((query) => !(query.window !== undefined && query.app !== undefined), {
+    message: 'give a window or an app, not both',
   });
 export type DesktopA11yFindQuery = z.infer<typeof desktopA11yFindQuerySchema>;
 
@@ -513,6 +589,10 @@ export const desktopA11yActReplySchema = z
   .object({
     ok: z.literal(true),
     action: desktopA11yActionSchema,
+    /** The AT-SPI action that actually ran, or `focus` when none did (#151). */
+    ran: z.string().max(80).optional(),
+    /** False when the app did not confirm the action; the tool says "sent, unconfirmed". */
+    confirmed: z.boolean().optional(),
     role: z.string().min(1).max(200),
     name: z.string().max(500).optional(),
     /** The window and app the element belongs to, so the caller can take a fresh snapshot. */
@@ -594,6 +674,7 @@ export const SANDBOX_ROUTES = {
   desktopInputMouse: '/desktop/input/mouse',
   desktopInputKeyboard: '/desktop/input/keyboard',
   desktopWindows: '/desktop/windows',
+  desktopWindow: '/desktop/window',
   desktopLaunch: '/desktop/apps/launch',
   desktopClipboard: '/desktop/clipboard',
   desktopOcr: '/desktop/ocr',

@@ -715,10 +715,10 @@ describe('desktop Calc end to end (S56)', () => {
   it.runIf(available)(
     'opens Calc, types numbers, saves /workspace/calc.csv and reads it back with workspace.exec',
     async () => {
-      const signal = AbortSignal.timeout(180_000);
+      const signal = AbortSignal.timeout(240_000);
       const findOne = async (
-        window: string,
-        query: { name?: string; role?: string },
+        scope: string | { app: string },
+        query: { name?: string; role?: string; exact?: boolean },
         match: (node: { name?: string; role: string; value?: string }) => boolean,
       ) => {
         let found: { tree: DesktopA11yTree; ref: string } | undefined;
@@ -727,9 +727,10 @@ describe('desktop Calc end to end (S56)', () => {
             try {
               const tree = await desktop.find(
                 {
-                  window,
+                  ...(typeof scope === 'string' ? { window: scope } : { app: scope.app }),
                   ...(query.name && { name: query.name }),
                   ...(query.role && { role: query.role }),
+                  ...(query.exact !== undefined && { exact: query.exact }),
                 },
                 signal,
               );
@@ -740,8 +741,8 @@ describe('desktop Calc end to end (S56)', () => {
               return false;
             }
           },
-          `${query.name ?? query.role ?? 'the element'} in ${window}`,
-          20_000,
+          `${query.name ?? query.role ?? 'the element'}`,
+          30_000,
         );
         return found!;
       };
@@ -789,6 +790,32 @@ describe('desktop Calc end to end (S56)', () => {
         await desktop.act({ kind: 'type', text: value }, signal);
         await desktop.act({ kind: 'key', key: 'Return' }, signal);
       }
+
+      // Accented text cannot go through xdotool; it is pasted, and the clipboard must come back.
+      const clipboard = await desktop.readClipboard(signal);
+      await desktop.writeClipboard('keep me', signal);
+      const accented = await findOne('Calc', { name: 'C1' }, (node) => node.name === 'C1');
+      await desktop.actOnElement(
+        { snapshot: accented.tree.snapshot, ref: accented.ref, action: 'click' },
+        signal,
+      );
+      await desktop.act({ kind: 'type', text: 'éçü' }, signal);
+      await desktop.act({ kind: 'key', key: 'Return' }, signal);
+      await waitFor(
+        async () => {
+          try {
+            const tree = await desktop.find({ window: 'Calc', name: 'C1' }, signal);
+            return tree.nodes.some((node) => node.name === 'C1' && node.value === 'éçü');
+          } catch {
+            return false;
+          }
+        },
+        'the accented value in C1',
+        30_000,
+      );
+      expect(await desktop.readClipboard(signal)).toBe('keep me');
+      await desktop.writeClipboard(clipboard, signal);
+
       await desktop.act({ kind: 'key', key: 'ctrl+s' }, signal);
 
       await waitFor(async () => {
@@ -796,8 +823,16 @@ describe('desktop Calc end to end (S56)', () => {
         return list.some((window) => /^Save$|Save As|Confirm File Format/i.test(window.title));
       }, 'the Save dialog');
 
+      // The no-window default and the app name must both pick the modal dialog, not the Calc
+      // frame or xfwm4's unnamed window (#151).
+      const active = await desktop.inspect({}, signal);
+      expect(active.window).toMatch(/Save|Confirm File Format/i);
+      const byApp = await desktop.inspect({ window: 'soffice' }, signal);
+      expect(byApp.window).not.toMatch(/LibreOffice Calc/i);
+      expect(byApp.window).toMatch(/Save|Confirm File Format/i);
+
       const nameField = await findOne(
-        'soffice',
+        { app: 'soffice' },
         { role: 'text' },
         (node) => node.value === 'Untitled 1' || node.value === 'Untitled 1.csv',
       );
@@ -811,29 +846,35 @@ describe('desktop Calc end to end (S56)', () => {
         signal,
       );
       const saveButton = await findOne(
-        'soffice',
+        { app: 'soffice' },
         { role: 'push button' },
         (node) => node.name === 'Save',
       );
-      await desktop.actOnElement(
-        { snapshot: saveButton.tree.snapshot, ref: saveButton.ref, action: 'click' },
+      const saveResult = await desktop.actOnElement(
+        { snapshot: saveButton.tree.snapshot, ref: saveButton.ref, action: 'press|click' },
         signal,
       );
+      expect(saveResult.ran).toBeTruthy();
+      expect(saveResult.confirmed).not.toBe(false);
 
       const csvButton = await findOne(
-        'soffice',
+        { app: 'soffice' },
         { name: 'Use Text CSV' },
         (node) => node.name === 'Use Text CSV Format',
       );
       await desktop.actOnElement(
-        { snapshot: csvButton.tree.snapshot, ref: csvButton.ref, action: 'click' },
+        { snapshot: csvButton.tree.snapshot, ref: csvButton.ref, action: 'press|click' },
         signal,
       );
 
       await retryOnStale(async () => {
-        const exportOk = await findOne('soffice', { name: 'OK' }, (node) => node.name === 'OK');
+        const exportOk = await findOne(
+          { app: 'soffice' },
+          { name: 'OK' },
+          (node) => node.name === 'OK',
+        );
         await desktop.actOnElement(
-          { snapshot: exportOk.tree.snapshot, ref: exportOk.ref, action: 'click' },
+          { snapshot: exportOk.tree.snapshot, ref: exportOk.ref, action: 'press|click' },
           signal,
         );
       });
@@ -853,10 +894,10 @@ describe('desktop Calc end to end (S56)', () => {
           return content.includes('42') && content.includes('7');
         },
         'the saved calc.csv',
-        20_000,
+        90_000,
       );
       expect(content).toMatch(/42.*7|7.*42/s);
     },
-    240_000,
+    300_000,
   );
 });

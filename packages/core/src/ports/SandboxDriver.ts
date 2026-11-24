@@ -225,6 +225,8 @@ export interface DesktopCapability {
   screenshot(opts?: { scale?: number }, signal?: AbortSignal): Promise<DesktopImage>;
   /** The top-level windows, so the model can aim at one rather than guess coordinates. */
   windows(signal?: AbortSignal): Promise<DesktopWindow[]>;
+  /** Moves, resizes or focuses one window and returns the updated list (#151). */
+  windowAction?(request: DesktopWindowAction, signal?: AbortSignal): Promise<DesktopWindow[]>;
   /** Performs one pointer, keyboard or launch action; the signal stops a slow one. */
   act(action: DesktopAction, signal: AbortSignal): Promise<void>;
   /** Text found on screen, optionally inside a region; read-only, for the model to inspect. */
@@ -287,6 +289,24 @@ export interface DesktopWindow {
   height: number;
   /** The virtual desktop the window is on. */
   desktop: number;
+  /** The WM_CLASS application, e.g. `soffice` (#151). */
+  app?: string;
+}
+
+/** Move, resize or focus one window (#151). */
+export interface DesktopWindowAction {
+  /** The window id (`0x…`) or a title substring. */
+  window: string;
+  /** What to change; move needs x/y, resize needs width/height. */
+  action: 'move' | 'resize' | 'focus';
+  /** Left edge for move. */
+  x?: number;
+  /** Top edge for move. */
+  y?: number;
+  /** Width for resize. */
+  width?: number;
+  /** Height for resize. */
+  height?: number;
 }
 
 /** A rectangle on the display, in pixels. */
@@ -398,6 +418,8 @@ export interface DesktopA11yTreeNode {
   role: string;
   /** The accessible name, when the app publishes one. */
   name?: string;
+  /** The window the node belongs to, when one search covered several windows. */
+  window?: string;
   /** The node's text value, for entries and labels. */
   value?: string;
   /** The AT-SPI states it is in, e.g. `enabled`, `focused`. */
@@ -414,6 +436,8 @@ export interface DesktopA11yTree {
   app: string;
   /** The window title. */
   window: string;
+  /** The windows a search across an app covered, when there was more than one. */
+  windows?: readonly string[];
   /** The snapshot token, stable for this read and required by `actOnElement`. */
   snapshot: string;
   /** The nodes in tree order, limited by the query. */
@@ -440,10 +464,14 @@ export interface DesktopA11yTreeQuery {
 export interface DesktopA11yFindQuery {
   /** The window to search; omitted means the active window. */
   window?: string;
+  /** Search every window of this app, dialogs included, instead of one window. */
+  app?: string;
   /** A substring of the accessible name. */
   name?: string;
   /** A substring of the AT-SPI role. */
   role?: string;
+  /** Match the whole name and role instead of a substring. */
+  exact?: boolean;
 }
 
 /** Act on one node: its ref is only valid for the snapshot it came from. */
@@ -452,8 +480,8 @@ export interface DesktopA11yActRequest {
   snapshot: string;
   /** The node to act on. */
   ref: string;
-  /** The action to perform. */
-  action: 'click' | 'set_text';
+  /** A press list like `press|click`, or `set_text`. */
+  action: string;
   /** The replacement text for `set_text`, as one value; never a shell string. */
   text?: string;
 }
@@ -461,7 +489,11 @@ export interface DesktopA11yActRequest {
 /** What acting on a node did, and which window to re-read afterwards. */
 export interface DesktopA11yActResult {
   /** The action that ran. */
-  action: 'click' | 'set_text';
+  action: string;
+  /** The AT-SPI action that actually ran, or `focus` when none did (#151). */
+  ran?: string;
+  /** False when the app did not confirm the action. */
+  confirmed?: boolean;
   /** The role of the node it ran on. */
   role: string;
   /** The node's accessible name, when it had one. */
