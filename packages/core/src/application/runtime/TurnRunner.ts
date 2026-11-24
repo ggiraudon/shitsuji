@@ -83,9 +83,12 @@ export type TurnResult =
       error: string;
     };
 
-/** One pass of the loop: an answer, or a question when the check-in limit is passed. */
+/** One pass of the loop: an answer, a question when the check-in limit is passed, or a pause. */
 type LoopOutcome =
-  { kind: 'reply'; text: string; files: OutboundFile[] } | { kind: 'question'; text: string };
+  | { kind: 'reply'; text: string; files: OutboundFile[] }
+  | { kind: 'question'; text: string }
+  /** The turn was paused while the owner held the desktop; its tool calls must not run (#154). */
+  | { kind: 'paused' };
 
 /**
  * A turn ended on purpose before an answer: a step limit, a stall, a repeated tool failure, or the
@@ -181,6 +184,14 @@ export class TurnRunner {
       const soul = this.deps.soul ? await this.deps.soul.current(session.kind) : undefined;
       if (soul) turn.useSoul(soul.revision);
       const outcome = await this.loop(session, turn, signal, soul);
+      if (outcome.kind === 'paused') {
+        // The control service moved the turn to `waiting` while a model call was in flight and
+        // published that; writing any terminal state here would race it and drop the resume (#154).
+        return {
+          status: 'failed',
+          error: 'The turn paused while the owner had control of the desktop.',
+        };
+      }
       if (outcome.kind === 'question') {
         if (!(await this.pause(turn, session, outcome.text))) {
           // Another process ended the turn first: leave its state and event alone.
@@ -243,7 +254,10 @@ export class TurnRunner {
    *    with the turn's id appears here before the next model call;
    * 4. asks `askBeforeContinuing` before spending a model call;
    * 5. calls the model, stores its content parts, and either answers (no tool calls) or runs the
-   *    tool calls one at a time, storing each result and feeding the stall detector.
+   *    tool calls one at a time, storing each result and feeding the stall detector. It re-reads the
+   *    stored turn after the model call and before each tool: Take control moves a running turn to
+   *    `waiting` from another path, so the stale response is dropped (no tool runs) and Give back
+   *    resumes the turn with the fresh observation first (#154).
    *
    * A steered message that arrives after the model request was sent is detected after the response
    * and costs one more step rather than being dropped. The loop is bounded by the session kind's
@@ -270,6 +284,9 @@ export class TurnRunner {
       const question = await this.askBeforeContinuing(session, context);
       if (question) return { kind: 'question', text: question };
       const response = await this.callModel(session, turn, context, signal);
+      // Take control pauses the running turn from another call path while this model call is in
+      // flight; the response is stale, so drop it rather than storing its tool calls (#154).
+      if (!(await this.stillRunning(turn))) return { kind: 'paused' };
       const parts: ContentPart[] = [];
       // Reasoning is kept in the transcript but never shown as the reply or sent back (F03).
       if (response.reasoning) parts.push({ type: 'reasoning', text: response.reasoning });
@@ -289,7 +306,24 @@ export class TurnRunner {
       }
       const results: { isError: boolean }[] = [];
       let pauseQuestion: string | undefined;
-      for (const call of response.toolCalls) {
+      for (const [index, call] of response.toolCalls.entries()) {
+        if (!(await this.stillRunning(turn))) {
+          // Store an honest result for every call we did not run, so the resumed turn's history
+          // has an answer for each tool call the model asked for (#154).
+          for (const rest of response.toolCalls.slice(index)) {
+            await this.store(session, turn.id, 'tool', 'system', [
+              {
+                type: 'tool_result',
+                toolCallId: rest.id,
+                content:
+                  'Not run: the owner has control of the desktop. The turn resumes with a fresh ' +
+                  'look at the screen, and this call is not retried.',
+                isError: true,
+              },
+            ]);
+          }
+          return { kind: 'paused' };
+        }
         const result = await this.executeTool(session, turn, call, signal, (question) => {
           pauseQuestion = question;
         });
@@ -384,6 +418,15 @@ export class TurnRunner {
     if (stored?.status !== 'running') {
       throw new TurnEnded(`The turn was ended elsewhere (now ${stored?.status ?? 'missing'})`);
     }
+  }
+
+  /**
+   * Whether the stored turn is still `running`. Take control moves it to `waiting` from the
+   * desktop-control service while a model call may be in flight, so the loop re-reads it before it
+   * stores the response or runs any tool (#154).
+   */
+  private async stillRunning(turn: Turn): Promise<boolean> {
+    return (await this.deps.repos.turns.get(turn.id))?.status === 'running';
   }
 
   /**

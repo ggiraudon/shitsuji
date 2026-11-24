@@ -8,6 +8,10 @@ import { defaultMiddlewares } from '../../src/application/tools/middlewares.js';
 import { ToolCatalog } from '../../src/application/tools/ToolCatalog.js';
 import { ToolPipeline } from '../../src/application/tools/ToolPipeline.js';
 import { Agent } from '../../src/application/Agent.js';
+import {
+  DesktopControlService,
+  type ControlSandbox,
+} from '../../src/application/desktop/DesktopControlService.js';
 import { ModelCatalog } from '../../src/application/models/ModelCatalog.js';
 import { ModelRouter } from '../../src/application/models/ModelRouter.js';
 import { ApprovalService } from '../../src/application/trust/ApprovalService.js';
@@ -18,9 +22,11 @@ import {
   type ApprovalId,
   type OwnerId,
   type SessionId,
+  type ToolCallId,
   type TurnId,
 } from '../../src/domain/model/ids.js';
 import { textOf } from '../../src/domain/model/Message.js';
+import type { DesktopControlMode } from '../../src/ports/DesktopControl.js';
 import type {
   ModelProvider,
   ModelRequest,
@@ -83,7 +89,7 @@ const setup = async (
   });
   await jobs.start();
   await agent.start();
-  return { agent, llm, seen, repos, services, approvals };
+  return { agent, llm, seen, repos, services, approvals, jobs };
 };
 
 const calc = (expression: string, id = 'c1'): ScriptedReply => ({
@@ -146,6 +152,49 @@ class BlockingProvider implements ModelProvider {
 
   fail(error: Error): void {
     this.release?.(error);
+  }
+
+  async listModels(): Promise<string[]> {
+    return ['m'];
+  }
+}
+
+/** A first model call that blocks and then returns a tool call, for the owner-control test (#154). */
+class DeferredToolProvider implements ModelProvider {
+  readonly id = 'deferred-tool';
+  readonly requests: ModelRequest[] = [];
+  private release?: (reply: ScriptedReply) => void;
+  private markStarted?: () => void;
+  readonly firstStarted = new Promise<void>((resolve) => {
+    this.markStarted = resolve;
+  });
+  private calls = 0;
+
+  async *stream(request: ModelRequest): AsyncIterable<ModelStreamEvent> {
+    this.requests.push(structuredClone(request));
+    this.calls += 1;
+    let reply: ScriptedReply;
+    if (this.calls === 1) {
+      this.markStarted?.();
+      reply = await new Promise<ScriptedReply>((resolve) => {
+        this.release = resolve;
+      });
+    } else {
+      reply = { content: 'Done, after the desktop came back.' };
+    }
+    if (reply.content) yield { type: 'text_delta', text: reply.content };
+    for (const call of reply.toolCalls ?? []) {
+      yield { type: 'tool_call', call: { ...call, id: call.id as ToolCallId } };
+    }
+    yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } };
+    yield {
+      type: 'done',
+      finishReason: reply.toolCalls?.length ? 'tool_calls' : 'stop',
+    };
+  }
+
+  releaseWith(reply: ScriptedReply): void {
+    this.release?.(reply);
   }
 
   async listModels(): Promise<string[]> {
@@ -519,4 +568,85 @@ it('supersedes a pending card when the owner sends a new message (#51)', async (
 
   expect(second.sessionId).toBe(first.sessionId);
   expect((await repos.approvals.get(card.id))!.status).toBe('expired');
+});
+
+it('runs no tool when the owner takes control during a model call (#154)', async () => {
+  const provider = new DeferredToolProvider();
+  const { agent, repos, services, jobs, seen } = await setup([], { provider });
+  const ran: string[] = [];
+  agent.registerTool({
+    name: 'test.record',
+    description: 'Record a run',
+    input: z.object({}),
+    effect: 'read',
+    target: 'core',
+    deferred: false,
+    untrustedOutput: false,
+    run: async () => {
+      ran.push('ran');
+      return { content: 'recorded' };
+    },
+  });
+
+  let mode: DesktopControlMode = 'agent';
+  const listeners = new Set<(mode: DesktopControlMode) => void>();
+  const sandbox: ControlSandbox = {
+    get desktopMode() {
+      return mode;
+    },
+    enterOwnerControl() {
+      mode = 'owner';
+      for (const listener of listeners) listener(mode);
+    },
+    leaveOwnerControl() {
+      mode = 'agent';
+      for (const listener of listeners) listener(mode);
+    },
+    fullViewerCredentials: async () => ({ fullControlPassword: 'full' }),
+    captureScreenshot: async () => undefined,
+    onDesktopModeChange(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const control = new DesktopControlService({
+    sandbox,
+    repos,
+    jobs,
+    events: services.events,
+    clock: services.clock,
+    log: services.log,
+    vision: false,
+  });
+  await control.start();
+  try {
+    const sending = agent.send('Write the file');
+    await provider.firstStarted;
+    await control.take();
+    const paused = await sending;
+    expect(paused.status).toBe('waiting');
+    expect(ran).toEqual([]);
+
+    // The response arrives while the owner holds the desktop: no tool may run.
+    provider.releaseWith({
+      toolCalls: [{ id: 'c1', name: 'test.record', arguments: {} }],
+    });
+    await agent.idle();
+    expect(ran).toEqual([]);
+    expect(seen).not.toContain('tool.called');
+    expect((await repos.turns.get(paused.turnId))?.status).toBe('waiting');
+
+    // Give back resumes the turn with a fresh look first; the model never replays the stale call.
+    await control.giveBack();
+    await vi.waitFor(async () => {
+      const turns = await repos.turns.listBySession(paused.sessionId);
+      expect(turns.find((turn) => turn.source === 'resume')?.status).toBe('succeeded');
+    });
+    expect(ran).toEqual([]);
+    expect(transcript(provider.requests[1]!).join('\n')).toContain(
+      'The owner gave the desktop back',
+    );
+  } finally {
+    control.stop();
+  }
 });

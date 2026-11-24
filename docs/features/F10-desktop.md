@@ -404,7 +404,9 @@ The desktop has two modes, held by `SandboxService` and reset to `agent` in ever
 - In **agent** mode the agent drives the desktop and the viewer is watch-only.
 - In **owner** mode the viewer gets the full-control stream. Every writing action of `computer.act`
   and `desktop.act` is refused with a clear message; `screenshot`, `ocr`, `desktop.inspect` (including
-  its `find` query) still work, so the agent can look but not act. The full-control VNC password is
+  its `find` query) still work, so the agent can look but not act. A running turn is also paused
+  (`waiting`): a model call already in flight is discarded when it returns, none of its tool calls
+  runs, and Give back resumes the turn with the fresh look first (#154). The full-control VNC password is
   only returned by core's cookie-gated credentials route while the mode is owner, and the stream
   only goes through core.
 
