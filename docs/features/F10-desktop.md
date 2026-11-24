@@ -395,7 +395,8 @@ The prompt includes a short computer-use section: `desktop.inspect` first, pixel
 After the live run it also says to try a shortcut, a cell name or one batch of `{type}`/`{key}` steps
 before reading the tree again; that a new dialog is found by inspecting its application (`soffice`),
 not the window that opened it; that a save dialog takes a plain name or a full path rather than
-`workspace/…`; and that an `(offscreen)` node is not something to click by pixel.
+`workspace/…`; that an `(offscreen)` node is not something to click by pixel; and that an app's
+overwrite prompt is answered rather than dodged by moving the existing file.
 
 ### Take control
 

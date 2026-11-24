@@ -23,6 +23,7 @@ export class ComputerUseInjectable extends BaseContextInjectable {
       '- Start with desktop.inspect and its [eN] refs, then desktop.act. Use computer.act only when the tree is missing or the app draws its own pixels; a screenshot costs far more than text. A node marked (offscreen) is not visible: use its ref or scroll, do not click its pixel.',
       '- A new dialog usually belongs to the app, not the window that opened it. Inspect the app (window "soffice" for LibreOffice) to reach the active dialog, whose accessible name can differ from its title bar.',
       '- In a save dialog type a plain file name (calc.csv) or a full path (/workspace/calc.csv); the dialog already points at the workspace, so do not repeat the workspace/ prefix.',
+      '- When an app asks to overwrite a file, answer its prompt (Overwrite, or a new name); do not move or rename the existing file to get around it.',
       '- If a sign-in, CAPTCHA or password blocks you, ask the owner to take control with computer.request_takeover. Never type a secret the owner did not give you for this action, and never ask them to type a secret while you hold the desktop.',
     ].join('\n');
   }

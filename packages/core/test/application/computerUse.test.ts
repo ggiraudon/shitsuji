@@ -19,6 +19,7 @@ describe('computer-use prompt section (S56)', () => {
     expect(text).toContain('20 { type } / { key } steps');
     expect(text).toContain('window "soffice"');
     expect(text).toContain('do not repeat the workspace/ prefix');
+    expect(text).toContain('do not move or rename the existing file');
     expect(text).toContain('(offscreen)');
   });
 });
